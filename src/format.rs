@@ -1,0 +1,236 @@
+//! Image format detection and metadata.
+
+/// Supported image formats.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ImageFormat {
+    Jpeg,
+    WebP,
+    Gif,
+    Png,
+    Avif,
+    Jxl,
+}
+
+impl ImageFormat {
+    /// Detect format from magic bytes. Returns `None` if unrecognized.
+    pub fn detect(data: &[u8]) -> Option<Self> {
+        // JPEG: FF D8 FF
+        if data.len() >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+            return Some(ImageFormat::Jpeg);
+        }
+
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if data.len() >= 8 && data[..8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+            return Some(ImageFormat::Png);
+        }
+
+        // GIF: "GIF87a" or "GIF89a"
+        if data.len() >= 6
+            && data[..3] == *b"GIF"
+            && data[3] == b'8'
+            && (data[4] == b'7' || data[4] == b'9')
+            && data[5] == b'a'
+        {
+            return Some(ImageFormat::Gif);
+        }
+
+        // WebP: "RIFF....WEBP"
+        if data.len() >= 12 && data[..4] == *b"RIFF" && data[8..12] == *b"WEBP" {
+            return Some(ImageFormat::WebP);
+        }
+
+        // AVIF: ftyp box with avif/avis brand
+        if data.len() >= 12 && &data[4..8] == b"ftyp" {
+            let brand = &data[8..12];
+            if brand == b"avif" || brand == b"avis" {
+                return Some(ImageFormat::Avif);
+            }
+        }
+
+        // JPEG XL codestream: FF 0A
+        if data.len() >= 2 && data[0] == 0xFF && data[1] == 0x0A {
+            return Some(ImageFormat::Jxl);
+        }
+
+        // JPEG XL container: 00 00 00 0C 4A 58 4C 20 0D 0A 87 0A
+        if data.len() >= 12
+            && data[..4] == [0x00, 0x00, 0x00, 0x0C]
+            && data[4..8] == [b'J', b'X', b'L', b' ']
+            && data[8..12] == [0x0D, 0x0A, 0x87, 0x0A]
+        {
+            return Some(ImageFormat::Jxl);
+        }
+
+        None
+    }
+
+    /// Detect format from file extension (case-insensitive).
+    pub fn from_extension(ext: &str) -> Option<Self> {
+        // Manual case-insensitive comparison without std.
+        let mut buf = [0u8; 8];
+        let ext_bytes = ext.as_bytes();
+        if ext_bytes.len() > buf.len() {
+            return None;
+        }
+        for (i, &b) in ext_bytes.iter().enumerate() {
+            buf[i] = b.to_ascii_lowercase();
+        }
+        let lower = &buf[..ext_bytes.len()];
+
+        match lower {
+            b"jpg" | b"jpeg" | b"jpe" | b"jfif" => Some(ImageFormat::Jpeg),
+            b"webp" => Some(ImageFormat::WebP),
+            b"gif" => Some(ImageFormat::Gif),
+            b"png" => Some(ImageFormat::Png),
+            b"avif" => Some(ImageFormat::Avif),
+            b"jxl" => Some(ImageFormat::Jxl),
+            _ => None,
+        }
+    }
+
+    /// MIME type string.
+    pub fn mime_type(self) -> &'static str {
+        match self {
+            ImageFormat::Jpeg => "image/jpeg",
+            ImageFormat::WebP => "image/webp",
+            ImageFormat::Gif => "image/gif",
+            ImageFormat::Png => "image/png",
+            ImageFormat::Avif => "image/avif",
+            ImageFormat::Jxl => "image/jxl",
+        }
+    }
+
+    /// Common file extensions.
+    pub fn extensions(self) -> &'static [&'static str] {
+        match self {
+            ImageFormat::Jpeg => &["jpg", "jpeg", "jpe", "jfif"],
+            ImageFormat::WebP => &["webp"],
+            ImageFormat::Gif => &["gif"],
+            ImageFormat::Png => &["png"],
+            ImageFormat::Avif => &["avif"],
+            ImageFormat::Jxl => &["jxl"],
+        }
+    }
+
+    /// Whether this format supports lossy encoding.
+    pub fn supports_lossy(self) -> bool {
+        matches!(
+            self,
+            ImageFormat::Jpeg | ImageFormat::WebP | ImageFormat::Avif | ImageFormat::Jxl
+        )
+    }
+
+    /// Whether this format supports lossless encoding.
+    pub fn supports_lossless(self) -> bool {
+        matches!(
+            self,
+            ImageFormat::WebP | ImageFormat::Gif | ImageFormat::Png | ImageFormat::Jxl
+        )
+    }
+
+    /// Whether this format supports animation.
+    pub fn supports_animation(self) -> bool {
+        matches!(
+            self,
+            ImageFormat::WebP | ImageFormat::Gif | ImageFormat::Jxl
+        )
+    }
+
+    /// Whether this format supports alpha channel.
+    pub fn supports_alpha(self) -> bool {
+        !matches!(self, ImageFormat::Jpeg)
+    }
+}
+
+impl core::fmt::Display for ImageFormat {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            ImageFormat::Jpeg => "JPEG",
+            ImageFormat::WebP => "WebP",
+            ImageFormat::Gif => "GIF",
+            ImageFormat::Png => "PNG",
+            ImageFormat::Avif => "AVIF",
+            ImageFormat::Jxl => "JPEG XL",
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_jpeg() {
+        assert_eq!(
+            ImageFormat::detect(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            Some(ImageFormat::Jpeg)
+        );
+    }
+
+    #[test]
+    fn detect_png() {
+        assert_eq!(
+            ImageFormat::detect(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+            Some(ImageFormat::Png)
+        );
+    }
+
+    #[test]
+    fn detect_gif() {
+        assert_eq!(
+            ImageFormat::detect(b"GIF89a\x00\x00"),
+            Some(ImageFormat::Gif)
+        );
+    }
+
+    #[test]
+    fn detect_webp() {
+        assert_eq!(
+            ImageFormat::detect(b"RIFF\x00\x00\x00\x00WEBP"),
+            Some(ImageFormat::WebP)
+        );
+    }
+
+    #[test]
+    fn detect_avif() {
+        assert_eq!(
+            ImageFormat::detect(b"\x00\x00\x00\x18ftypavif"),
+            Some(ImageFormat::Avif)
+        );
+    }
+
+    #[test]
+    fn detect_jxl_codestream() {
+        assert_eq!(ImageFormat::detect(&[0xFF, 0x0A]), Some(ImageFormat::Jxl));
+    }
+
+    #[test]
+    fn detect_jxl_container() {
+        assert_eq!(
+            ImageFormat::detect(&[
+                0x00, 0x00, 0x00, 0x0C, b'J', b'X', b'L', b' ', 0x0D, 0x0A, 0x87, 0x0A
+            ]),
+            Some(ImageFormat::Jxl)
+        );
+    }
+
+    #[test]
+    fn detect_unknown() {
+        assert_eq!(ImageFormat::detect(b"nope"), None);
+        assert_eq!(ImageFormat::detect(&[]), None);
+    }
+
+    #[test]
+    fn from_extension_case_insensitive() {
+        assert_eq!(ImageFormat::from_extension("JPG"), Some(ImageFormat::Jpeg));
+        assert_eq!(ImageFormat::from_extension("WebP"), Some(ImageFormat::WebP));
+        assert_eq!(ImageFormat::from_extension("unknown"), None);
+    }
+
+    #[test]
+    fn mime_types() {
+        assert_eq!(ImageFormat::Jpeg.mime_type(), "image/jpeg");
+        assert_eq!(ImageFormat::Jxl.mime_type(), "image/jxl");
+    }
+}
