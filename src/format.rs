@@ -10,6 +10,7 @@ pub enum ImageFormat {
     Png,
     Avif,
     Jxl,
+    Pnm,
 }
 
 impl ImageFormat {
@@ -62,6 +63,14 @@ impl ImageFormat {
             return Some(ImageFormat::Jxl);
         }
 
+        // PNM family: P1-P7, Pf (grayscale PFM), PF (color PFM)
+        if data.len() >= 2 && data[0] == b'P' {
+            match data[1] {
+                b'1'..=b'7' | b'F' | b'f' => return Some(ImageFormat::Pnm),
+                _ => {}
+            }
+        }
+
         None
     }
 
@@ -85,6 +94,7 @@ impl ImageFormat {
             b"png" => Some(ImageFormat::Png),
             b"avif" => Some(ImageFormat::Avif),
             b"jxl" => Some(ImageFormat::Jxl),
+            b"pnm" | b"ppm" | b"pgm" | b"pbm" | b"pam" | b"pfm" => Some(ImageFormat::Pnm),
             _ => None,
         }
     }
@@ -98,6 +108,7 @@ impl ImageFormat {
             ImageFormat::Png => "image/png",
             ImageFormat::Avif => "image/avif",
             ImageFormat::Jxl => "image/jxl",
+            ImageFormat::Pnm => "image/x-portable-anymap",
         }
     }
 
@@ -110,6 +121,7 @@ impl ImageFormat {
             ImageFormat::Png => &["png"],
             ImageFormat::Avif => &["avif"],
             ImageFormat::Jxl => &["jxl"],
+            ImageFormat::Pnm => &["pnm", "ppm", "pgm", "pbm", "pam", "pfm"],
         }
     }
 
@@ -130,6 +142,7 @@ impl ImageFormat {
                 | ImageFormat::Png
                 | ImageFormat::Avif
                 | ImageFormat::Jxl
+                | ImageFormat::Pnm
         )
     }
 
@@ -159,6 +172,7 @@ impl ImageFormat {
             ImageFormat::Jpeg => 2048, // SOF can follow large EXIF/APP segments
             ImageFormat::Avif => 512,  // ISOBMFF box traversal (ftyp + meta)
             ImageFormat::Jxl => 256,   // codestream header or container + jxlc
+            ImageFormat::Pnm => 20,    // magic + ASCII dimensions
         }
     }
 
@@ -177,6 +191,7 @@ impl core::fmt::Display for ImageFormat {
             ImageFormat::Png => "PNG",
             ImageFormat::Avif => "AVIF",
             ImageFormat::Jxl => "JPEG XL",
+            ImageFormat::Pnm => "PNM",
         })
     }
 }
@@ -329,5 +344,80 @@ mod tests {
         assert!(ImageFormat::Jpeg.extensions().contains(&"jpg"));
         assert!(ImageFormat::Jpeg.extensions().contains(&"jpeg"));
         assert_eq!(ImageFormat::Png.extensions(), &["png"]);
+    }
+
+    #[test]
+    fn detect_pnm_p5() {
+        assert_eq!(ImageFormat::detect(b"P5\n3 2\n255\n"), Some(ImageFormat::Pnm));
+    }
+
+    #[test]
+    fn detect_pnm_p6() {
+        assert_eq!(ImageFormat::detect(b"P6\n3 2\n255\n"), Some(ImageFormat::Pnm));
+    }
+
+    #[test]
+    fn detect_pnm_p7() {
+        assert_eq!(ImageFormat::detect(b"P7\nWIDTH 2\n"), Some(ImageFormat::Pnm));
+    }
+
+    #[test]
+    fn detect_pnm_pfm_color() {
+        assert_eq!(ImageFormat::detect(b"PF\n3 2\n"), Some(ImageFormat::Pnm));
+    }
+
+    #[test]
+    fn detect_pnm_pfm_gray() {
+        assert_eq!(ImageFormat::detect(b"Pf\n3 2\n"), Some(ImageFormat::Pnm));
+    }
+
+    #[test]
+    fn detect_pnm_p1_ascii() {
+        assert_eq!(ImageFormat::detect(b"P1\n3 2\n"), Some(ImageFormat::Pnm));
+    }
+
+    #[test]
+    fn from_extension_pnm_variants() {
+        assert_eq!(ImageFormat::from_extension("pnm"), Some(ImageFormat::Pnm));
+        assert_eq!(ImageFormat::from_extension("ppm"), Some(ImageFormat::Pnm));
+        assert_eq!(ImageFormat::from_extension("pgm"), Some(ImageFormat::Pnm));
+        assert_eq!(ImageFormat::from_extension("pbm"), Some(ImageFormat::Pnm));
+        assert_eq!(ImageFormat::from_extension("pam"), Some(ImageFormat::Pnm));
+        assert_eq!(ImageFormat::from_extension("pfm"), Some(ImageFormat::Pnm));
+        assert_eq!(ImageFormat::from_extension("PNM"), Some(ImageFormat::Pnm));
+    }
+
+    #[test]
+    fn pnm_capabilities() {
+        assert!(!ImageFormat::Pnm.supports_lossy());
+        assert!(ImageFormat::Pnm.supports_lossless());
+        assert!(!ImageFormat::Pnm.supports_animation());
+        assert!(ImageFormat::Pnm.supports_alpha());
+    }
+
+    #[test]
+    fn pnm_mime_type() {
+        assert_eq!(ImageFormat::Pnm.mime_type(), "image/x-portable-anymap");
+    }
+
+    #[test]
+    fn pnm_extensions() {
+        let exts = ImageFormat::Pnm.extensions();
+        assert!(exts.contains(&"pnm"));
+        assert!(exts.contains(&"ppm"));
+        assert!(exts.contains(&"pgm"));
+        assert!(exts.contains(&"pbm"));
+        assert!(exts.contains(&"pam"));
+        assert!(exts.contains(&"pfm"));
+    }
+
+    #[test]
+    fn pnm_display() {
+        assert_eq!(alloc::format!("{}", ImageFormat::Pnm), "PNM");
+    }
+
+    #[test]
+    fn pnm_min_probe_bytes() {
+        assert_eq!(ImageFormat::Pnm.min_probe_bytes(), 20);
     }
 }
