@@ -29,7 +29,7 @@ Tiny, stable crate defining the common interface that all zen* codecs implement:
 - WASM build succeeds (wasm32-wasip1)
 - Clippy clean (no warnings)
 - Format check passes
-- MSRV 1.85 check passes
+- MSRV 1.93 check passes
 - `cargo-semver-checks` passes (no unintended breaking changes)
 
 **Before publishing:**
