@@ -150,6 +150,21 @@ impl DecodeOutput {
         self.pixels.into_bgra8()
     }
 
+    /// Convert to linear RGB f32, consuming this output.
+    pub fn into_rgb_f32(self) -> ImgVec<Rgb<f32>> {
+        self.pixels.into_rgb_f32()
+    }
+
+    /// Convert to linear RGBA f32, consuming this output.
+    pub fn into_rgba_f32(self) -> ImgVec<Rgba<f32>> {
+        self.pixels.into_rgba_f32()
+    }
+
+    /// Convert to linear grayscale f32, consuming this output.
+    pub fn into_gray_f32(self) -> ImgVec<Gray<f32>> {
+        self.pixels.into_gray_f32()
+    }
+
     /// Image info.
     pub fn info(&self) -> &ImageInfo {
         &self.info
@@ -235,6 +250,21 @@ impl DecodeFrame {
     /// Convert to BGRA8, consuming this frame.
     pub fn into_bgra8(self) -> ImgVec<BGRA<u8>> {
         self.pixels.into_bgra8()
+    }
+
+    /// Convert to linear RGB f32, consuming this frame.
+    pub fn into_rgb_f32(self) -> ImgVec<Rgb<f32>> {
+        self.pixels.into_rgb_f32()
+    }
+
+    /// Convert to linear RGBA f32, consuming this frame.
+    pub fn into_rgba_f32(self) -> ImgVec<Rgba<f32>> {
+        self.pixels.into_rgba_f32()
+    }
+
+    /// Convert to linear grayscale f32, consuming this frame.
+    pub fn into_gray_f32(self) -> ImgVec<Gray<f32>> {
+        self.pixels.into_gray_f32()
     }
 
     /// Borrow as RGB8 if that's the native format.

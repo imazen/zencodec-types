@@ -412,6 +412,258 @@ impl PixelData {
         }
     }
 
+    /// Convert to RgbF32 by reference, allocating a new buffer.
+    ///
+    /// Values are in [0.0, 1.0]. Conversion from integer formats divides
+    /// by the type's maximum value.
+    pub fn to_rgb_f32(&self) -> ImgVec<Rgb<f32>> {
+        match self {
+            PixelData::RgbF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                ImgVec::new(buf.into_owned(), w, h)
+            }
+            PixelData::RgbaF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| Rgb { r: p.r, g: p.g, b: p.b })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::GrayF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.value();
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::Rgb8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| Rgb {
+                        r: p.r as f32 / 255.0,
+                        g: p.g as f32 / 255.0,
+                        b: p.b as f32 / 255.0,
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::Rgba8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| Rgb {
+                        r: p.r as f32 / 255.0,
+                        g: p.g as f32 / 255.0,
+                        b: p.b as f32 / 255.0,
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::Gray8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.value() as f32 / 255.0;
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::Gray16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.value() as f32 / 65535.0;
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::Rgb16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| Rgb {
+                        r: p.r as f32 / 65535.0,
+                        g: p.g as f32 / 65535.0,
+                        b: p.b as f32 / 65535.0,
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::Rgba16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| Rgb {
+                        r: p.r as f32 / 65535.0,
+                        g: p.g as f32 / 65535.0,
+                        b: p.b as f32 / 65535.0,
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::Bgra8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| Rgb {
+                        r: p.r as f32 / 255.0,
+                        g: p.g as f32 / 255.0,
+                        b: p.b as f32 / 255.0,
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+        }
+    }
+
+    /// Convert to RgbF32, consuming self.
+    ///
+    /// Avoids a clone when the data is already RgbF32.
+    pub fn into_rgb_f32(self) -> ImgVec<Rgb<f32>> {
+        match self {
+            PixelData::RgbF32(img) => img,
+            other => other.to_rgb_f32(),
+        }
+    }
+
+    /// Convert to RgbaF32 by reference, allocating a new buffer.
+    ///
+    /// Values are in [0.0, 1.0]. Non-alpha formats get alpha = 1.0.
+    pub fn to_rgba_f32(&self) -> ImgVec<Rgba<f32>> {
+        match self {
+            PixelData::RgbaF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                ImgVec::new(buf.into_owned(), w, h)
+            }
+            PixelData::RgbF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| Rgba { r: p.r, g: p.g, b: p.b, a: 1.0 })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::GrayF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.value();
+                        Rgba { r: v, g: v, b: v, a: 1.0 }
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::Rgba8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: p.r as f32 / 255.0,
+                        g: p.g as f32 / 255.0,
+                        b: p.b as f32 / 255.0,
+                        a: p.a as f32 / 255.0,
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::Rgb8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: p.r as f32 / 255.0,
+                        g: p.g as f32 / 255.0,
+                        b: p.b as f32 / 255.0,
+                        a: 1.0,
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::Gray8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.value() as f32 / 255.0;
+                        Rgba { r: v, g: v, b: v, a: 1.0 }
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::Gray16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.value() as f32 / 65535.0;
+                        Rgba { r: v, g: v, b: v, a: 1.0 }
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::Rgb16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: p.r as f32 / 65535.0,
+                        g: p.g as f32 / 65535.0,
+                        b: p.b as f32 / 65535.0,
+                        a: 1.0,
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::Rgba16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: p.r as f32 / 65535.0,
+                        g: p.g as f32 / 65535.0,
+                        b: p.b as f32 / 65535.0,
+                        a: p.a as f32 / 65535.0,
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::Bgra8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: p.r as f32 / 255.0,
+                        g: p.g as f32 / 255.0,
+                        b: p.b as f32 / 255.0,
+                        a: p.a as f32 / 255.0,
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+        }
+    }
+
+    /// Convert to RgbaF32, consuming self.
+    ///
+    /// Avoids a clone when the data is already RgbaF32.
+    pub fn into_rgba_f32(self) -> ImgVec<Rgba<f32>> {
+        match self {
+            PixelData::RgbaF32(img) => img,
+            other => other.to_rgba_f32(),
+        }
+    }
+
     /// Convert to GrayF32 by reference, allocating a new buffer.
     ///
     /// Values are in [0.0, 1.0]. Conversion from integer formats divides

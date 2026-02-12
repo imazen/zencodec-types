@@ -80,6 +80,21 @@ pub trait Encoding: Sized + Clone + Send + Sync {
     fn encode_bgrx8(&self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
         self.job().encode_bgrx8(img)
     }
+
+    /// Convenience: encode linear RGB f32 with default job settings.
+    fn encode_rgb_f32(&self, img: ImgRef<'_, Rgb<f32>>) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_rgb_f32(img)
+    }
+
+    /// Convenience: encode linear RGBA f32 with default job settings.
+    fn encode_rgba_f32(&self, img: ImgRef<'_, Rgba<f32>>) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_rgba_f32(img)
+    }
+
+    /// Convenience: encode linear grayscale f32 with default job settings.
+    fn encode_gray_f32(&self, img: ImgRef<'_, Gray<f32>>) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_gray_f32(img)
+    }
 }
 
 /// Per-operation encode job.
@@ -128,6 +143,23 @@ pub trait EncodingJob<'a>: Sized {
 
     /// Encode BGRX8 pixels (opaque BGRA — padding byte is ignored).
     fn encode_bgrx8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode linear RGB f32 pixels.
+    ///
+    /// Input is expected in linear light (not sRGB gamma). Codecs that store
+    /// sRGB should convert using the [`linear_srgb`](https://crates.io/crates/linear_srgb) crate.
+    /// Codecs with native f32 support (JXL, PFM) can encode directly.
+    fn encode_rgb_f32(self, img: ImgRef<'_, Rgb<f32>>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode linear RGBA f32 pixels.
+    ///
+    /// Input is expected in linear light. See [`encode_rgb_f32`](EncodingJob::encode_rgb_f32).
+    fn encode_rgba_f32(self, img: ImgRef<'_, Rgba<f32>>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode linear grayscale f32 pixels.
+    ///
+    /// Input is expected in linear light. See [`encode_rgb_f32`](EncodingJob::encode_rgb_f32).
+    fn encode_gray_f32(self, img: ImgRef<'_, Gray<f32>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Common interface for decode configurations.
@@ -233,6 +265,33 @@ pub trait Decoding: Sized + Clone + Send + Sync {
         self.job().decode_into_bgrx8(data, dst)
     }
 
+    /// Convenience: decode into a caller-provided linear RGB f32 buffer.
+    fn decode_into_rgb_f32(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgb<f32>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_rgb_f32(data, dst)
+    }
+
+    /// Convenience: decode into a caller-provided linear RGBA f32 buffer.
+    fn decode_into_rgba_f32(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgba<f32>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_rgba_f32(data, dst)
+    }
+
+    /// Convenience: decode into a caller-provided linear grayscale f32 buffer.
+    fn decode_into_gray_f32(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Gray<f32>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_gray_f32(data, dst)
+    }
+
     /// Compute output dimensions/info for this data given current config.
     ///
     /// Unlike [`probe_header()`](Decoding::probe_header) which returns stored
@@ -302,5 +361,34 @@ pub trait DecodingJob<'a>: Sized {
         self,
         data: &[u8],
         dst: ImgRefMut<'_, BGRA<u8>>,
+    ) -> Result<ImageInfo, Self::Error>;
+
+    /// Decode directly into a caller-provided linear RGB f32 buffer.
+    ///
+    /// Output is in linear light (not sRGB gamma). Codecs that store sRGB
+    /// should convert using the [`linear_srgb`](https://crates.io/crates/linear_srgb) crate.
+    /// Codecs with native f32 support (JXL, PFM) can decode directly.
+    fn decode_into_rgb_f32(
+        self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgb<f32>>,
+    ) -> Result<ImageInfo, Self::Error>;
+
+    /// Decode directly into a caller-provided linear RGBA f32 buffer.
+    ///
+    /// Output is in linear light. See [`decode_into_rgb_f32`](DecodingJob::decode_into_rgb_f32).
+    fn decode_into_rgba_f32(
+        self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgba<f32>>,
+    ) -> Result<ImageInfo, Self::Error>;
+
+    /// Decode directly into a caller-provided linear grayscale f32 buffer.
+    ///
+    /// Output is in linear light. See [`decode_into_rgb_f32`](DecodingJob::decode_into_rgb_f32).
+    fn decode_into_gray_f32(
+        self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Gray<f32>>,
     ) -> Result<ImageInfo, Self::Error>;
 }
