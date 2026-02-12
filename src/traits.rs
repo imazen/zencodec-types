@@ -215,6 +215,24 @@ pub trait Decoding: Sized + Clone + Send + Sync {
         self.job().decode_into_gray8(data, dst)
     }
 
+    /// Convenience: decode into a caller-provided BGRA8 buffer.
+    fn decode_into_bgra8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, BGRA<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_bgra8(data, dst)
+    }
+
+    /// Convenience: decode into a caller-provided BGRX8 buffer (alpha byte set to 255).
+    fn decode_into_bgrx8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, BGRA<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_bgrx8(data, dst)
+    }
+
     /// Compute output dimensions/info for this data given current config.
     ///
     /// Unlike [`probe_header()`](Decoding::probe_header) which returns stored
@@ -309,4 +327,22 @@ pub trait DecodingJob<'a>: Sized {
         }
         Ok(info)
     }
+
+    /// Decode directly into a caller-provided BGRA8 buffer.
+    ///
+    /// Same contract as [`decode_into_rgb8`](DecodingJob::decode_into_rgb8).
+    fn decode_into_bgra8(
+        self,
+        data: &[u8],
+        dst: ImgRefMut<'_, BGRA<u8>>,
+    ) -> Result<ImageInfo, Self::Error>;
+
+    /// Decode directly into a caller-provided BGRX8 buffer (alpha byte set to 255).
+    ///
+    /// Same contract as [`decode_into_rgb8`](DecodingJob::decode_into_rgb8).
+    fn decode_into_bgrx8(
+        self,
+        data: &[u8],
+        dst: ImgRefMut<'_, BGRA<u8>>,
+    ) -> Result<ImageInfo, Self::Error>;
 }
