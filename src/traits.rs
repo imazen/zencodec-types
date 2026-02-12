@@ -197,6 +197,26 @@ pub trait Decoding: Sized + Clone {
     ) -> Result<ImageInfo, Self::Error> {
         self.job().decode_into_rgba8(data, dst)
     }
+
+    /// Convenience: decode into a caller-provided Gray8 buffer.
+    fn decode_into_gray8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Gray<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_gray8(data, dst)
+    }
+
+    /// Compute output dimensions/info for this data given current config.
+    ///
+    /// Unlike [`probe()`](Decoding::probe) which returns stored file dimensions,
+    /// this applies config transforms (scaling, orientation) to predict actual
+    /// decode output. Use this to allocate buffers for `decode_into_*` methods.
+    ///
+    /// Default: delegates to `probe()` (correct when config doesn't transform dims).
+    fn decode_info(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
+        self.probe(data)
+    }
 }
 
 /// Per-operation decode job.
@@ -253,6 +273,24 @@ pub trait DecodingJob<'a>: Sized {
         let output = self.decode(data)?;
         let info = output.info().clone();
         let src = output.into_rgba8();
+        for (src_row, dst_row) in src.as_ref().rows().zip(dst.rows_mut()) {
+            let n = src_row.len().min(dst_row.len());
+            dst_row[..n].copy_from_slice(&src_row[..n]);
+        }
+        Ok(info)
+    }
+
+    /// Decode directly into a caller-provided Gray8 buffer (zero-copy path).
+    ///
+    /// Same contract as [`decode_into_rgb8`](DecodingJob::decode_into_rgb8).
+    fn decode_into_gray8(
+        self,
+        data: &[u8],
+        mut dst: ImgRefMut<'_, Gray<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        let output = self.decode(data)?;
+        let info = output.info().clone();
+        let src = output.into_gray8();
         for (src_row, dst_row) in src.as_ref().rows().zip(dst.rows_mut()) {
             let n = src_row.len().min(dst_row.len());
             dst_row[..n].copy_from_slice(&src_row[..n]);

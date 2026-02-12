@@ -303,6 +303,74 @@ impl PixelData {
         }
     }
 
+    /// Convert to Gray8 by reference, allocating a new buffer.
+    ///
+    /// Gray8 is returned as-is.
+    /// Gray16 is downscaled to 8-bit.
+    /// RGB variants use BT.601 luminance (0.299*R + 0.587*G + 0.114*B).
+    /// RGBA/BGRA variants use the same luminance, ignoring alpha.
+    /// Higher-precision formats are clamped/truncated to 8-bit first.
+    pub fn to_gray8(&self) -> ImgVec<Gray<u8>> {
+        match self {
+            PixelData::Gray8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                ImgVec::new(buf.into_owned(), w, h)
+            }
+            PixelData::Gray16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf
+                    .iter()
+                    .map(|p| Gray::new((p.value() >> 8) as u8))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::Rgb8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf
+                    .iter()
+                    .map(|p| Gray::new(rgb_to_luma(p.r, p.g, p.b)))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::Rgba8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf
+                    .iter()
+                    .map(|p| Gray::new(rgb_to_luma(p.r, p.g, p.b)))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::Bgra8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf
+                    .iter()
+                    .map(|p| Gray::new(rgb_to_luma(p.r, p.g, p.b)))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+            other => {
+                // Fall back through Rgb8 for all other formats.
+                let rgb = other.to_rgb8();
+                let (buf, w, h) = rgb.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf
+                    .iter()
+                    .map(|p| Gray::new(rgb_to_luma(p.r, p.g, p.b)))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+        }
+    }
+
+    /// Convert to Gray8, consuming self.
+    ///
+    /// Avoids a clone when the data is already Gray8.
+    pub fn into_gray8(self) -> ImgVec<Gray<u8>> {
+        match self {
+            PixelData::Gray8(img) => img,
+            other => other.to_gray8(),
+        }
+    }
+
     /// Convert to BGRA8 by reference, allocating a new buffer.
     ///
     /// Bgra8 is cloned. RGB/RGBA variants have channels reordered.
@@ -455,6 +523,12 @@ impl core::fmt::Debug for PixelData {
             self.height()
         )
     }
+}
+
+/// BT.601 luminance from 8-bit RGB. Matches JPEG's grayscale conversion.
+fn rgb_to_luma(r: u8, g: u8, b: u8) -> u8 {
+    // Fixed-point: 0.299*256=77, 0.587*256=150, 0.114*256=29 (sum=256)
+    ((77u32 * r as u32 + 150u32 * g as u32 + 29u32 * b as u32) >> 8) as u8
 }
 
 #[cfg(test)]

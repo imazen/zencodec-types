@@ -108,6 +108,11 @@ impl DecodeOutput {
         self.pixels.into_rgba8()
     }
 
+    /// Convert to Gray8, consuming this output.
+    pub fn into_gray8(self) -> ImgVec<Gray<u8>> {
+        self.pixels.into_gray8()
+    }
+
     /// Borrow as RGB8 if that's the native format.
     pub fn as_rgb8(&self) -> Option<imgref::ImgRef<'_, Rgb<u8>>> {
         match &self.pixels {
