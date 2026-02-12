@@ -20,6 +20,7 @@ pub enum PixelData {
     RgbF32(ImgVec<Rgb<f32>>),
     RgbaF32(ImgVec<Rgba<f32>>),
     Gray8(ImgVec<Gray<u8>>),
+    Gray16(ImgVec<Gray<u16>>),
     /// 8-bit BGRA (blue, green, red, alpha byte order).
     ///
     /// Native byte order for Windows/DirectX surfaces. Codecs that support
@@ -39,6 +40,7 @@ impl PixelData {
             PixelData::RgbF32(img) => img.width() as u32,
             PixelData::RgbaF32(img) => img.width() as u32,
             PixelData::Gray8(img) => img.width() as u32,
+            PixelData::Gray16(img) => img.width() as u32,
             PixelData::Bgra8(img) => img.width() as u32,
         }
     }
@@ -53,6 +55,7 @@ impl PixelData {
             PixelData::RgbF32(img) => img.height() as u32,
             PixelData::RgbaF32(img) => img.height() as u32,
             PixelData::Gray8(img) => img.height() as u32,
+            PixelData::Gray16(img) => img.height() as u32,
             PixelData::Bgra8(img) => img.height() as u32,
         }
     }
@@ -97,6 +100,17 @@ impl PixelData {
                     .iter()
                     .map(|p| {
                         let v = p.value();
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::Gray16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<u8>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = (p.value() >> 8) as u8;
                         Rgb { r: v, g: v, b: v }
                     })
                     .collect();
@@ -195,6 +209,22 @@ impl PixelData {
                     .iter()
                     .map(|p| {
                         let v = p.value();
+                        Rgba {
+                            r: v,
+                            g: v,
+                            b: v,
+                            a: 255,
+                        }
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::Gray16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<u8>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = (p.value() >> 8) as u8;
                         Rgba {
                             r: v,
                             g: v,
@@ -389,6 +419,10 @@ impl PixelData {
                 let (buf, _, _) = img.as_ref().to_contiguous_buf();
                 buf.as_bytes().to_vec()
             }
+            PixelData::Gray16(img) => {
+                let (buf, _, _) = img.as_ref().to_contiguous_buf();
+                buf.as_bytes().to_vec()
+            }
             PixelData::Bgra8(img) => {
                 let (buf, _, _) = img.as_ref().to_contiguous_buf();
                 buf.as_bytes().to_vec()
@@ -407,6 +441,7 @@ impl core::fmt::Debug for PixelData {
             PixelData::RgbF32(_) => "RgbF32",
             PixelData::RgbaF32(_) => "RgbaF32",
             PixelData::Gray8(_) => "Gray8",
+            PixelData::Gray16(_) => "Gray16",
             PixelData::Bgra8(_) => "Bgra8",
         };
         write!(
