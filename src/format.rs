@@ -125,7 +125,11 @@ impl ImageFormat {
     pub fn supports_lossless(self) -> bool {
         matches!(
             self,
-            ImageFormat::WebP | ImageFormat::Gif | ImageFormat::Png | ImageFormat::Jxl
+            ImageFormat::WebP
+                | ImageFormat::Gif
+                | ImageFormat::Png
+                | ImageFormat::Avif
+                | ImageFormat::Jxl
         )
     }
 

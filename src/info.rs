@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::ImageFormat;
 
 /// Image metadata obtained from probing or decoding.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct ImageInfo {
     /// Image width in pixels.
@@ -98,6 +98,7 @@ impl ImageInfo {
 /// Used when encoding to preserve metadata from the source image.
 /// Borrows from [`ImageInfo`] or user-provided slices.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct ImageMetadata<'a> {
     /// ICC color profile.
     pub icc_profile: Option<&'a [u8]>,
@@ -111,6 +112,24 @@ impl<'a> ImageMetadata<'a> {
     /// Create empty metadata.
     pub fn none() -> Self {
         Self::default()
+    }
+
+    /// Set the ICC color profile.
+    pub fn with_icc(mut self, icc: &'a [u8]) -> Self {
+        self.icc_profile = Some(icc);
+        self
+    }
+
+    /// Set the EXIF metadata.
+    pub fn with_exif(mut self, exif: &'a [u8]) -> Self {
+        self.exif = Some(exif);
+        self
+    }
+
+    /// Set the XMP metadata.
+    pub fn with_xmp(mut self, xmp: &'a [u8]) -> Self {
+        self.xmp = Some(xmp);
+        self
     }
 
     /// Whether any metadata is present.

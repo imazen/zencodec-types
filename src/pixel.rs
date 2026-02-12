@@ -388,7 +388,10 @@ impl PixelData {
     }
 
     /// Get the raw pixel data as a byte vector.
-    pub fn as_bytes(&self) -> Vec<u8> {
+    ///
+    /// This allocates a new `Vec<u8>` — use `to_rgb8()`/`to_rgba8()` for
+    /// typed access without raw byte conversion.
+    pub fn to_bytes(&self) -> Vec<u8> {
         use rgb::ComponentBytes;
         match self {
             PixelData::Rgb8(img) => {

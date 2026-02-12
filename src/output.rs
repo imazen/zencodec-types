@@ -246,6 +246,11 @@ impl DecodeFrame {
     pub fn height(&self) -> u32 {
         self.pixels.height()
     }
+
+    /// Whether this frame has an alpha channel.
+    pub fn has_alpha(&self) -> bool {
+        self.pixels.has_alpha()
+    }
 }
 
 impl core::fmt::Debug for DecodeFrame {

@@ -22,12 +22,14 @@ extern crate alloc;
 
 mod format;
 mod info;
+mod limits;
 mod output;
 mod pixel;
 mod traits;
 
 pub use format::ImageFormat;
 pub use info::{ImageInfo, ImageMetadata};
+pub use limits::ResourceLimits;
 pub use output::{DecodeFrame, DecodeOutput, EncodeOutput};
 pub use pixel::PixelData;
 pub use traits::{Decoding, DecodingJob, Encoding, EncodingJob};
