@@ -21,6 +21,11 @@ pub enum PixelData {
     RgbaF32(ImgVec<Rgba<f32>>),
     Gray8(ImgVec<Gray<u8>>),
     Gray16(ImgVec<Gray<u16>>),
+    /// 32-bit floating-point grayscale.
+    ///
+    /// Used by codecs that decode to float precision (e.g. JPEG XL).
+    /// Values are in [0.0, 1.0] for sRGB-encoded data.
+    GrayF32(ImgVec<Gray<f32>>),
     /// 8-bit BGRA (blue, green, red, alpha byte order).
     ///
     /// Native byte order for Windows/DirectX surfaces. Codecs that support
@@ -41,6 +46,7 @@ impl PixelData {
             PixelData::RgbaF32(img) => img.width() as u32,
             PixelData::Gray8(img) => img.width() as u32,
             PixelData::Gray16(img) => img.width() as u32,
+            PixelData::GrayF32(img) => img.width() as u32,
             PixelData::Bgra8(img) => img.width() as u32,
         }
     }
@@ -56,6 +62,7 @@ impl PixelData {
             PixelData::RgbaF32(img) => img.height() as u32,
             PixelData::Gray8(img) => img.height() as u32,
             PixelData::Gray16(img) => img.height() as u32,
+            PixelData::GrayF32(img) => img.height() as u32,
             PixelData::Bgra8(img) => img.height() as u32,
         }
     }
@@ -111,6 +118,17 @@ impl PixelData {
                     .iter()
                     .map(|p| {
                         let v = (p.value() >> 8) as u8;
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::GrayF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<u8>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = (p.value().clamp(0.0, 1.0) * 255.0) as u8;
                         Rgb { r: v, g: v, b: v }
                     })
                     .collect();
@@ -235,6 +253,22 @@ impl PixelData {
                     .collect();
                 ImgVec::new(rgba, w, h)
             }
+            PixelData::GrayF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<u8>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = (p.value().clamp(0.0, 1.0) * 255.0) as u8;
+                        Rgba {
+                            r: v,
+                            g: v,
+                            b: v,
+                            a: 255,
+                        }
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
             PixelData::Rgba16(img) => {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
                 let rgba: Vec<Rgba<u8>> = buf
@@ -348,6 +382,14 @@ impl PixelData {
                     .collect();
                 ImgVec::new(gray, w, h)
             }
+            PixelData::GrayF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf
+                    .iter()
+                    .map(|p| Gray::new((p.value().clamp(0.0, 1.0) * 255.0) as u8))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
             other => {
                 // Fall back through Rgb8 for all other formats.
                 let rgb = other.to_rgb8();
@@ -364,6 +406,56 @@ impl PixelData {
     /// Convert to Gray8, consuming self.
     ///
     /// Avoids a clone when the data is already Gray8.
+    /// Convert to GrayF32, consuming self.
+    ///
+    /// Avoids a clone when the data is already GrayF32.
+    /// Converts through Gray8 for non-float, non-gray formats.
+    pub fn into_gray_f32(self) -> ImgVec<Gray<f32>> {
+        match self {
+            PixelData::GrayF32(img) => img,
+            other => other.to_gray_f32(),
+        }
+    }
+
+    /// Convert to GrayF32 by reference, allocating a new buffer.
+    ///
+    /// Values are in [0.0, 1.0]. Conversion from integer formats divides
+    /// by the type's maximum value. This assumes sRGB-encoded values.
+    pub fn to_gray_f32(&self) -> ImgVec<Gray<f32>> {
+        match self {
+            PixelData::GrayF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                ImgVec::new(buf.into_owned(), w, h)
+            }
+            PixelData::Gray8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<f32>> = buf
+                    .iter()
+                    .map(|p| Gray::new(p.value() as f32 / 255.0))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::Gray16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<f32>> = buf
+                    .iter()
+                    .map(|p| Gray::new(p.value() as f32 / 65535.0))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+            other => {
+                // Convert through rgb8, then to gray float.
+                let rgb = other.to_rgb8();
+                let (buf, w, h) = rgb.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<f32>> = buf
+                    .iter()
+                    .map(|p| Gray::new(rgb_to_luma(p.r, p.g, p.b) as f32 / 255.0))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+        }
+    }
+
     pub fn into_gray8(self) -> ImgVec<Gray<u8>> {
         match self {
             PixelData::Gray8(img) => img,
@@ -494,6 +586,10 @@ impl PixelData {
                 let (buf, _, _) = img.as_ref().to_contiguous_buf();
                 buf.as_bytes().to_vec()
             }
+            PixelData::GrayF32(img) => {
+                let (buf, _, _) = img.as_ref().to_contiguous_buf();
+                buf.as_bytes().to_vec()
+            }
             PixelData::Bgra8(img) => {
                 let (buf, _, _) = img.as_ref().to_contiguous_buf();
                 buf.as_bytes().to_vec()
@@ -513,6 +609,7 @@ impl core::fmt::Debug for PixelData {
             PixelData::RgbaF32(_) => "RgbaF32",
             PixelData::Gray8(_) => "Gray8",
             PixelData::Gray16(_) => "Gray16",
+            PixelData::GrayF32(_) => "GrayF32",
             PixelData::Bgra8(_) => "Bgra8",
         };
         write!(
