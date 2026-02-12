@@ -4,6 +4,7 @@
 //! Format-specific methods live on the concrete types, not on the traits.
 
 use imgref::ImgRef;
+use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
 use crate::{DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata, Stop};
@@ -66,6 +67,16 @@ pub trait Encoding: Sized + Clone {
     fn encode_gray8(&self, img: ImgRef<'_, Gray<u8>>) -> Result<EncodeOutput, Self::Error> {
         self.job().encode_gray8(img)
     }
+
+    /// Convenience: encode BGRA8 with default job settings.
+    fn encode_bgra8(&self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_bgra8(img)
+    }
+
+    /// Convenience: encode BGRX8 (opaque BGRA, padding byte ignored) with default job settings.
+    fn encode_bgrx8(&self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_bgrx8(img)
+    }
 }
 
 /// Per-operation encode job.
@@ -105,6 +116,45 @@ pub trait EncodingJob<'a>: Sized {
 
     /// Encode grayscale 8-bit pixels.
     fn encode_gray8(self, img: ImgRef<'_, Gray<u8>>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode BGRA8 pixels.
+    ///
+    /// Default implementation swizzles to RGBA8 and delegates to [`encode_rgba8`].
+    /// Codecs that support BGRA natively (e.g. zenjpeg) should override this
+    /// to avoid the intermediate conversion.
+    fn encode_bgra8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
+        let (buf, w, h) = img.to_contiguous_buf();
+        let rgba: alloc::vec::Vec<Rgba<u8>> = buf
+            .iter()
+            .map(|p| Rgba {
+                r: p.r,
+                g: p.g,
+                b: p.b,
+                a: p.a,
+            })
+            .collect();
+        let rgba_img = imgref::ImgVec::new(rgba, w, h);
+        self.encode_rgba8(rgba_img.as_ref())
+    }
+
+    /// Encode BGRX8 pixels (opaque BGRA — padding byte is ignored).
+    ///
+    /// Default implementation swizzles to RGB8 and delegates to [`encode_rgb8`].
+    /// Codecs that support BGRX natively (e.g. zenjpeg) should override this
+    /// to avoid the intermediate conversion.
+    fn encode_bgrx8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
+        let (buf, w, h) = img.to_contiguous_buf();
+        let rgb: alloc::vec::Vec<Rgb<u8>> = buf
+            .iter()
+            .map(|p| Rgb {
+                r: p.r,
+                g: p.g,
+                b: p.b,
+            })
+            .collect();
+        let rgb_img = imgref::ImgVec::new(rgb, w, h);
+        self.encode_rgb8(rgb_img.as_ref())
+    }
 }
 
 /// Common interface for decode configurations.

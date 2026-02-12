@@ -35,4 +35,5 @@ pub use traits::{Decoding, DecodingJob, Encoding, EncodingJob};
 // Re-exports for codec implementors and users.
 pub use enough::{Stop, Unstoppable};
 pub use imgref::{Img, ImgRef, ImgVec};
+pub use rgb::alt::BGRA as Bgra;
 pub use rgb::{Gray, Rgb, Rgba};
