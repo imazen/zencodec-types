@@ -2,7 +2,8 @@
 
 use alloc::vec::Vec;
 use imgref::ImgVec;
-use rgb::{Rgb, Rgba};
+use rgb::alt::BGRA;
+use rgb::{Gray, Rgb, Rgba};
 
 use crate::{ImageFormat, ImageInfo, ImageMetadata, PixelData};
 
@@ -99,6 +100,27 @@ impl DecodeOutput {
         }
     }
 
+    /// Borrow as BGRA8 if that's the native format.
+    pub fn as_bgra8(&self) -> Option<imgref::ImgRef<'_, BGRA<u8>>> {
+        match &self.pixels {
+            PixelData::Bgra8(img) => Some(img.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Borrow as Gray8 if that's the native format.
+    pub fn as_gray8(&self) -> Option<imgref::ImgRef<'_, Gray<u8>>> {
+        match &self.pixels {
+            PixelData::Gray8(img) => Some(img.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Convert to BGRA8, consuming this output.
+    pub fn into_bgra8(self) -> ImgVec<BGRA<u8>> {
+        self.pixels.into_bgra8()
+    }
+
     /// Image info.
     pub fn info(&self) -> &ImageInfo {
         &self.info
@@ -174,6 +196,11 @@ impl DecodeFrame {
     /// Convert to RGBA8, consuming this frame.
     pub fn into_rgba8(self) -> ImgVec<Rgba<u8>> {
         self.pixels.into_rgba8()
+    }
+
+    /// Convert to BGRA8, consuming this frame.
+    pub fn into_bgra8(self) -> ImgVec<BGRA<u8>> {
+        self.pixels.into_bgra8()
     }
 
     /// Frame delay in milliseconds.
