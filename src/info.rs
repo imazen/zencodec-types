@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::{ImageFormat, Orientation};
 
 /// Image metadata obtained from probing or decoding.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ImageInfo {
     /// Image width in pixels.
@@ -140,7 +140,7 @@ impl ImageInfo {
 ///
 /// Used when encoding to preserve metadata from the source image.
 /// Borrows from [`ImageInfo`] or user-provided slices.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ImageMetadata<'a> {
     /// ICC color profile.

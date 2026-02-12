@@ -10,7 +10,7 @@ use rgb::{Gray, Rgb, Rgba};
 use crate::{ImageFormat, ImageInfo, ImageMetadata, PixelData};
 
 /// Output from an encode operation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncodeOutput {
     data: Vec<u8>,
     format: ImageFormat,

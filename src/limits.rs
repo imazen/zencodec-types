@@ -16,7 +16,7 @@
 ///     .with_max_pixels(100_000_000)
 ///     .with_max_memory(512 * 1024 * 1024);
 /// ```
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ResourceLimits {
     /// Maximum total pixels (width × height).
