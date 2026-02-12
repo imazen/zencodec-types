@@ -264,4 +264,70 @@ mod tests {
         assert_eq!(ImageFormat::RECOMMENDED_PROBE_BYTES, 4096);
         assert!(ImageFormat::Jpeg.min_probe_bytes() > ImageFormat::Png.min_probe_bytes());
     }
+
+    #[test]
+    fn display_format() {
+        assert_eq!(alloc::format!("{}", ImageFormat::Jpeg), "JPEG");
+        assert_eq!(alloc::format!("{}", ImageFormat::WebP), "WebP");
+        assert_eq!(alloc::format!("{}", ImageFormat::Gif), "GIF");
+        assert_eq!(alloc::format!("{}", ImageFormat::Png), "PNG");
+        assert_eq!(alloc::format!("{}", ImageFormat::Avif), "AVIF");
+        assert_eq!(alloc::format!("{}", ImageFormat::Jxl), "JPEG XL");
+    }
+
+    #[test]
+    fn from_extension_all_variants() {
+        assert_eq!(ImageFormat::from_extension("jpg"), Some(ImageFormat::Jpeg));
+        assert_eq!(ImageFormat::from_extension("jpeg"), Some(ImageFormat::Jpeg));
+        assert_eq!(ImageFormat::from_extension("jpe"), Some(ImageFormat::Jpeg));
+        assert_eq!(ImageFormat::from_extension("jfif"), Some(ImageFormat::Jpeg));
+        assert_eq!(ImageFormat::from_extension("JPEG"), Some(ImageFormat::Jpeg));
+        assert_eq!(ImageFormat::from_extension("webp"), Some(ImageFormat::WebP));
+        assert_eq!(ImageFormat::from_extension("gif"), Some(ImageFormat::Gif));
+        assert_eq!(ImageFormat::from_extension("png"), Some(ImageFormat::Png));
+        assert_eq!(ImageFormat::from_extension("avif"), Some(ImageFormat::Avif));
+        assert_eq!(ImageFormat::from_extension("jxl"), Some(ImageFormat::Jxl));
+    }
+
+    #[test]
+    fn from_extension_edge_cases() {
+        assert_eq!(ImageFormat::from_extension(""), None);
+        assert_eq!(ImageFormat::from_extension("bmp"), None);
+        assert_eq!(ImageFormat::from_extension("tiff"), None);
+        // Too long for buffer
+        assert_eq!(ImageFormat::from_extension("very_long_extension"), None);
+    }
+
+    #[test]
+    fn capabilities() {
+        assert!(ImageFormat::Jpeg.supports_lossy());
+        assert!(!ImageFormat::Jpeg.supports_lossless());
+        assert!(!ImageFormat::Jpeg.supports_animation());
+        assert!(!ImageFormat::Jpeg.supports_alpha());
+
+        assert!(ImageFormat::Png.supports_lossless());
+        assert!(!ImageFormat::Png.supports_lossy());
+        assert!(ImageFormat::Png.supports_alpha());
+        assert!(!ImageFormat::Png.supports_animation());
+
+        assert!(ImageFormat::WebP.supports_lossy());
+        assert!(ImageFormat::WebP.supports_lossless());
+        assert!(ImageFormat::WebP.supports_animation());
+        assert!(ImageFormat::WebP.supports_alpha());
+
+        assert!(ImageFormat::Gif.supports_animation());
+        assert!(ImageFormat::Gif.supports_lossless());
+        assert!(ImageFormat::Gif.supports_alpha());
+
+        assert!(ImageFormat::Jxl.supports_lossy());
+        assert!(ImageFormat::Jxl.supports_lossless());
+        assert!(ImageFormat::Jxl.supports_animation());
+    }
+
+    #[test]
+    fn extensions() {
+        assert!(ImageFormat::Jpeg.extensions().contains(&"jpg"));
+        assert!(ImageFormat::Jpeg.extensions().contains(&"jpeg"));
+        assert_eq!(ImageFormat::Png.extensions(), &["png"]);
+    }
 }

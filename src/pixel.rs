@@ -401,9 +401,6 @@ impl PixelData {
         }
     }
 
-    /// Convert to Gray8, consuming self.
-    ///
-    /// Avoids a clone when the data is already Gray8.
     /// Convert to GrayF32, consuming self.
     ///
     /// Avoids a clone when the data is already GrayF32.
@@ -454,6 +451,9 @@ impl PixelData {
         }
     }
 
+    /// Convert to Gray8, consuming self.
+    ///
+    /// Avoids a clone when the data is already Gray8.
     pub fn into_gray8(self) -> ImgVec<Gray<u8>> {
         match self {
             PixelData::Gray8(img) => img,
@@ -641,6 +641,8 @@ mod tests {
     use super::*;
     use alloc::vec;
 
+    // --- dimensions and alpha ---
+
     #[test]
     fn dimensions_and_alpha() {
         let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 100], 10, 10);
@@ -649,7 +651,7 @@ mod tests {
         assert_eq!(data.height(), 10);
         assert!(!data.has_alpha());
 
-        let img = ImgVec::new(
+        let data = PixelData::Rgba8(ImgVec::new(
             vec![
                 Rgba {
                     r: 0u8,
@@ -661,14 +663,38 @@ mod tests {
             ],
             2,
             2,
-        );
-        let data = PixelData::Rgba8(img);
+        ));
         assert!(data.has_alpha());
+
+        let data = PixelData::Bgra8(ImgVec::new(
+            vec![
+                BGRA {
+                    b: 0,
+                    g: 0,
+                    r: 0,
+                    a: 255
+                };
+                4
+            ],
+            2,
+            2,
+        ));
+        assert!(data.has_alpha());
+
+        let data = PixelData::Gray8(ImgVec::new(vec![Gray::new(0u8); 4], 2, 2));
+        assert!(!data.has_alpha());
+
+        let data = PixelData::GrayF32(ImgVec::new(vec![Gray::new(0.0f32); 4], 2, 2));
+        assert!(!data.has_alpha());
+        assert_eq!(data.width(), 2);
+        assert_eq!(data.height(), 2);
     }
+
+    // --- RGB8 conversions ---
 
     #[test]
     fn rgb8_to_rgba8() {
-        let img = ImgVec::new(
+        let data = PixelData::Rgb8(ImgVec::new(
             vec![
                 Rgb {
                     r: 10u8,
@@ -679,8 +705,7 @@ mod tests {
             ],
             2,
             2,
-        );
-        let data = PixelData::Rgb8(img);
+        ));
         let rgba = data.to_rgba8();
         assert_eq!(rgba.width(), 2);
         assert_eq!(rgba.height(), 2);
@@ -692,10 +717,8 @@ mod tests {
     fn into_rgb8_no_clone() {
         let pixels = vec![Rgb { r: 1u8, g: 2, b: 3 }; 6];
         let ptr = pixels.as_ptr();
-        let img = ImgVec::new(pixels, 3, 2);
-        let data = PixelData::Rgb8(img);
+        let data = PixelData::Rgb8(ImgVec::new(pixels, 3, 2));
         let result = data.into_rgb8();
-        // Same allocation — no clone happened.
         assert_eq!(result.buf().as_ptr(), ptr);
     }
 
@@ -711,24 +734,171 @@ mod tests {
             6
         ];
         let ptr = pixels.as_ptr();
-        let img = ImgVec::new(pixels, 3, 2);
-        let data = PixelData::Rgba8(img);
+        let data = PixelData::Rgba8(ImgVec::new(pixels, 3, 2));
         let result = data.into_rgba8();
         assert_eq!(result.buf().as_ptr(), ptr);
     }
 
+    // --- Gray conversions ---
+
     #[test]
     fn gray8_to_rgb8() {
-        let img = ImgVec::new(vec![Gray::new(128u8); 4], 2, 2);
-        let data = PixelData::Gray8(img);
+        let data = PixelData::Gray8(ImgVec::new(vec![Gray::new(128u8); 4], 2, 2));
         let rgb = data.to_rgb8();
         let px = &rgb.buf()[0];
         assert_eq!((px.r, px.g, px.b), (128, 128, 128));
     }
 
     #[test]
+    fn gray8_to_rgba8() {
+        let data = PixelData::Gray8(ImgVec::new(vec![Gray::new(200u8); 1], 1, 1));
+        let rgba = data.to_rgba8();
+        let px = &rgba.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (200, 200, 200, 255));
+    }
+
+    #[test]
+    fn into_gray8_no_clone() {
+        let pixels = vec![Gray::new(42u8); 6];
+        let ptr = pixels.as_ptr();
+        let data = PixelData::Gray8(ImgVec::new(pixels, 3, 2));
+        let result = data.into_gray8();
+        assert_eq!(result.buf().as_ptr(), ptr);
+    }
+
+    #[test]
+    fn rgb8_to_gray8_luma() {
+        // Pure red: BT.601 luma = 0.299 * 255 ≈ 76
+        let data = PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 255, g: 0, b: 0 }; 1], 1, 1));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 76);
+
+        // Pure green: BT.601 luma = 0.587 * 255 ≈ 149
+        let data = PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 0, g: 255, b: 0 }; 1], 1, 1));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 149);
+
+        // Pure blue: BT.601 luma = 0.114 * 255 ≈ 28
+        let data = PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 0, g: 0, b: 255 }; 1], 1, 1));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 28);
+    }
+
+    #[test]
+    fn rgba8_to_gray8_ignores_alpha() {
+        let data = PixelData::Rgba8(ImgVec::new(
+            vec![
+                Rgba {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 0
+                };
+                1
+            ], // fully transparent red
+            1,
+            1,
+        ));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 76); // alpha ignored
+    }
+
+    #[test]
+    fn bgra8_to_gray8() {
+        let data = PixelData::Bgra8(ImgVec::new(
+            vec![
+                BGRA {
+                    b: 0,
+                    g: 0,
+                    r: 255,
+                    a: 255
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 76); // same as pure red
+    }
+
+    // --- 16-bit conversions with proper rounding ---
+
+    #[test]
+    fn u16_to_u8_boundary_values() {
+        assert_eq!(u16_to_u8(0), 0);
+        assert_eq!(u16_to_u8(65535), 255);
+        // Midpoint: 32768 → round(32768/257) = round(127.5) = 128
+        assert_eq!(u16_to_u8(32768), 128);
+        // 257 is exactly 1/255th of 65535
+        assert_eq!(u16_to_u8(257), 1);
+        assert_eq!(u16_to_u8(514), 2);
+    }
+
+    #[test]
+    fn gray16_to_rgb8() {
+        let data = PixelData::Gray16(ImgVec::new(vec![Gray::new(65535u16); 1], 1, 1));
+        let rgb = data.to_rgb8();
+        let px = &rgb.buf()[0];
+        assert_eq!((px.r, px.g, px.b), (255, 255, 255));
+
+        let data = PixelData::Gray16(ImgVec::new(vec![Gray::new(0u16); 1], 1, 1));
+        let rgb = data.to_rgb8();
+        let px = &rgb.buf()[0];
+        assert_eq!((px.r, px.g, px.b), (0, 0, 0));
+    }
+
+    #[test]
+    fn gray16_to_gray8() {
+        let data = PixelData::Gray16(ImgVec::new(vec![Gray::new(32768u16); 1], 1, 1));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 128);
+    }
+
+    #[test]
+    fn rgb16_to_rgb8() {
+        let data = PixelData::Rgb16(ImgVec::new(
+            vec![
+                Rgb {
+                    r: 65535u16,
+                    g: 32768,
+                    b: 0
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        let rgb = data.to_rgb8();
+        let px = &rgb.buf()[0];
+        assert_eq!((px.r, px.g, px.b), (255, 128, 0));
+    }
+
+    #[test]
+    fn rgba16_to_rgba8() {
+        let data = PixelData::Rgba16(ImgVec::new(
+            vec![
+                Rgba {
+                    r: 65535u16,
+                    g: 0,
+                    b: 32768,
+                    a: 65535,
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        let rgba = data.to_rgba8();
+        let px = &rgba.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (255, 0, 128, 255));
+    }
+
+    // --- Float conversions ---
+
+    #[test]
     fn f32_clamped() {
-        let img = ImgVec::new(
+        let data = PixelData::RgbF32(ImgVec::new(
             vec![
                 Rgb {
                     r: -0.5f32,
@@ -739,18 +909,214 @@ mod tests {
             ],
             1,
             1,
-        );
-        let data = PixelData::RgbF32(img);
+        ));
         let rgb = data.to_rgb8();
         let px = &rgb.buf()[0];
         assert_eq!((px.r, px.g, px.b), (0, 127, 255));
     }
 
     #[test]
+    fn rgba_f32_to_rgba8() {
+        let data = PixelData::RgbaF32(ImgVec::new(
+            vec![
+                Rgba {
+                    r: 1.0f32,
+                    g: 0.0,
+                    b: 0.5,
+                    a: 0.75
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        let rgba = data.to_rgba8();
+        let px = &rgba.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (255, 0, 127, 191));
+    }
+
+    #[test]
+    fn gray_f32_to_rgb8() {
+        let data = PixelData::GrayF32(ImgVec::new(vec![Gray::new(0.5f32); 1], 1, 1));
+        let rgb = data.to_rgb8();
+        let px = &rgb.buf()[0];
+        assert_eq!((px.r, px.g, px.b), (127, 127, 127));
+    }
+
+    #[test]
+    fn gray_f32_to_gray8() {
+        let data = PixelData::GrayF32(ImgVec::new(vec![Gray::new(1.0f32); 1], 1, 1));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 255);
+
+        let data = PixelData::GrayF32(ImgVec::new(vec![Gray::new(0.0f32); 1], 1, 1));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 0);
+    }
+
+    #[test]
+    fn gray_f32_roundtrip() {
+        let data = PixelData::Gray8(ImgVec::new(vec![Gray::new(128u8); 1], 1, 1));
+        let f32_img = data.to_gray_f32();
+        let v = f32_img.buf()[0].value();
+        assert!((v - 128.0 / 255.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn into_gray_f32_no_clone() {
+        let pixels = vec![Gray::new(0.5f32); 6];
+        let ptr = pixels.as_ptr();
+        let data = PixelData::GrayF32(ImgVec::new(pixels, 3, 2));
+        let result = data.into_gray_f32();
+        assert_eq!(result.buf().as_ptr(), ptr);
+    }
+
+    // --- BGRA conversions ---
+
+    #[test]
+    fn bgra8_to_rgb8() {
+        let data = PixelData::Bgra8(ImgVec::new(
+            vec![
+                BGRA {
+                    b: 30,
+                    g: 20,
+                    r: 10,
+                    a: 255
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        let rgb = data.to_rgb8();
+        let px = &rgb.buf()[0];
+        assert_eq!((px.r, px.g, px.b), (10, 20, 30));
+    }
+
+    #[test]
+    fn bgra8_to_rgba8() {
+        let data = PixelData::Bgra8(ImgVec::new(
+            vec![
+                BGRA {
+                    b: 30,
+                    g: 20,
+                    r: 10,
+                    a: 128
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        let rgba = data.to_rgba8();
+        let px = &rgba.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (10, 20, 30, 128));
+    }
+
+    #[test]
+    fn rgba8_to_bgra8() {
+        let data = PixelData::Rgba8(ImgVec::new(
+            vec![
+                Rgba {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                    a: 128
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        let bgra = data.to_bgra8();
+        let px = &bgra.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (10, 20, 30, 128));
+    }
+
+    #[test]
+    fn rgb8_to_bgra8() {
+        let data = PixelData::Rgb8(ImgVec::new(
+            vec![
+                Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        let bgra = data.to_bgra8();
+        let px = &bgra.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (10, 20, 30, 255));
+    }
+
+    #[test]
+    fn into_bgra8_no_clone() {
+        let pixels = vec![
+            BGRA {
+                b: 0,
+                g: 0,
+                r: 0,
+                a: 0
+            };
+            6
+        ];
+        let ptr = pixels.as_ptr();
+        let data = PixelData::Bgra8(ImgVec::new(pixels, 3, 2));
+        let result = data.into_bgra8();
+        assert_eq!(result.buf().as_ptr(), ptr);
+    }
+
+    #[test]
+    fn gray16_to_bgra8_through_fallback() {
+        let data = PixelData::Gray16(ImgVec::new(vec![Gray::new(65535u16); 1], 1, 1));
+        let bgra = data.to_bgra8();
+        let px = &bgra.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (255, 255, 255, 255));
+    }
+
+    // --- to_bytes ---
+
+    #[test]
+    fn to_bytes_rgb8() {
+        let data = PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 1, g: 2, b: 3 }; 1], 1, 1));
+        assert_eq!(data.to_bytes(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn to_bytes_gray8() {
+        let data = PixelData::Gray8(ImgVec::new(vec![Gray::new(42u8); 2], 2, 1));
+        assert_eq!(data.to_bytes(), vec![42, 42]);
+    }
+
+    #[test]
+    fn to_bytes_rgba8() {
+        let data = PixelData::Rgba8(ImgVec::new(
+            vec![
+                Rgba {
+                    r: 1,
+                    g: 2,
+                    b: 3,
+                    a: 4
+                };
+                1
+            ],
+            1,
+            1,
+        ));
+        assert_eq!(data.to_bytes(), vec![1, 2, 3, 4]);
+    }
+
+    // --- Debug ---
+
+    #[test]
     fn debug_format() {
-        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 6], 3, 2);
-        let data = PixelData::Rgb8(img);
-        let s = alloc::format!("{:?}", data);
-        assert_eq!(s, "PixelData::Rgb8(3x2)");
+        let data = PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 6], 3, 2));
+        assert_eq!(alloc::format!("{:?}", data), "PixelData::Rgb8(3x2)");
+
+        let data = PixelData::GrayF32(ImgVec::new(vec![Gray::new(0.0f32); 6], 3, 2));
+        assert_eq!(alloc::format!("{:?}", data), "PixelData::GrayF32(3x2)");
     }
 }

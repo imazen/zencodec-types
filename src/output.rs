@@ -376,5 +376,76 @@ mod tests {
         assert_eq!(frame.index(), 0);
         assert_eq!(frame.width(), 2);
         assert_eq!(frame.height(), 2);
+        assert!(frame.has_alpha());
+    }
+
+    #[test]
+    fn decode_frame_as_methods() {
+        let img = ImgVec::new(
+            vec![
+                Rgb {
+                    r: 10u8,
+                    g: 20,
+                    b: 30
+                };
+                4
+            ],
+            2,
+            2,
+        );
+        let frame = DecodeFrame::new(PixelData::Rgb8(img), 50, 1);
+        assert!(frame.as_rgb8().is_some());
+        assert!(frame.as_rgba8().is_none());
+        assert!(frame.as_bgra8().is_none());
+        assert!(frame.as_gray8().is_none());
+    }
+
+    #[test]
+    fn decode_frame_into_gray8() {
+        let img = ImgVec::new(
+            vec![
+                Rgb {
+                    r: 128u8,
+                    g: 128,
+                    b: 128
+                };
+                4
+            ],
+            2,
+            2,
+        );
+        let frame = DecodeFrame::new(PixelData::Rgb8(img), 0, 0);
+        let gray = frame.into_gray8();
+        // BT.601: (77*128 + 150*128 + 29*128) >> 8 = (256*128) >> 8 = 128
+        assert_eq!(gray.buf()[0].value(), 128);
+    }
+
+    #[test]
+    fn decode_frame_debug() {
+        let img = ImgVec::new(vec![Gray::new(0u8); 4], 2, 2);
+        let frame = DecodeFrame::new(PixelData::Gray8(img), 100, 3);
+        let s = alloc::format!("{:?}", frame);
+        assert!(s.contains("DecodeFrame"));
+        assert!(s.contains("delay_ms: 100"));
+        assert!(s.contains("index: 3"));
+    }
+
+    #[test]
+    fn decode_output_as_gray8() {
+        let img = ImgVec::new(vec![Gray::new(42u8); 4], 2, 2);
+        let info = ImageInfo::new(2, 2, ImageFormat::Png);
+        let output = DecodeOutput::new(PixelData::Gray8(img), info);
+        assert!(output.as_gray8().is_some());
+        assert!(output.as_rgb8().is_none());
+    }
+
+    #[test]
+    fn encode_output_eq() {
+        let a = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
+        let b = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
+        assert_eq!(a, b);
+
+        let c = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Png);
+        assert_ne!(a, c);
     }
 }

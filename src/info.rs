@@ -211,4 +211,88 @@ mod tests {
         let meta = ImageMetadata::none();
         assert!(meta.is_empty());
     }
+
+    #[test]
+    fn metadata_equality() {
+        let a = ImageMetadata::none().with_icc(&[1, 2, 3]);
+        let b = ImageMetadata::none().with_icc(&[1, 2, 3]);
+        assert_eq!(a, b);
+
+        let c = ImageMetadata::none().with_icc(&[4, 5]);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn display_dimensions_normal() {
+        let info = ImageInfo::new(100, 200, ImageFormat::Jpeg);
+        assert_eq!(info.display_width(), 100);
+        assert_eq!(info.display_height(), 200);
+    }
+
+    #[test]
+    fn display_dimensions_rotated() {
+        let info =
+            ImageInfo::new(100, 200, ImageFormat::Jpeg).with_orientation(Orientation::Rotate90);
+        assert_eq!(info.display_width(), 200);
+        assert_eq!(info.display_height(), 100);
+    }
+
+    #[test]
+    fn display_dimensions_rotate180() {
+        let info =
+            ImageInfo::new(100, 200, ImageFormat::Jpeg).with_orientation(Orientation::Rotate180);
+        // 180 does not swap dimensions
+        assert_eq!(info.display_width(), 100);
+        assert_eq!(info.display_height(), 200);
+    }
+
+    #[test]
+    fn display_dimensions_all_orientations() {
+        let info = ImageInfo::new(100, 200, ImageFormat::Jpeg);
+        for orient in [
+            Orientation::Normal,
+            Orientation::FlipHorizontal,
+            Orientation::Rotate180,
+            Orientation::FlipVertical,
+        ] {
+            let i = info.clone().with_orientation(orient);
+            assert_eq!((i.display_width(), i.display_height()), (100, 200));
+        }
+        for orient in [
+            Orientation::Transpose,
+            Orientation::Rotate90,
+            Orientation::Transverse,
+            Orientation::Rotate270,
+        ] {
+            let i = info.clone().with_orientation(orient);
+            assert_eq!((i.display_width(), i.display_height()), (200, 100));
+        }
+    }
+
+    #[test]
+    fn image_info_builder() {
+        let info = ImageInfo::new(10, 20, ImageFormat::Png)
+            .with_alpha(true)
+            .with_animation(true)
+            .with_frame_count(5)
+            .with_icc_profile(alloc::vec![1, 2])
+            .with_exif(alloc::vec![3, 4])
+            .with_xmp(alloc::vec![5, 6]);
+        assert!(info.has_alpha);
+        assert!(info.has_animation);
+        assert_eq!(info.frame_count, Some(5));
+        assert_eq!(info.icc_profile.as_deref(), Some([1, 2].as_slice()));
+        assert_eq!(info.exif.as_deref(), Some([3, 4].as_slice()));
+        assert_eq!(info.xmp.as_deref(), Some([5, 6].as_slice()));
+    }
+
+    #[test]
+    fn image_info_eq() {
+        let a = ImageInfo::new(10, 20, ImageFormat::Png).with_alpha(true);
+        let b = ImageInfo::new(10, 20, ImageFormat::Png).with_alpha(true);
+        assert_eq!(a, b);
+
+        let c = ImageInfo::new(10, 20, ImageFormat::Jpeg).with_alpha(true);
+        assert_ne!(a, c);
+    }
 }
