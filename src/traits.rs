@@ -124,41 +124,10 @@ pub trait EncodingJob<'a>: Sized {
     fn encode_gray8(self, img: ImgRef<'_, Gray<u8>>) -> Result<EncodeOutput, Self::Error>;
 
     /// Encode BGRA8 pixels.
-    ///
-    /// Default implementation swizzles to RGBA8 and delegates to [`encode_rgba8`](EncodingJob::encode_rgba8).
-    /// Codecs that support BGRA natively should override this.
-    fn encode_bgra8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
-        let (buf, w, h) = img.to_contiguous_buf();
-        let rgba: alloc::vec::Vec<Rgba<u8>> = buf
-            .iter()
-            .map(|p| Rgba {
-                r: p.r,
-                g: p.g,
-                b: p.b,
-                a: p.a,
-            })
-            .collect();
-        let rgba_img = imgref::ImgVec::new(rgba, w, h);
-        self.encode_rgba8(rgba_img.as_ref())
-    }
+    fn encode_bgra8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error>;
 
     /// Encode BGRX8 pixels (opaque BGRA — padding byte is ignored).
-    ///
-    /// Default implementation swizzles to RGB8 and delegates to [`encode_rgb8`](EncodingJob::encode_rgb8).
-    /// Codecs that support BGRX natively should override this.
-    fn encode_bgrx8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
-        let (buf, w, h) = img.to_contiguous_buf();
-        let rgb: alloc::vec::Vec<Rgb<u8>> = buf
-            .iter()
-            .map(|p| Rgb {
-                r: p.r,
-                g: p.g,
-                b: p.b,
-            })
-            .collect();
-        let rgb_img = imgref::ImgVec::new(rgb, w, h);
-        self.encode_rgb8(rgb_img.as_ref())
-    }
+    fn encode_bgrx8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Common interface for decode configurations.
