@@ -1,6 +1,8 @@
 //! Encode and decode output types.
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::any::Any;
 use imgref::ImgVec;
 use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
@@ -56,12 +58,34 @@ impl AsRef<[u8]> for EncodeOutput {
 pub struct DecodeOutput {
     pixels: PixelData,
     info: ImageInfo,
+    extras: Option<Box<dyn Any + Send>>,
 }
 
 impl DecodeOutput {
     /// Create a new decode output.
     pub fn new(pixels: PixelData, info: ImageInfo) -> Self {
-        Self { pixels, info }
+        Self {
+            pixels,
+            info,
+            extras: None,
+        }
+    }
+
+    /// Attach format-specific extras (e.g., JPEG gain maps, MPF data).
+    pub fn with_extras<T: Any + Send + 'static>(mut self, extras: T) -> Self {
+        self.extras = Some(Box::new(extras));
+        self
+    }
+
+    /// Borrow typed extras if present and the type matches.
+    pub fn extras<T: Any + Send + 'static>(&self) -> Option<&T> {
+        self.extras.as_ref()?.downcast_ref()
+    }
+
+    /// Take typed extras, consuming them from this output.
+    pub fn take_extras<T: Any + Send + 'static>(&mut self) -> Option<T> {
+        let extras = self.extras.take()?;
+        extras.downcast().ok().map(|b| *b)
     }
 
     /// Borrow the pixel data in its native format.
@@ -281,6 +305,18 @@ mod tests {
         assert_eq!(output.format(), ImageFormat::Png);
         assert!(output.as_rgb8().is_some());
         assert!(output.as_rgba8().is_none());
+    }
+
+    #[test]
+    fn decode_output_extras() {
+        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 4], 2, 2);
+        let info = ImageInfo::new(2, 2, ImageFormat::Jpeg);
+        let mut output = DecodeOutput::new(PixelData::Rgb8(img), info).with_extras(42u32);
+        assert_eq!(output.extras::<u32>(), Some(&42u32));
+        assert_eq!(output.extras::<u64>(), None); // wrong type
+        let taken = output.take_extras::<u32>();
+        assert_eq!(taken, Some(42u32));
+        assert!(output.extras::<u32>().is_none()); // consumed
     }
 
     #[test]
