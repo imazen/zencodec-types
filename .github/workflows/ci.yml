@@ -85,13 +85,13 @@ jobs:
   # MSRV
   # ==========================================================================
   msrv:
-    name: MSRV (1.85)
+    name: MSRV (1.93)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.85"
+          toolchain: "1.93"
       - uses: Swatinem/rust-cache@v2
 
       - name: Check MSRV
