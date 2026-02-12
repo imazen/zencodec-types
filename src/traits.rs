@@ -13,7 +13,9 @@ use rgb::{Gray, Rgb, Rgba};
 
 use imgref::ImgRefMut;
 
-use crate::{DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata, ResourceLimits, Stop};
+use crate::{
+    CodecCapabilities, DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata, ResourceLimits, Stop,
+};
 
 /// Common interface for encode configurations.
 ///
@@ -27,7 +29,7 @@ use crate::{DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata, ResourceLimits
 ///
 /// The `job()` method creates a per-operation [`EncodingJob`] that can borrow
 /// temporary data (stop tokens, metadata).
-pub trait Encoding: Sized + Clone {
+pub trait Encoding: Sized + Clone + Send + Sync {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
@@ -36,10 +38,17 @@ pub trait Encoding: Sized + Clone {
     where
         Self: 'a;
 
+    /// Codec capabilities (metadata support, cancellation, etc.).
+    ///
+    /// Returns a static reference describing what this codec supports.
+    /// Use this to check before calling methods that may be no-ops.
+    fn capabilities() -> &'static CodecCapabilities;
+
     /// Apply resource limits.
     ///
     /// Codecs enforce the limits they support (pixel count, memory, output size).
-    fn with_limits(self, limits: &ResourceLimits) -> Self;
+    /// Check [`capabilities()`](Encoding::capabilities) to see which limits are enforced.
+    fn with_limits(self, limits: ResourceLimits) -> Self;
 
     /// Create a per-operation job for this config.
     ///
@@ -81,6 +90,9 @@ pub trait Encoding: Sized + Clone {
 /// Every codec must accept a stop token and metadata. The codec embeds
 /// whatever metadata the format supports and periodically checks the
 /// stop token for cooperative cancellation.
+///
+/// Check [`Encoding::capabilities()`] to see which metadata types and
+/// cancellation are actually supported.
 pub trait EncodingJob<'a>: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
@@ -88,17 +100,19 @@ pub trait EncodingJob<'a>: Sized {
     /// Set cooperative cancellation token.
     ///
     /// The codec periodically calls `stop.check()` and returns an error
-    /// if the operation should be cancelled.
+    /// if the operation should be cancelled. No-op if the codec doesn't
+    /// support cancellation (check [`capabilities().encode_cancel()`](CodecCapabilities::encode_cancel)).
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
 
     /// Set all metadata (ICC, EXIF, XMP) from an [`ImageMetadata`].
     ///
     /// The codec embeds whatever metadata the format supports. Metadata
-    /// types not supported by the format are silently skipped.
+    /// types not supported by the format are silently skipped — check
+    /// [`capabilities()`](Encoding::capabilities) to see what's supported.
     fn with_metadata(self, meta: &'a ImageMetadata<'a>) -> Self;
 
     /// Override resource limits for this operation.
-    fn with_limits(self, limits: &ResourceLimits) -> Self;
+    fn with_limits(self, limits: ResourceLimits) -> Self;
 
     /// Encode RGB8 pixels.
     fn encode_rgb8(self, img: ImgRef<'_, Rgb<u8>>) -> Result<EncodeOutput, Self::Error>;
@@ -154,7 +168,7 @@ pub trait EncodingJob<'a>: Sized {
 ///
 /// Format-specific decode settings live on the concrete config type.
 /// The trait handles resource limits, job creation, and probing.
-pub trait Decoding: Sized + Clone {
+pub trait Decoding: Sized + Clone + Send + Sync {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
@@ -163,17 +177,42 @@ pub trait Decoding: Sized + Clone {
     where
         Self: 'a;
 
+    /// Codec capabilities (metadata support, cancellation, probe cost, etc.).
+    ///
+    /// Returns a static reference describing what this codec supports.
+    fn capabilities() -> &'static CodecCapabilities;
+
     /// Apply resource limits.
     ///
     /// Codecs enforce the limits they support (pixel count, memory, dimensions,
-    /// file size).
-    fn with_limits(self, limits: &ResourceLimits) -> Self;
+    /// file size). Check [`capabilities()`](Decoding::capabilities) to see which
+    /// limits are enforced.
+    fn with_limits(self, limits: ResourceLimits) -> Self;
 
     /// Create a per-operation job for this config.
     fn job(&self) -> Self::Job<'_>;
 
-    /// Probe image metadata without fully decoding pixels.
-    fn probe(&self, data: &[u8]) -> Result<ImageInfo, Self::Error>;
+    /// Probe image metadata cheaply (header parse only).
+    ///
+    /// This MUST be cheap — O(header), not O(pixels). Parses container
+    /// headers to extract dimensions, format, and basic metadata. May not
+    /// return frame counts or other data requiring a full parse.
+    ///
+    /// Use [`probe_full`](Decoding::probe_full) when you need complete
+    /// metadata including frame counts.
+    fn probe_header(&self, data: &[u8]) -> Result<ImageInfo, Self::Error>;
+
+    /// Probe image metadata with a full parse.
+    ///
+    /// May be expensive (e.g. parsing all GIF frames to count them, or
+    /// decoding AVIF container metadata). Returns complete metadata
+    /// including frame counts.
+    ///
+    /// Default: delegates to [`probe_header`](Decoding::probe_header).
+    /// Codecs that need a full parse for complete metadata should override.
+    fn probe_full(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
+        self.probe_header(data)
+    }
 
     /// Convenience: decode with default job settings.
     fn decode(&self, data: &[u8]) -> Result<DecodeOutput, Self::Error> {
@@ -209,13 +248,14 @@ pub trait Decoding: Sized + Clone {
 
     /// Compute output dimensions/info for this data given current config.
     ///
-    /// Unlike [`probe()`](Decoding::probe) which returns stored file dimensions,
-    /// this applies config transforms (scaling, orientation) to predict actual
-    /// decode output. Use this to allocate buffers for `decode_into_*` methods.
+    /// Unlike [`probe_header()`](Decoding::probe_header) which returns stored
+    /// file dimensions, this applies config transforms (scaling, orientation)
+    /// to predict actual decode output. Use this to allocate buffers for
+    /// `decode_into_*` methods.
     ///
-    /// Default: delegates to `probe()` (correct when config doesn't transform dims).
+    /// Default: delegates to `probe_header()` (correct when config doesn't transform dims).
     fn decode_info(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
-        self.probe(data)
+        self.probe_header(data)
     }
 }
 
@@ -228,17 +268,20 @@ pub trait DecodingJob<'a>: Sized {
     type Error: core::error::Error + Send + Sync + 'static;
 
     /// Set cooperative cancellation token.
+    ///
+    /// No-op if the codec doesn't support decode cancellation
+    /// (check [`capabilities().decode_cancel()`](CodecCapabilities::decode_cancel)).
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
 
     /// Override resource limits for this operation.
-    fn with_limits(self, limits: &ResourceLimits) -> Self;
+    fn with_limits(self, limits: ResourceLimits) -> Self;
 
     /// Decode image data to pixels.
     fn decode(self, data: &[u8]) -> Result<DecodeOutput, Self::Error>;
 
     /// Decode directly into a caller-provided RGB8 buffer (zero-copy path).
     ///
-    /// The buffer must have dimensions matching [`Decoding::probe()`] results
+    /// The buffer must have dimensions matching [`Decoding::decode_info()`] results
     /// (use [`display_width()`](ImageInfo::display_width) /
     /// [`display_height()`](ImageInfo::display_height) if orientation may be applied).
     ///
