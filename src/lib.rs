@@ -21,6 +21,7 @@
 
 extern crate alloc;
 
+mod capabilities;
 mod format;
 mod info;
 mod limits;
@@ -29,6 +30,7 @@ mod output;
 mod pixel;
 mod traits;
 
+pub use capabilities::CodecCapabilities;
 pub use format::ImageFormat;
 pub use info::{ImageInfo, ImageMetadata};
 pub use limits::ResourceLimits;
