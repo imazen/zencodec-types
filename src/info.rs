@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use crate::ImageFormat;
+use crate::{ImageFormat, Orientation};
 
 /// Image metadata obtained from probing or decoding.
 #[derive(Clone, Debug, PartialEq)]
@@ -26,6 +26,18 @@ pub struct ImageInfo {
     pub exif: Option<Vec<u8>>,
     /// Embedded XMP metadata.
     pub xmp: Option<Vec<u8>>,
+    /// EXIF orientation (1-8).
+    ///
+    /// When a codec applies orientation during decode (rotating the pixel
+    /// data), this is set to [`Normal`](Orientation::Normal) and `width`/`height`
+    /// reflect the display dimensions.
+    ///
+    /// When orientation is NOT applied, `width`/`height` are the stored
+    /// dimensions and this field tells the caller what transform to apply.
+    /// Use [`display_width()`](ImageInfo::display_width) /
+    /// [`display_height()`](ImageInfo::display_height) to get effective
+    /// display dimensions regardless.
+    pub orientation: Orientation,
 }
 
 impl ImageInfo {
@@ -44,6 +56,7 @@ impl ImageInfo {
             icc_profile: None,
             exif: None,
             xmp: None,
+            orientation: Orientation::Normal,
         }
     }
 
@@ -81,6 +94,36 @@ impl ImageInfo {
     pub fn with_xmp(mut self, xmp: Vec<u8>) -> Self {
         self.xmp = Some(xmp);
         self
+    }
+
+    /// Set the EXIF orientation.
+    pub fn with_orientation(mut self, orientation: Orientation) -> Self {
+        self.orientation = orientation;
+        self
+    }
+
+    /// Display width after applying EXIF orientation.
+    ///
+    /// For orientations 5-8 (90/270 rotation), this returns `height`.
+    /// For orientations 1-4, this returns `width`.
+    pub fn display_width(&self) -> u32 {
+        if self.orientation.swaps_dimensions() {
+            self.height
+        } else {
+            self.width
+        }
+    }
+
+    /// Display height after applying EXIF orientation.
+    ///
+    /// For orientations 5-8 (90/270 rotation), this returns `width`.
+    /// For orientations 1-4, this returns `height`.
+    pub fn display_height(&self) -> u32 {
+        if self.orientation.swaps_dimensions() {
+            self.width
+        } else {
+            self.height
+        }
     }
 
     /// Borrow embedded metadata for roundtrip encode.
@@ -154,6 +197,7 @@ mod tests {
             icc_profile: Some(alloc::vec![1, 2, 3]),
             exif: Some(alloc::vec![4, 5]),
             xmp: None,
+            orientation: Orientation::Normal,
         };
         let meta = info.metadata();
         assert_eq!(meta.icc_profile, Some([1, 2, 3].as_slice()));

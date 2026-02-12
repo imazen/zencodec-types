@@ -11,6 +11,8 @@ use imgref::ImgRef;
 use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
+use imgref::ImgRefMut;
+
 use crate::{DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata, ResourceLimits, Stop};
 
 /// Common interface for encode configurations.
@@ -177,6 +179,24 @@ pub trait Decoding: Sized + Clone {
     fn decode(&self, data: &[u8]) -> Result<DecodeOutput, Self::Error> {
         self.job().decode(data)
     }
+
+    /// Convenience: decode into a caller-provided RGB8 buffer.
+    fn decode_into_rgb8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgb<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_rgb8(data, dst)
+    }
+
+    /// Convenience: decode into a caller-provided RGBA8 buffer.
+    fn decode_into_rgba8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgba<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_rgba8(data, dst)
+    }
 }
 
 /// Per-operation decode job.
@@ -195,4 +215,48 @@ pub trait DecodingJob<'a>: Sized {
 
     /// Decode image data to pixels.
     fn decode(self, data: &[u8]) -> Result<DecodeOutput, Self::Error>;
+
+    /// Decode directly into a caller-provided RGB8 buffer (zero-copy path).
+    ///
+    /// The buffer must have dimensions matching [`Decoding::probe()`] results
+    /// (use [`display_width()`](ImageInfo::display_width) /
+    /// [`display_height()`](ImageInfo::display_height) if orientation may be applied).
+    ///
+    /// Returns [`ImageInfo`] with metadata from the decoded image.
+    ///
+    /// Default implementation calls [`decode()`](DecodingJob::decode), converts to
+    /// RGB8, and copies. Codecs that can decode directly into the caller's buffer
+    /// should override for true zero-copy.
+    fn decode_into_rgb8(
+        self,
+        data: &[u8],
+        mut dst: ImgRefMut<'_, Rgb<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        let output = self.decode(data)?;
+        let info = output.info().clone();
+        let src = output.into_rgb8();
+        for (src_row, dst_row) in src.as_ref().rows().zip(dst.rows_mut()) {
+            let n = src_row.len().min(dst_row.len());
+            dst_row[..n].copy_from_slice(&src_row[..n]);
+        }
+        Ok(info)
+    }
+
+    /// Decode directly into a caller-provided RGBA8 buffer (zero-copy path).
+    ///
+    /// Same contract as [`decode_into_rgb8`](DecodingJob::decode_into_rgb8).
+    fn decode_into_rgba8(
+        self,
+        data: &[u8],
+        mut dst: ImgRefMut<'_, Rgba<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        let output = self.decode(data)?;
+        let info = output.info().clone();
+        let src = output.into_rgba8();
+        for (src_row, dst_row) in src.as_ref().rows().zip(dst.rows_mut()) {
+            let n = src_row.len().min(dst_row.len());
+            dst_row[..n].copy_from_slice(&src_row[..n]);
+        }
+        Ok(info)
+    }
 }

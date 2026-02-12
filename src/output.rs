@@ -292,17 +292,7 @@ mod tests {
             2,
             2,
         );
-        let info = ImageInfo {
-            width: 2,
-            height: 2,
-            format: ImageFormat::Png,
-            has_alpha: false,
-            has_animation: false,
-            frame_count: Some(1),
-            icc_profile: None,
-            exif: None,
-            xmp: None,
-        };
+        let info = ImageInfo::new(2, 2, ImageFormat::Png).with_frame_count(1);
         let output = DecodeOutput::new(PixelData::Rgb8(img), info);
         assert_eq!(output.width(), 2);
         assert_eq!(output.height(), 2);
