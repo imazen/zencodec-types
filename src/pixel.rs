@@ -80,9 +80,9 @@ impl PixelData {
 
     /// Convert to RGB8 by reference, allocating a new buffer.
     ///
-    /// Gray8 is expanded to RGB with R=G=B=gray.
-    /// RGBA variants discard alpha.
-    /// Higher-precision formats are clamped/truncated to 8-bit.
+    /// Assumes sRGB-encoded values. 16-bit values are downscaled with
+    /// proper rounding. Float values are clamped to [0.0, 1.0].
+    /// Gray is expanded to RGB with R=G=B. RGBA variants discard alpha.
     pub fn to_rgb8(&self) -> ImgVec<Rgb<u8>> {
         match self {
             PixelData::Rgb8(img) => {
@@ -117,7 +117,7 @@ impl PixelData {
                 let rgb: Vec<Rgb<u8>> = buf
                     .iter()
                     .map(|p| {
-                        let v = (p.value() >> 8) as u8;
+                        let v = u16_to_u8(p.value());
                         Rgb { r: v, g: v, b: v }
                     })
                     .collect();
@@ -139,9 +139,9 @@ impl PixelData {
                 let rgb: Vec<Rgb<u8>> = buf
                     .iter()
                     .map(|p| Rgb {
-                        r: (p.r >> 8) as u8,
-                        g: (p.g >> 8) as u8,
-                        b: (p.b >> 8) as u8,
+                        r: u16_to_u8(p.r),
+                        g: u16_to_u8(p.g),
+                        b: u16_to_u8(p.b),
                     })
                     .collect();
                 ImgVec::new(rgb, w, h)
@@ -151,9 +151,9 @@ impl PixelData {
                 let rgb: Vec<Rgb<u8>> = buf
                     .iter()
                     .map(|p| Rgb {
-                        r: (p.r >> 8) as u8,
-                        g: (p.g >> 8) as u8,
-                        b: (p.b >> 8) as u8,
+                        r: u16_to_u8(p.r),
+                        g: u16_to_u8(p.g),
+                        b: u16_to_u8(p.b),
                     })
                     .collect();
                 ImgVec::new(rgb, w, h)
@@ -199,9 +199,9 @@ impl PixelData {
 
     /// Convert to RGBA8 by reference, allocating a new buffer.
     ///
-    /// Gray8 is expanded to RGBA with R=G=B=gray, A=255.
-    /// RGB variants get A=255 added.
-    /// Higher-precision formats are clamped/truncated to 8-bit.
+    /// Assumes sRGB-encoded values. 16-bit values are downscaled with
+    /// proper rounding. Float values are clamped to [0.0, 1.0].
+    /// Gray is expanded with R=G=B=gray, A=255. RGB gets A=255 added.
     pub fn to_rgba8(&self) -> ImgVec<Rgba<u8>> {
         match self {
             PixelData::Rgba8(img) => {
@@ -242,7 +242,7 @@ impl PixelData {
                 let rgba: Vec<Rgba<u8>> = buf
                     .iter()
                     .map(|p| {
-                        let v = (p.value() >> 8) as u8;
+                        let v = u16_to_u8(p.value());
                         Rgba {
                             r: v,
                             g: v,
@@ -274,10 +274,10 @@ impl PixelData {
                 let rgba: Vec<Rgba<u8>> = buf
                     .iter()
                     .map(|p| Rgba {
-                        r: (p.r >> 8) as u8,
-                        g: (p.g >> 8) as u8,
-                        b: (p.b >> 8) as u8,
-                        a: (p.a >> 8) as u8,
+                        r: u16_to_u8(p.r),
+                        g: u16_to_u8(p.g),
+                        b: u16_to_u8(p.b),
+                        a: u16_to_u8(p.a),
                     })
                     .collect();
                 ImgVec::new(rgba, w, h)
@@ -287,9 +287,9 @@ impl PixelData {
                 let rgba: Vec<Rgba<u8>> = buf
                     .iter()
                     .map(|p| Rgba {
-                        r: (p.r >> 8) as u8,
-                        g: (p.g >> 8) as u8,
-                        b: (p.b >> 8) as u8,
+                        r: u16_to_u8(p.r),
+                        g: u16_to_u8(p.g),
+                        b: u16_to_u8(p.b),
                         a: 255,
                     })
                     .collect();
@@ -339,11 +339,9 @@ impl PixelData {
 
     /// Convert to Gray8 by reference, allocating a new buffer.
     ///
-    /// Gray8 is returned as-is.
-    /// Gray16 is downscaled to 8-bit.
-    /// RGB variants use BT.601 luminance (0.299*R + 0.587*G + 0.114*B).
-    /// RGBA/BGRA variants use the same luminance, ignoring alpha.
-    /// Higher-precision formats are clamped/truncated to 8-bit first.
+    /// Assumes sRGB-encoded values. 16-bit values are downscaled with
+    /// proper rounding. RGB variants use BT.601 luminance
+    /// (0.299*R + 0.587*G + 0.114*B). RGBA/BGRA ignore alpha.
     pub fn to_gray8(&self) -> ImgVec<Gray<u8>> {
         match self {
             PixelData::Gray8(img) => {
@@ -354,7 +352,7 @@ impl PixelData {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
                 let gray: Vec<Gray<u8>> = buf
                     .iter()
-                    .map(|p| Gray::new((p.value() >> 8) as u8))
+                    .map(|p| Gray::new(u16_to_u8(p.value())))
                     .collect();
                 ImgVec::new(gray, w, h)
             }
@@ -626,6 +624,16 @@ impl core::fmt::Debug for PixelData {
 fn rgb_to_luma(r: u8, g: u8, b: u8) -> u8 {
     // Fixed-point: 0.299*256=77, 0.587*256=150, 0.114*256=29 (sum=256)
     ((77u32 * r as u32 + 150u32 * g as u32 + 29u32 * b as u32) >> 8) as u8
+}
+
+/// Convert 16-bit to 8-bit with proper rounding.
+///
+/// Uses `(v * 255 + 32768) >> 16` which maps 0→0 and 65535→255 exactly,
+/// with correct rounding for intermediate values. Assumes sRGB-encoded data
+/// (i.e. the 16-bit values are in the sRGB transfer curve, not linear light).
+#[inline]
+fn u16_to_u8(v: u16) -> u8 {
+    ((v as u32 * 255 + 32768) >> 16) as u8
 }
 
 #[cfg(test)]
