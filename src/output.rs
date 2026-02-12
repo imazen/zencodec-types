@@ -227,9 +227,46 @@ impl DecodeFrame {
         self.pixels.into_rgba8()
     }
 
+    /// Convert to Gray8, consuming this frame.
+    pub fn into_gray8(self) -> ImgVec<Gray<u8>> {
+        self.pixels.into_gray8()
+    }
+
     /// Convert to BGRA8, consuming this frame.
     pub fn into_bgra8(self) -> ImgVec<BGRA<u8>> {
         self.pixels.into_bgra8()
+    }
+
+    /// Borrow as RGB8 if that's the native format.
+    pub fn as_rgb8(&self) -> Option<imgref::ImgRef<'_, Rgb<u8>>> {
+        match &self.pixels {
+            PixelData::Rgb8(img) => Some(img.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Borrow as RGBA8 if that's the native format.
+    pub fn as_rgba8(&self) -> Option<imgref::ImgRef<'_, Rgba<u8>>> {
+        match &self.pixels {
+            PixelData::Rgba8(img) => Some(img.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Borrow as BGRA8 if that's the native format.
+    pub fn as_bgra8(&self) -> Option<imgref::ImgRef<'_, BGRA<u8>>> {
+        match &self.pixels {
+            PixelData::Bgra8(img) => Some(img.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Borrow as Gray8 if that's the native format.
+    pub fn as_gray8(&self) -> Option<imgref::ImgRef<'_, Gray<u8>>> {
+        match &self.pixels {
+            PixelData::Gray8(img) => Some(img.as_ref()),
+            _ => None,
+        }
     }
 
     /// Frame delay in milliseconds.
