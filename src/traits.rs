@@ -6,6 +6,17 @@
 //!
 //! Individual codecs implement these traits on their config types.
 //! Format-specific settings live on the concrete types, not on the traits.
+//!
+//! # Transfer function conventions
+//!
+//! - **u8 / u16 methods**: Values are in the image's native transfer function
+//!   (typically sRGB gamma). u16 uses the full 0–65535 range regardless of
+//!   source bit depth.
+//! - **f32 methods**: Values are in **linear light** (gamma removed).
+//!
+//! The actual transfer function is indicated by the CICP transfer
+//! characteristics in [`ImageInfo`](crate::ImageInfo). See
+//! [`PixelData`](crate::PixelData) for more details.
 
 use alloc::vec::Vec;
 use imgref::ImgRef;
@@ -239,14 +250,24 @@ pub trait EncodingJob<'a>: Sized {
 
     /// Encode 16-bit RGB pixels.
     ///
+    /// Input is in the image's native transfer function (typically sRGB gamma),
+    /// using the full 0–65535 range. For linear-light input, use
+    /// [`encode_rgb_f32`](EncodingJob::encode_rgb_f32) instead.
+    ///
     /// Codecs without native 16-bit support should dither or truncate to their
     /// native bit depth. Check [`capabilities().native_16bit()`](CodecCapabilities::native_16bit).
     fn encode_rgb16(self, img: ImgRef<'_, Rgb<u16>>) -> Result<EncodeOutput, Self::Error>;
 
     /// Encode 16-bit RGBA pixels.
+    ///
+    /// Input is in the image's native transfer function (typically sRGB gamma).
+    /// See [`encode_rgb16`](EncodingJob::encode_rgb16).
     fn encode_rgba16(self, img: ImgRef<'_, Rgba<u16>>) -> Result<EncodeOutput, Self::Error>;
 
     /// Encode 16-bit grayscale pixels.
+    ///
+    /// Input is in the image's native transfer function (typically sRGB gamma).
+    /// See [`encode_rgb16`](EncodingJob::encode_rgb16).
     fn encode_gray16(self, img: ImgRef<'_, Gray<u16>>) -> Result<EncodeOutput, Self::Error>;
 
     /// Encode 8-bit grayscale + alpha pixels.
@@ -256,6 +277,8 @@ pub trait EncodingJob<'a>: Sized {
     ) -> Result<EncodeOutput, Self::Error>;
 
     /// Encode 16-bit grayscale + alpha pixels.
+    ///
+    /// Input is in the image's native transfer function (typically sRGB gamma).
     fn encode_gray_alpha16(
         self,
         img: ImgRef<'_, GrayAlpha<u16>>,
@@ -288,8 +311,10 @@ pub trait EncodingJob<'a>: Sized {
 
     /// Encode an animation as a sequence of 16-bit RGB frames.
     ///
-    /// Codecs that don't support animation should return an error.
-    /// Codecs without native 16-bit support should dither or truncate.
+    /// Input is in the image's native transfer function (typically sRGB gamma),
+    /// using the full 0–65535 range. Codecs that don't support animation
+    /// should return an error. Codecs without native 16-bit support should
+    /// dither or truncate.
     fn encode_animation_rgb16(
         self,
         frames: &[EncodeFrame<'_, Rgb<u16>>],
@@ -297,6 +322,7 @@ pub trait EncodingJob<'a>: Sized {
 
     /// Encode an animation as a sequence of 16-bit RGBA frames.
     ///
+    /// Input is in the image's native transfer function (typically sRGB gamma).
     /// Codecs that don't support animation should return an error.
     /// Codecs without native 16-bit support should dither or truncate.
     fn encode_animation_rgba16(
@@ -569,6 +595,10 @@ pub trait DecodingJob<'a>: Sized {
 
     /// Decode directly into a caller-provided 16-bit RGB buffer.
     ///
+    /// Output is in the image's native transfer function (typically sRGB gamma),
+    /// using the full 0–65535 range regardless of source bit depth.
+    /// For linear-light output, use [`decode_into_rgb_f32`](DecodingJob::decode_into_rgb_f32).
+    ///
     /// Codecs with native 8-bit output should upscale to 16-bit.
     fn decode_into_rgb16(
         self,
@@ -578,7 +608,8 @@ pub trait DecodingJob<'a>: Sized {
 
     /// Decode directly into a caller-provided 16-bit RGBA buffer.
     ///
-    /// Codecs with native 8-bit output should upscale to 16-bit.
+    /// Output is in the image's native transfer function (typically sRGB gamma).
+    /// See [`decode_into_rgb16`](DecodingJob::decode_into_rgb16).
     fn decode_into_rgba16(
         self,
         data: &[u8],
@@ -587,7 +618,8 @@ pub trait DecodingJob<'a>: Sized {
 
     /// Decode directly into a caller-provided 16-bit grayscale buffer.
     ///
-    /// Codecs with native 8-bit output should upscale to 16-bit.
+    /// Output is in the image's native transfer function (typically sRGB gamma).
+    /// See [`decode_into_rgb16`](DecodingJob::decode_into_rgb16).
     fn decode_into_gray16(
         self,
         data: &[u8],

@@ -31,20 +31,48 @@ impl<T> GrayAlpha<T> {
 ///
 /// The variant determines both the pixel format and precision.
 /// Width and height are embedded in the `ImgVec`.
+///
+/// # Transfer function conventions
+///
+/// - **u8 / u16 variants**: Values are in the image's native transfer function,
+///   typically sRGB gamma. The actual transfer function is indicated by the
+///   CICP transfer characteristics in [`ImageInfo`](crate::ImageInfo). u16 variants
+///   use the full 0–65535 range regardless of source bit depth (e.g. 10-bit
+///   AVIF values are scaled up, not left in 0–1023).
+///
+/// - **f32 variants**: Values are in **linear light** (gamma removed, scene-referred).
+///   Range is [0.0, 1.0] for SDR content. HDR content (PQ/HLG) may exceed 1.0
+///   and the CICP transfer characteristics indicate the original encoding.
+///
+/// Codecs perform the linearization when producing f32 output and the gamma
+/// encoding when producing u8/u16 output. If you need to convert between
+/// gamma-encoded and linear yourself, check the CICP transfer characteristics
+/// in the image metadata.
 #[non_exhaustive]
 pub enum PixelData {
+    /// 8-bit RGB in the image's native transfer function (typically sRGB).
     Rgb8(ImgVec<Rgb<u8>>),
+    /// 8-bit RGBA in the image's native transfer function (typically sRGB).
     Rgba8(ImgVec<Rgba<u8>>),
-    Rgb16(ImgVec<Rgb<u16>>),
-    Rgba16(ImgVec<Rgba<u16>>),
-    RgbF32(ImgVec<Rgb<f32>>),
-    RgbaF32(ImgVec<Rgba<f32>>),
-    Gray8(ImgVec<Gray<u8>>),
-    Gray16(ImgVec<Gray<u16>>),
-    /// 32-bit floating-point grayscale.
+    /// 16-bit RGB in the image's native transfer function (typically sRGB).
     ///
-    /// Used by codecs that decode to float precision (e.g. JPEG XL).
-    /// Values are in [0.0, 1.0] for sRGB-encoded data.
+    /// Full 0–65535 range regardless of source bit depth.
+    Rgb16(ImgVec<Rgb<u16>>),
+    /// 16-bit RGBA in the image's native transfer function (typically sRGB).
+    ///
+    /// Full 0–65535 range regardless of source bit depth.
+    Rgba16(ImgVec<Rgba<u16>>),
+    /// Linear-light RGB f32. See [transfer function conventions](PixelData#transfer-function-conventions).
+    RgbF32(ImgVec<Rgb<f32>>),
+    /// Linear-light RGBA f32. See [transfer function conventions](PixelData#transfer-function-conventions).
+    RgbaF32(ImgVec<Rgba<f32>>),
+    /// 8-bit grayscale in the image's native transfer function.
+    Gray8(ImgVec<Gray<u8>>),
+    /// 16-bit grayscale in the image's native transfer function.
+    ///
+    /// Full 0–65535 range regardless of source bit depth.
+    Gray16(ImgVec<Gray<u16>>),
+    /// Linear-light grayscale f32. See [transfer function conventions](PixelData#transfer-function-conventions).
     GrayF32(ImgVec<Gray<f32>>),
     /// 8-bit BGRA (blue, green, red, alpha byte order).
     ///
@@ -55,8 +83,10 @@ pub enum PixelData {
     /// 8-bit grayscale with alpha channel.
     GrayAlpha8(ImgVec<GrayAlpha<u8>>),
     /// 16-bit grayscale with alpha channel.
+    ///
+    /// Full 0–65535 range regardless of source bit depth.
     GrayAlpha16(ImgVec<GrayAlpha<u16>>),
-    /// 32-bit float grayscale with alpha channel.
+    /// Linear-light grayscale + alpha f32.
     GrayAlphaF32(ImgVec<GrayAlpha<f32>>),
 }
 
