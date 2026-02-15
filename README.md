@@ -143,10 +143,9 @@ Each trait has an associated `type Error: core::error::Error + Send + Sync + 'st
 `PixelData` is a `#[non_exhaustive]` enum over `ImgVec<T>` for each pixel format:
 
 - `Rgb8`, `Rgba8`, `Bgra8`, `Gray8` — 8-bit per channel
-- `Rgb16`, `Rgba16` — 16-bit per channel
-- `GrayAlpha8`, `GrayAlpha16` — grayscale + alpha
-- `Rgba32F` — 32-bit float RGBA
-- `GrayF32` — 32-bit float grayscale
+- `Rgb16`, `Rgba16`, `Gray16` — 16-bit per channel
+- `GrayAlpha8`, `GrayAlpha16`, `GrayAlphaF32` — grayscale + alpha
+- `RgbF32`, `RgbaF32`, `GrayF32` — 32-bit float
 
 Return whichever variant your codec produces natively. Callers use `into_rgb8()`, `into_rgba8()`, `into_gray8()`, etc. for conversion; the conversions handle all variant→target paths.
 

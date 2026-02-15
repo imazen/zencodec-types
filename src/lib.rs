@@ -32,10 +32,10 @@ mod traits;
 
 pub use capabilities::CodecCapabilities;
 pub use format::ImageFormat;
-pub use info::{ImageInfo, ImageMetadata};
+pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageMetadata, MasteringDisplay};
 pub use limits::ResourceLimits;
 pub use orientation::Orientation;
-pub use output::{DecodeFrame, DecodeOutput, EncodeOutput};
+pub use output::{DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput};
 pub use pixel::PixelData;
 pub use traits::{Decoding, DecodingJob, Encoding, EncodingJob};
 
@@ -44,4 +44,5 @@ pub use enough::{Stop, Unstoppable};
 pub use imgref::{Img, ImgRef, ImgRefMut, ImgVec};
 pub use rgb;
 pub use rgb::alt::BGRA as Bgra;
+pub use rgb::alt::GrayAlpha;
 pub use rgb::{Gray, Rgb, Rgba};

@@ -7,14 +7,17 @@
 //! Individual codecs implement these traits on their config types.
 //! Format-specific settings live on the concrete types, not on the traits.
 
+use alloc::vec::Vec;
 use imgref::ImgRef;
-use rgb::alt::BGRA;
+use rgb::alt::{BGRA, GrayAlpha};
 use rgb::{Gray, Rgb, Rgba};
 
 use imgref::ImgRefMut;
 
+use crate::output::EncodeFrame;
 use crate::{
-    CodecCapabilities, DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata, ResourceLimits, Stop,
+    CodecCapabilities, DecodeFrame, DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata,
+    ResourceLimits, Stop,
 };
 
 /// Common interface for encode configurations.
@@ -95,6 +98,61 @@ pub trait Encoding: Sized + Clone + Send + Sync {
     fn encode_gray_f32(&self, img: ImgRef<'_, Gray<f32>>) -> Result<EncodeOutput, Self::Error> {
         self.job().encode_gray_f32(img)
     }
+
+    /// Convenience: encode RGB16 with default job settings.
+    fn encode_rgb16(&self, img: ImgRef<'_, Rgb<u16>>) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_rgb16(img)
+    }
+
+    /// Convenience: encode RGBA16 with default job settings.
+    fn encode_rgba16(&self, img: ImgRef<'_, Rgba<u16>>) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_rgba16(img)
+    }
+
+    /// Convenience: encode Gray16 with default job settings.
+    fn encode_gray16(&self, img: ImgRef<'_, Gray<u16>>) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_gray16(img)
+    }
+
+    /// Convenience: encode GrayAlpha8 with default job settings.
+    fn encode_gray_alpha8(
+        &self,
+        img: ImgRef<'_, GrayAlpha<u8>>,
+    ) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_gray_alpha8(img)
+    }
+
+    /// Convenience: encode GrayAlpha16 with default job settings.
+    fn encode_gray_alpha16(
+        &self,
+        img: ImgRef<'_, GrayAlpha<u16>>,
+    ) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_gray_alpha16(img)
+    }
+
+    /// Convenience: encode linear GrayAlpha f32 with default job settings.
+    fn encode_gray_alpha_f32(
+        &self,
+        img: ImgRef<'_, GrayAlpha<f32>>,
+    ) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_gray_alpha_f32(img)
+    }
+
+    /// Convenience: encode RGB8 animation with default job settings.
+    fn encode_animation_rgb8(
+        &self,
+        frames: &[EncodeFrame<'_, Rgb<u8>>],
+    ) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_animation_rgb8(frames)
+    }
+
+    /// Convenience: encode RGBA8 animation with default job settings.
+    fn encode_animation_rgba8(
+        &self,
+        frames: &[EncodeFrame<'_, Rgba<u8>>],
+    ) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_animation_rgba8(frames)
+    }
 }
 
 /// Per-operation encode job.
@@ -160,6 +218,55 @@ pub trait EncodingJob<'a>: Sized {
     ///
     /// Input is expected in linear light. See [`encode_rgb_f32`](EncodingJob::encode_rgb_f32).
     fn encode_gray_f32(self, img: ImgRef<'_, Gray<f32>>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode 16-bit RGB pixels.
+    ///
+    /// Codecs without native 16-bit support should dither or truncate to their
+    /// native bit depth. Check [`capabilities().native_16bit()`](CodecCapabilities::native_16bit).
+    fn encode_rgb16(self, img: ImgRef<'_, Rgb<u16>>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode 16-bit RGBA pixels.
+    fn encode_rgba16(self, img: ImgRef<'_, Rgba<u16>>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode 16-bit grayscale pixels.
+    fn encode_gray16(self, img: ImgRef<'_, Gray<u16>>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode 8-bit grayscale + alpha pixels.
+    fn encode_gray_alpha8(
+        self,
+        img: ImgRef<'_, GrayAlpha<u8>>,
+    ) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode 16-bit grayscale + alpha pixels.
+    fn encode_gray_alpha16(
+        self,
+        img: ImgRef<'_, GrayAlpha<u16>>,
+    ) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode linear grayscale + alpha f32 pixels.
+    ///
+    /// Input is expected in linear light.
+    fn encode_gray_alpha_f32(
+        self,
+        img: ImgRef<'_, GrayAlpha<f32>>,
+    ) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode an animation as a sequence of RGB8 frames.
+    ///
+    /// Codecs that don't support animation should return an error.
+    /// Check [`capabilities().encode_animation()`](CodecCapabilities::encode_animation).
+    fn encode_animation_rgb8(
+        self,
+        frames: &[EncodeFrame<'_, Rgb<u8>>],
+    ) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode an animation as a sequence of RGBA8 frames.
+    ///
+    /// Codecs that don't support animation should return an error.
+    fn encode_animation_rgba8(
+        self,
+        frames: &[EncodeFrame<'_, Rgba<u8>>],
+    ) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Common interface for decode configurations.
@@ -292,6 +399,11 @@ pub trait Decoding: Sized + Clone + Send + Sync {
         self.job().decode_into_gray_f32(data, dst)
     }
 
+    /// Convenience: decode all animation frames with default job settings.
+    fn decode_animation(&self, data: &[u8]) -> Result<Vec<DecodeFrame>, Self::Error> {
+        self.job().decode_animation(data)
+    }
+
     /// Compute output dimensions/info for this data given current config.
     ///
     /// Unlike [`probe_header()`](Decoding::probe_header) which returns stored
@@ -391,4 +503,13 @@ pub trait DecodingJob<'a>: Sized {
         data: &[u8],
         dst: ImgRefMut<'_, Gray<f32>>,
     ) -> Result<ImageInfo, Self::Error>;
+
+    /// Decode all animation frames.
+    ///
+    /// Returns each frame with its pixel data and duration. For still images,
+    /// returns a single frame with duration 0.
+    ///
+    /// Codecs that don't support animation should return the primary image
+    /// as a single frame. Check [`capabilities().decode_animation()`](CodecCapabilities::decode_animation).
+    fn decode_animation(self, data: &[u8]) -> Result<Vec<DecodeFrame>, Self::Error>;
 }

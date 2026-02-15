@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::any::Any;
-use imgref::ImgVec;
+use imgref::{ImgRef, ImgVec};
 use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
@@ -331,6 +331,34 @@ impl core::fmt::Debug for DecodeFrame {
             .field("pixels", &self.pixels)
             .field("delay_ms", &self.delay_ms)
             .field("index", &self.index)
+            .finish()
+    }
+}
+
+/// A single frame for animation encoding.
+///
+/// Pairs pixel data with a frame duration. Used by
+/// `EncodingJob::encode_animation_*` methods.
+pub struct EncodeFrame<'a, Pixel> {
+    /// The pixel data for this frame.
+    pub image: ImgRef<'a, Pixel>,
+    /// Frame duration in milliseconds.
+    pub duration_ms: u32,
+}
+
+impl<'a, Pixel> EncodeFrame<'a, Pixel> {
+    /// Create a new encode frame.
+    pub fn new(image: ImgRef<'a, Pixel>, duration_ms: u32) -> Self {
+        Self { image, duration_ms }
+    }
+}
+
+impl<Pixel> core::fmt::Debug for EncodeFrame<'_, Pixel> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EncodeFrame")
+            .field("width", &self.image.width())
+            .field("height", &self.image.height())
+            .field("duration_ms", &self.duration_ms)
             .finish()
     }
 }

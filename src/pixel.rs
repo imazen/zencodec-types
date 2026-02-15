@@ -4,7 +4,7 @@
 
 use alloc::vec::Vec;
 use imgref::ImgVec;
-use rgb::alt::BGRA;
+use rgb::alt::{BGRA, GrayAlpha};
 use rgb::{Gray, Rgb, Rgba};
 
 /// Decoded pixel data in a typed buffer.
@@ -32,6 +32,12 @@ pub enum PixelData {
     /// BGRA natively (e.g. zenjpeg, zenwebp) can consume this without
     /// an intermediate channel swizzle.
     Bgra8(ImgVec<BGRA<u8>>),
+    /// 8-bit grayscale with alpha channel.
+    GrayAlpha8(ImgVec<GrayAlpha<u8>>),
+    /// 16-bit grayscale with alpha channel.
+    GrayAlpha16(ImgVec<GrayAlpha<u16>>),
+    /// 32-bit float grayscale with alpha channel.
+    GrayAlphaF32(ImgVec<GrayAlpha<f32>>),
 }
 
 impl PixelData {
@@ -48,6 +54,9 @@ impl PixelData {
             PixelData::Gray16(img) => img.width() as u32,
             PixelData::GrayF32(img) => img.width() as u32,
             PixelData::Bgra8(img) => img.width() as u32,
+            PixelData::GrayAlpha8(img) => img.width() as u32,
+            PixelData::GrayAlpha16(img) => img.width() as u32,
+            PixelData::GrayAlphaF32(img) => img.width() as u32,
         }
     }
 
@@ -64,6 +73,9 @@ impl PixelData {
             PixelData::Gray16(img) => img.height() as u32,
             PixelData::GrayF32(img) => img.height() as u32,
             PixelData::Bgra8(img) => img.height() as u32,
+            PixelData::GrayAlpha8(img) => img.height() as u32,
+            PixelData::GrayAlpha16(img) => img.height() as u32,
+            PixelData::GrayAlphaF32(img) => img.height() as u32,
         }
     }
 
@@ -75,6 +87,9 @@ impl PixelData {
                 | PixelData::Rgba16(_)
                 | PixelData::RgbaF32(_)
                 | PixelData::Bgra8(_)
+                | PixelData::GrayAlpha8(_)
+                | PixelData::GrayAlpha16(_)
+                | PixelData::GrayAlphaF32(_)
         )
     }
 
@@ -190,6 +205,39 @@ impl PixelData {
                         r: p.r,
                         g: p.g,
                         b: p.b,
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::GrayAlpha8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<u8>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.v;
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::GrayAlpha16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<u8>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = u16_to_u8(p.v);
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::GrayAlphaF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<u8>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = (p.v.clamp(0.0, 1.0) * 255.0) as u8;
+                        Rgb { r: v, g: v, b: v }
                     })
                     .collect();
                 ImgVec::new(rgb, w, h)
@@ -334,6 +382,45 @@ impl PixelData {
                     .collect();
                 ImgVec::new(rgba, w, h)
             }
+            PixelData::GrayAlpha8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<u8>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: p.v,
+                        g: p.v,
+                        b: p.v,
+                        a: p.a,
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::GrayAlpha16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<u8>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: u16_to_u8(p.v),
+                        g: u16_to_u8(p.v),
+                        b: u16_to_u8(p.v),
+                        a: u16_to_u8(p.a),
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::GrayAlphaF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<u8>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: (p.v.clamp(0.0, 1.0) * 255.0) as u8,
+                        g: (p.v.clamp(0.0, 1.0) * 255.0) as u8,
+                        b: (p.v.clamp(0.0, 1.0) * 255.0) as u8,
+                        a: (p.a.clamp(0.0, 1.0) * 255.0) as u8,
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
         }
     }
 
@@ -385,6 +472,24 @@ impl PixelData {
                 let gray: Vec<Gray<u8>> = buf
                     .iter()
                     .map(|p| Gray::new((p.value().clamp(0.0, 1.0) * 255.0) as u8))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::GrayAlpha8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf.iter().map(|p| Gray::new(p.v)).collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::GrayAlpha16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf.iter().map(|p| Gray::new(u16_to_u8(p.v))).collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::GrayAlphaF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<u8>> = buf
+                    .iter()
+                    .map(|p| Gray::new((p.v.clamp(0.0, 1.0) * 255.0) as u8))
                     .collect();
                 ImgVec::new(gray, w, h)
             }
@@ -523,6 +628,40 @@ impl PixelData {
                         r: p.r as f32 / 255.0,
                         g: p.g as f32 / 255.0,
                         b: p.b as f32 / 255.0,
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::GrayAlpha8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.v as f32 / 255.0;
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::GrayAlpha16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.v as f32 / 65535.0;
+                        Rgb { r: v, g: v, b: v }
+                    })
+                    .collect();
+                ImgVec::new(rgb, w, h)
+            }
+            PixelData::GrayAlphaF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgb: Vec<Rgb<f32>> = buf
+                    .iter()
+                    .map(|p| Rgb {
+                        r: p.v,
+                        g: p.v,
+                        b: p.v,
                     })
                     .collect();
                 ImgVec::new(rgb, w, h)
@@ -675,6 +814,51 @@ impl PixelData {
                     .collect();
                 ImgVec::new(rgba, w, h)
             }
+            PixelData::GrayAlpha8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.v as f32 / 255.0;
+                        Rgba {
+                            r: v,
+                            g: v,
+                            b: v,
+                            a: p.a as f32 / 255.0,
+                        }
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::GrayAlpha16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| {
+                        let v = p.v as f32 / 65535.0;
+                        Rgba {
+                            r: v,
+                            g: v,
+                            b: v,
+                            a: p.a as f32 / 65535.0,
+                        }
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
+            PixelData::GrayAlphaF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let rgba: Vec<Rgba<f32>> = buf
+                    .iter()
+                    .map(|p| Rgba {
+                        r: p.v,
+                        g: p.v,
+                        b: p.v,
+                        a: p.a,
+                    })
+                    .collect();
+                ImgVec::new(rgba, w, h)
+            }
         }
     }
 
@@ -712,6 +896,25 @@ impl PixelData {
                     .iter()
                     .map(|p| Gray::new(p.value() as f32 / 65535.0))
                     .collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::GrayAlpha8(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<f32>> =
+                    buf.iter().map(|p| Gray::new(p.v as f32 / 255.0)).collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::GrayAlpha16(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<f32>> = buf
+                    .iter()
+                    .map(|p| Gray::new(p.v as f32 / 65535.0))
+                    .collect();
+                ImgVec::new(gray, w, h)
+            }
+            PixelData::GrayAlphaF32(img) => {
+                let (buf, w, h) = img.as_ref().to_contiguous_buf();
+                let gray: Vec<Gray<f32>> = buf.iter().map(|p| Gray::new(p.v)).collect();
                 ImgVec::new(gray, w, h)
             }
             other => {
@@ -868,6 +1071,18 @@ impl PixelData {
                 let (buf, _, _) = img.as_ref().to_contiguous_buf();
                 buf.as_bytes().to_vec()
             }
+            PixelData::GrayAlpha8(img) => {
+                let (buf, _, _) = img.as_ref().to_contiguous_buf();
+                buf.as_bytes().to_vec()
+            }
+            PixelData::GrayAlpha16(img) => {
+                let (buf, _, _) = img.as_ref().to_contiguous_buf();
+                buf.as_bytes().to_vec()
+            }
+            PixelData::GrayAlphaF32(img) => {
+                let (buf, _, _) = img.as_ref().to_contiguous_buf();
+                buf.as_bytes().to_vec()
+            }
         }
     }
 }
@@ -885,6 +1100,9 @@ impl core::fmt::Debug for PixelData {
             PixelData::Gray16(_) => "Gray16",
             PixelData::GrayF32(_) => "GrayF32",
             PixelData::Bgra8(_) => "Bgra8",
+            PixelData::GrayAlpha8(_) => "GrayAlpha8",
+            PixelData::GrayAlpha16(_) => "GrayAlpha16",
+            PixelData::GrayAlphaF32(_) => "GrayAlphaF32",
         };
         write!(
             f,
@@ -1386,6 +1604,61 @@ mod tests {
     }
 
     // --- Debug ---
+
+    // --- GrayAlpha conversions ---
+
+    #[test]
+    fn gray_alpha8_has_alpha() {
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(128, 200); 4], 2, 2));
+        assert!(data.has_alpha());
+        assert_eq!(data.width(), 2);
+        assert_eq!(data.height(), 2);
+    }
+
+    #[test]
+    fn gray_alpha8_to_rgba8() {
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(128, 200); 1], 1, 1));
+        let rgba = data.to_rgba8();
+        let px = &rgba.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (128, 128, 128, 200));
+    }
+
+    #[test]
+    fn gray_alpha8_to_rgb8() {
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(200u8, 50); 1], 1, 1));
+        let rgb = data.to_rgb8();
+        let px = &rgb.buf()[0];
+        assert_eq!((px.r, px.g, px.b), (200, 200, 200));
+    }
+
+    #[test]
+    fn gray_alpha8_to_gray8() {
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(42u8, 255); 1], 1, 1));
+        let gray = data.to_gray8();
+        assert_eq!(gray.buf()[0].value(), 42);
+    }
+
+    #[test]
+    fn gray_alpha16_to_rgba8() {
+        let data = PixelData::GrayAlpha16(ImgVec::new(vec![GrayAlpha(65535u16, 32768); 1], 1, 1));
+        let rgba = data.to_rgba8();
+        let px = &rgba.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (255, 255, 255, 128));
+    }
+
+    #[test]
+    fn gray_alpha_f32_to_rgba8() {
+        let data = PixelData::GrayAlphaF32(ImgVec::new(vec![GrayAlpha(0.5f32, 0.75); 1], 1, 1));
+        let rgba = data.to_rgba8();
+        let px = &rgba.buf()[0];
+        assert_eq!((px.r, px.g, px.b, px.a), (127, 127, 127, 191));
+    }
+
+    #[test]
+    fn gray_alpha_debug() {
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(0u8, 0); 6], 3, 2));
+        assert_eq!(alloc::format!("{:?}", data), "PixelData::GrayAlpha8(3x2)");
+    }
 
     #[test]
     fn debug_format() {

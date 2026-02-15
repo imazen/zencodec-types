@@ -39,6 +39,13 @@ pub struct CodecCapabilities {
     decode_cancel: bool,
     native_gray: bool,
     cheap_probe: bool,
+    encode_animation: bool,
+    decode_animation: bool,
+    native_16bit: bool,
+    lossless: bool,
+    hdr: bool,
+    encode_cicp: bool,
+    decode_cicp: bool,
 }
 
 impl Default for CodecCapabilities {
@@ -61,6 +68,13 @@ impl CodecCapabilities {
             decode_cancel: false,
             native_gray: false,
             cheap_probe: false,
+            encode_animation: false,
+            decode_animation: false,
+            native_16bit: false,
+            lossless: false,
+            hdr: false,
+            encode_cicp: false,
+            decode_cicp: false,
         }
     }
 
@@ -112,6 +126,43 @@ impl CodecCapabilities {
     /// Whether `probe_header` is cheap (header parse only, not a full decode).
     pub const fn cheap_probe(&self) -> bool {
         self.cheap_probe
+    }
+
+    /// Whether the codec supports encoding animation (multiple frames).
+    pub const fn encode_animation(&self) -> bool {
+        self.encode_animation
+    }
+
+    /// Whether the codec supports decoding animation (multiple frames).
+    pub const fn decode_animation(&self) -> bool {
+        self.decode_animation
+    }
+
+    /// Whether the codec supports 16-bit per channel natively (without
+    /// dithering/truncating to 8-bit internally).
+    pub const fn native_16bit(&self) -> bool {
+        self.native_16bit
+    }
+
+    /// Whether the codec supports mathematically lossless encoding.
+    pub const fn lossless(&self) -> bool {
+        self.lossless
+    }
+
+    /// Whether the codec supports HDR content (wide gamut, high bit depth,
+    /// PQ/HLG transfer functions, HDR metadata).
+    pub const fn hdr(&self) -> bool {
+        self.hdr
+    }
+
+    /// Whether the encoder embeds CICP color description from `with_metadata`.
+    pub const fn encode_cicp(&self) -> bool {
+        self.encode_cicp
+    }
+
+    /// Whether the decoder extracts CICP color description into `ImageInfo`.
+    pub const fn decode_cicp(&self) -> bool {
+        self.decode_cicp
     }
 
     // --- const builder methods for static construction ---
@@ -175,6 +226,48 @@ impl CodecCapabilities {
         self.cheap_probe = v;
         self
     }
+
+    /// Set animation encoding support.
+    pub const fn with_encode_animation(mut self, v: bool) -> Self {
+        self.encode_animation = v;
+        self
+    }
+
+    /// Set animation decoding support.
+    pub const fn with_decode_animation(mut self, v: bool) -> Self {
+        self.decode_animation = v;
+        self
+    }
+
+    /// Set native 16-bit support.
+    pub const fn with_native_16bit(mut self, v: bool) -> Self {
+        self.native_16bit = v;
+        self
+    }
+
+    /// Set lossless encoding support.
+    pub const fn with_lossless(mut self, v: bool) -> Self {
+        self.lossless = v;
+        self
+    }
+
+    /// Set HDR support.
+    pub const fn with_hdr(mut self, v: bool) -> Self {
+        self.hdr = v;
+        self
+    }
+
+    /// Set CICP embed support on encode.
+    pub const fn with_encode_cicp(mut self, v: bool) -> Self {
+        self.encode_cicp = v;
+        self
+    }
+
+    /// Set CICP extraction support on decode.
+    pub const fn with_decode_cicp(mut self, v: bool) -> Self {
+        self.decode_cicp = v;
+        self
+    }
 }
 
 impl core::fmt::Debug for CodecCapabilities {
@@ -190,6 +283,13 @@ impl core::fmt::Debug for CodecCapabilities {
             .field("decode_cancel", &self.decode_cancel)
             .field("native_gray", &self.native_gray)
             .field("cheap_probe", &self.cheap_probe)
+            .field("encode_animation", &self.encode_animation)
+            .field("decode_animation", &self.decode_animation)
+            .field("native_16bit", &self.native_16bit)
+            .field("lossless", &self.lossless)
+            .field("hdr", &self.hdr)
+            .field("encode_cicp", &self.encode_cicp)
+            .field("decode_cicp", &self.decode_cicp)
             .finish()
     }
 }
@@ -211,6 +311,13 @@ mod tests {
         assert!(!caps.decode_cancel());
         assert!(!caps.native_gray());
         assert!(!caps.cheap_probe());
+        assert!(!caps.encode_animation());
+        assert!(!caps.decode_animation());
+        assert!(!caps.native_16bit());
+        assert!(!caps.lossless());
+        assert!(!caps.hdr());
+        assert!(!caps.encode_cicp());
+        assert!(!caps.decode_cicp());
     }
 
     #[test]
@@ -219,12 +326,20 @@ mod tests {
             .with_encode_icc(true)
             .with_decode_cancel(true)
             .with_native_gray(true)
-            .with_cheap_probe(true);
+            .with_cheap_probe(true)
+            .with_encode_animation(true)
+            .with_native_16bit(true)
+            .with_hdr(true);
         assert!(caps.encode_icc());
         assert!(!caps.encode_exif());
         assert!(caps.decode_cancel());
         assert!(caps.native_gray());
         assert!(caps.cheap_probe());
+        assert!(caps.encode_animation());
+        assert!(!caps.decode_animation());
+        assert!(caps.native_16bit());
+        assert!(!caps.lossless());
+        assert!(caps.hdr());
     }
 
     #[test]
@@ -234,9 +349,19 @@ mod tests {
             .with_encode_exif(true)
             .with_encode_xmp(true)
             .with_encode_cancel(true)
-            .with_decode_cancel(true);
+            .with_decode_cancel(true)
+            .with_encode_animation(true)
+            .with_decode_animation(true)
+            .with_lossless(true)
+            .with_encode_cicp(true)
+            .with_decode_cicp(true);
         assert!(CAPS.encode_icc());
         assert!(CAPS.encode_cancel());
         assert!(!CAPS.native_gray());
+        assert!(CAPS.encode_animation());
+        assert!(CAPS.decode_animation());
+        assert!(CAPS.lossless());
+        assert!(CAPS.encode_cicp());
+        assert!(CAPS.decode_cicp());
     }
 }
