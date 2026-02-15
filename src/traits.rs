@@ -291,14 +291,15 @@ pub trait EncodeJob<'a>: Sized {
     fn frame_encoder(self) -> Result<Self::FrameEncoder, Self::Error>;
 }
 
-/// Single-image encode: one-shot or row-level push.
+/// Single-image encode: one-shot, row-level push, or pull-from-source.
 ///
-/// Two mutually exclusive usage paths:
+/// Three mutually exclusive usage paths:
 /// - [`encode()`](Encoder::encode) — all at once, consumes self
-/// - [`push_rows()`](Encoder::push_rows) + [`finish()`](Encoder::finish) — incremental
+/// - [`push_rows()`](Encoder::push_rows) + [`finish()`](Encoder::finish) — caller pushes rows
+/// - [`encode_from()`](Encoder::encode_from) — encoder pulls rows from a callback
 ///
 /// Codecs that need full-frame data (e.g. AV1) may buffer internally
-/// when rows are pushed incrementally.
+/// when rows are pushed or pulled incrementally.
 pub trait Encoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
@@ -313,15 +314,31 @@ pub trait Encoder: Sized {
 
     /// Finalize after push_rows. Returns encoded output.
     fn finish(self) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode by pulling rows from a source callback.
+    ///
+    /// The encoder calls `source` repeatedly with the row index and a
+    /// mutable buffer slice. The callback fills the buffer with pixel data
+    /// for the requested rows and returns the number of rows written.
+    /// Returns `0` to signal end of image.
+    ///
+    /// This is useful when pixel data is generated on-the-fly or comes
+    /// from a source that produces rows in order (e.g., a render pipeline).
+    fn encode_from(
+        self,
+        source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
+    ) -> Result<EncodeOutput, Self::Error>;
 }
 
-/// Animation encode: push complete frames or build frames row-by-row.
+/// Animation encode: push complete frames, build frames row-by-row, or
+/// pull rows from a source.
 ///
-/// Two mutually exclusive per-frame paths:
+/// Three mutually exclusive per-frame paths:
 /// - [`push_frame()`](FrameEncoder::push_frame) — complete frame at once
 /// - [`begin_frame()`](FrameEncoder::begin_frame) +
 ///   [`push_rows()`](FrameEncoder::push_rows) +
-///   [`end_frame()`](FrameEncoder::end_frame) — row-level within a frame
+///   [`end_frame()`](FrameEncoder::end_frame) — caller pushes rows
+/// - [`pull_frame()`](FrameEncoder::pull_frame) — encoder pulls rows from a callback
 pub trait FrameEncoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
@@ -337,6 +354,17 @@ pub trait FrameEncoder: Sized {
 
     /// End the current frame (after pushing all rows).
     fn end_frame(&mut self) -> Result<(), Self::Error>;
+
+    /// Encode a frame by pulling rows from a source callback.
+    ///
+    /// The encoder calls `source` repeatedly with the row index and a
+    /// mutable buffer slice. The callback fills the buffer and returns the
+    /// number of rows written. Returns `0` to signal end of frame.
+    fn pull_frame(
+        &mut self,
+        duration_ms: u32,
+        source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
+    ) -> Result<(), Self::Error>;
 
     /// Finalize animation. Returns encoded output.
     fn finish(self) -> Result<EncodeOutput, Self::Error>;
@@ -590,7 +618,7 @@ pub trait Decoder: Sized {
     ) -> Result<ImageInfo, Self::Error>;
 }
 
-/// Streaming animation decode: pull frames.
+/// Streaming animation decode: pull frames or push rows via callback.
 pub trait FrameDecoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
@@ -601,4 +629,14 @@ pub trait FrameDecoder: Sized {
     /// Pull next frame into caller buffer. Returns `None` when done.
     fn next_frame_into(&mut self, dst: PixelSliceMut<'_>)
     -> Result<Option<ImageInfo>, Self::Error>;
+
+    /// Decode next frame, pushing rows to a callback as they become available.
+    /// Returns `None` when there are no more frames.
+    ///
+    /// For codecs that need full-frame decode (AV1), all rows arrive at once.
+    /// For streaming codecs (JPEG, PNG), rows arrive incrementally.
+    fn next_frame_rows(
+        &mut self,
+        sink: &mut dyn FnMut(u32, PixelSlice<'_>),
+    ) -> Result<Option<ImageInfo>, Self::Error>;
 }

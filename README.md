@@ -18,7 +18,7 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 ## What's in this crate
 
-**Traits** — `Encoding`, `EncodingJob`, `Decoding`, `DecodingJob`
+**Traits** — `EncoderConfig`, `EncodeJob`, `Encoder`, `FrameEncoder`, `DecoderConfig`, `DecodeJob`, `Decoder`, `FrameDecoder`
 
 **Pixel data** — `PixelData` (typed enum over `ImgVec<T>`), `GrayAlpha<T>`
 
@@ -26,34 +26,125 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 **Image metadata** — `ImageInfo`, `ImageMetadata`, `Cicp`, `ContentLightLevel`, `MasteringDisplay`, `Orientation`
 
-**I/O types** — `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `EncodeFrame`
+**I/O types** — `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `EncodeFrame`, `TypedEncodeFrame`
 
 **Discovery** — `ImageFormat` (magic-byte detection), `CodecCapabilities` (17 feature flags), `ResourceLimits`
 
 **Re-exports** — `imgref`, `rgb`, `enough` (for `Stop`/`Unstoppable`)
 
-## Architecture: Config/Job pattern
+## Architecture: Config → Job → Encoder/Decoder
 
-Codecs use a two-level pattern: **Config** types implement `Encoding`/`Decoding`, and **Job** types implement `EncodingJob`/`DecodingJob`.
+Codecs use a four-level pattern:
 
-Config types are reusable, `Clone + Send + Sync`, and have no lifetimes. They hold format-specific settings (quality, effort, lossless mode) as methods on the concrete type — the trait doesn't touch those. You can store configs in structs, share them across threads, and create multiple jobs from one config.
+```text
+                              ┌→ Encoder (one-shot, row-push, or pull-from-source)
+EncoderConfig → EncodeJob<'a> ┤
+                              └→ FrameEncoder (animation: push frames, row-by-row, or pull)
 
-Job types are per-operation. They borrow temporary data (stop tokens, metadata) via the `'a` lifetime and are consumed by terminal encode/decode methods.
+                              ┌→ Decoder (one-shot, decode-into, or row callback)
+DecoderConfig → DecodeJob<'a> ┤
+                              └→ FrameDecoder (animation: pull frames, or row callback)
+```
+
+**Config** types (`EncoderConfig`, `DecoderConfig`) are reusable, `Clone + Send + Sync`, and have no lifetimes. They hold format-specific settings (quality, effort, lossless mode) as methods on the concrete type — the traits don't touch those. You can store configs in structs, share them across threads, and create multiple jobs from one config.
+
+**Job** types (`EncodeJob`, `DecodeJob`) are per-operation. They borrow temporary data (stop tokens, metadata, resource limits) via a `'a` lifetime and produce an executor.
+
+**Executor** types (`Encoder`/`FrameEncoder`, `Decoder`/`FrameDecoder`) run the actual encode/decode. Single-image executors are consumed by one-shot methods. Animation executors are mutable and produce/consume frames iteratively.
 
 ```rust
-use zenjpeg::{JpegEncoder, JpegDecoder};
-use zencodec_types::{Encoding, Decoding, ResourceLimits};
+use zenjpeg::{JpegEncoderConfig, JpegDecoderConfig};
+use zencodec_types::{EncoderConfig, DecoderConfig, ResourceLimits};
 
 // Config: set format-specific options on the concrete type
-let encoder = JpegEncoder::new()
+let config = JpegEncoderConfig::new()
     .with_quality(85.0)
     .with_limits(ResourceLimits::none().with_max_pixels(100_000_000));
 
-// Job: attach per-operation data, then execute
-let output = encoder.job()
+// One-shot convenience: encode directly from config
+let output = config.encode_rgb8(img.as_ref())?;
+
+// Full pipeline: config → job → encoder → encode
+let output = config.job()
     .with_metadata(&metadata)
     .with_stop(&stop_token)
-    .encode_rgb8(img.as_ref())?;
+    .encoder()
+    .encode(PixelSlice::from(img.as_ref()))?;
+```
+
+### Encode paths
+
+```rust
+// One-shot encode (typed convenience)
+config.encode_rgb8(img)?;
+
+// One-shot encode (format-erased)
+config.job().encoder().encode(PixelSlice::from(img))?;
+
+// Row-level push: caller sends rows
+let mut enc = config.job().with_metadata(&meta).encoder();
+enc.push_rows(rows_0_to_63)?;
+enc.push_rows(rows_64_to_127)?;
+let output = enc.finish()?;
+
+// Pull-from-source: encoder requests rows via callback
+let output = config.job().encoder().encode_from(&mut |row_idx, buf| {
+    fill_rows(row_idx, buf)  // return number of rows written, 0 = done
+})?;
+
+// Animation: push complete frames
+let mut enc = config.job().frame_encoder()?;
+enc.push_frame(PixelSlice::from(frame1), 100)?;
+enc.push_frame(PixelSlice::from(frame2), 100)?;
+let output = enc.finish()?;
+
+// Animation: build frames row-by-row
+let mut enc = config.job().frame_encoder()?;
+enc.begin_frame(100)?;
+enc.push_rows(rows)?;
+enc.end_frame()?;
+let output = enc.finish()?;
+
+// Animation: pull rows per frame from callback
+let mut enc = config.job().frame_encoder()?;
+enc.pull_frame(100, &mut |row_idx, buf| fill_rows(row_idx, buf))?;
+let output = enc.finish()?;
+```
+
+### Decode paths
+
+```rust
+// One-shot decode (typed convenience)
+let output = config.decode(data)?;
+
+// Decode into caller buffer
+let mut buf = PixelBuffer::new(w, h, PixelDescriptor::RGBA8_SRGB)?;
+config.job().decoder().decode_into(data, buf.as_mut_slice())?;
+
+// Row-level callback: decoder pushes rows as they're available
+config.job().decoder().decode_rows(data, &mut |row_idx, row| {
+    process_row(row_idx, row);
+})?;
+
+// Animation: pull complete frames
+let mut dec = config.job().frame_decoder(data)?;
+while let Some(frame) = dec.next_frame()? {
+    process(frame);
+}
+
+// Animation: pull frames into caller buffer
+let mut dec = config.job().frame_decoder(data)?;
+while let Some(info) = dec.next_frame_into(buf.as_mut_slice())? {
+    process_buffer(&buf, &info);
+}
+
+// Animation: row-level callback per frame
+let mut dec = config.job().frame_decoder(data)?;
+while let Some(info) = dec.next_frame_rows(&mut |row_idx, row| {
+    process_row(row_idx, row);
+})? {
+    on_frame_complete(&info);
+}
 ```
 
 ## Opaque pixel buffers
@@ -64,7 +155,7 @@ let output = encoder.job()
 
 **`PixelBuffer`** is an owned `Vec<u8>` with dimensions, stride, and descriptor. Allocate with `new()`, wrap a pool vec with `from_vec()`, recover it with `into_vec()`. Supports row access, sub-row slicing, and zero-copy crop views.
 
-**`PixelSlice<'a>`** / **`PixelSliceMut<'a>`** are borrowed views with the same row/crop API. Zero-copy `From<ImgRef<T>>` impls exist for all 10 rgb-crate pixel types.
+**`PixelSlice<'a>`** / **`PixelSliceMut<'a>`** are borrowed views with the same row/crop API. Zero-copy `From<ImgRef<T>>` and `From<ImgRefMut<T>>` impls exist for all 10 rgb-crate pixel types.
 
 Conversions between `PixelData` and `PixelBuffer` always copy (no `unsafe` needed):
 
@@ -79,6 +170,9 @@ let data = PixelData::try_from(buf)?;
 
 // ImgRef → PixelSlice (zero-copy)
 let slice = PixelSlice::from(img.as_ref());
+
+// ImgRefMut → PixelSliceMut (zero-copy)
+let slice_mut = PixelSliceMut::from(img.as_mut());
 ```
 
 ### Transfer function conventions
@@ -92,13 +186,22 @@ The actual transfer function is recorded in `PixelDescriptor::transfer` and in `
 
 This section documents the contract that codec implementations must satisfy. If you're writing a new zen\* codec, read this carefully.
 
-### Required trait bounds
+### Trait hierarchy
 
-Both `Encoding` and `Decoding` require `Sized + Clone + Send + Sync`. Your config types must be safe to share across threads. Job types do not have these bounds (they borrow `&'a` data from config and per-call arguments).
+Each side (encode/decode) has four traits:
+
+| Trait | Role | Bounds |
+|-------|------|--------|
+| `EncoderConfig` / `DecoderConfig` | Reusable config, typed convenience methods | `Clone + Send + Sync` |
+| `EncodeJob<'a>` / `DecodeJob<'a>` | Per-operation setup (stop, metadata, limits) | `Sized` |
+| `Encoder` / `Decoder` | Single-image execution | `Sized` |
+| `FrameEncoder` / `FrameDecoder` | Animation execution | `Sized` |
+
+Config types create jobs. Jobs create executors. Executors run the codec.
 
 ### `capabilities()` — declare what you support
 
-Both traits require a `fn capabilities() -> &'static CodecCapabilities` method. This returns a static reference describing what the codec actually supports.
+Both config traits require a `fn capabilities() -> &'static CodecCapabilities` method. This returns a static reference describing what the codec supports.
 
 ```rust
 use zencodec_types::CodecCapabilities;
@@ -109,7 +212,7 @@ static ENCODE_CAPS: CodecCapabilities = CodecCapabilities::new()
     .with_encode_cancel(true)
     .with_cheap_probe(true);
 
-impl Encoding for MyEncoder {
+impl EncoderConfig for MyEncoder {
     fn capabilities() -> &'static CodecCapabilities { &ENCODE_CAPS }
     // ...
 }
@@ -154,25 +257,63 @@ fn probe_full(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
 
 Takes `ResourceLimits` by value (it's `Copy`). Codecs store limits and enforce what they can — not every codec supports every limit type. The limits your codec doesn't enforce are silently ignored; callers check `capabilities()` to know what's enforced.
 
-This method appears on all four traits: `Encoding`, `Decoding`, `EncodingJob`, and `DecodingJob`. The job-level override takes precedence over the config-level setting.
+This method appears on both config traits and both job traits. The job-level override takes precedence over the config-level setting.
 
 ### `with_stop()` and cooperative cancellation
 
-`EncodingJob::with_stop()` and `DecodingJob::with_stop()` accept a `&'a dyn Stop` token. If your codec supports cancellation, periodically call `stop.check()` during encode/decode and return an error if it signals cancellation.
+`EncodeJob::with_stop()` and `DecodeJob::with_stop()` accept a `&'a dyn Stop` token. If your codec supports cancellation, periodically call `stop.check()` during encode/decode and return an error if it signals cancellation.
 
 If cancellation isn't feasible for your codec (or for one side — encode vs decode), accept the token but don't check it, and set `encode_cancel: false` or `decode_cancel: false` in capabilities.
 
 ### `with_metadata()` and metadata handling
 
-`EncodingJob::with_metadata()` receives an `ImageMetadata<'a>` with optional ICC, EXIF, and XMP data. Embed whatever your format supports. Metadata types that the format can't represent are silently skipped — but `capabilities()` must accurately reflect what gets embedded.
+`EncodeJob::with_metadata()` receives an `ImageMetadata<'a>` with optional ICC, EXIF, and XMP data. Embed whatever your format supports. Metadata types that the format can't represent are silently skipped — but `capabilities()` must accurately reflect what gets embedded.
+
+### Encoder trait — three paths
+
+The `Encoder` trait provides three mutually exclusive usage paths:
+
+1. **`encode(self, pixels)`** — one-shot, consumes the encoder
+2. **`push_rows(&mut self, rows)` + `finish(self)`** — caller pushes rows incrementally
+3. **`encode_from(self, source)`** — encoder pulls rows from a callback
+
+Codecs that need full-frame data (e.g. AV1) may buffer internally for paths 2 and 3.
+
+### FrameEncoder trait — three per-frame paths
+
+The `FrameEncoder` trait provides three mutually exclusive per-frame paths:
+
+1. **`push_frame(&mut self, pixels, duration_ms)`** — complete frame at once
+2. **`begin_frame()` + `push_rows()` + `end_frame()`** — build frame row-by-row
+3. **`pull_frame(&mut self, duration_ms, source)`** — encoder pulls rows from callback
+
+Call `finish(self)` after all frames are written.
+
+### Decoder trait — three paths
+
+The `Decoder` trait provides three options:
+
+1. **`decode(self, data)`** — returns owned `DecodeOutput` (codec picks native format)
+2. **`decode_into(self, data, dst)`** — decode into a caller-provided `PixelSliceMut`
+3. **`decode_rows(self, data, sink)`** — decoder pushes rows to a callback
+
+### FrameDecoder trait — three per-frame paths
+
+The `FrameDecoder` trait provides three options per frame:
+
+1. **`next_frame(&mut self)`** — pull a complete `DecodeFrame`
+2. **`next_frame_into(&mut self, dst)`** — pull frame into caller buffer
+3. **`next_frame_rows(&mut self, sink)`** — decoder pushes rows to callback
+
+All return `None` when there are no more frames.
 
 ### `encode_bgra8()` and `encode_bgrx8()` — default swizzle
 
-The trait provides default implementations that swizzle BGRA→RGBA and BGRX→RGB, then delegate to `encode_rgba8()` / `encode_rgb8()`. If your codec handles BGRA natively (common with platform APIs), override these for zero-copy.
+The `EncoderConfig` trait provides default implementations that route through `PixelSlice::from()`. If your codec handles BGRA natively, override these on the config or encoder for zero-copy.
 
 ### `decode_into_*()` — zero-copy decode path
 
-The trait provides default implementations that decode, convert, and copy row-by-row. If your codec can decode directly into a caller-provided buffer, override these methods. Callers should use `decode_info()` to determine the required buffer dimensions.
+The `DecoderConfig` trait provides default implementations that route through `Decoder::decode_into()`. If your codec can decode directly into a caller-provided buffer, override `Decoder::decode_into()`. Callers should use `decode_info()` to determine the required buffer dimensions.
 
 ### Error types
 
@@ -187,25 +328,25 @@ Each trait has an associated `type Error: core::error::Error + Send + Sync + 'st
 - `GrayAlpha8`, `GrayAlpha16`, `GrayAlphaF32` — grayscale + alpha
 - `RgbF32`, `RgbaF32`, `GrayF32` — 32-bit float
 
-Return whichever variant your codec produces natively. Callers use `into_rgb8()`, `into_rgba8()`, `into_gray8()`, etc. for conversion; the conversions handle all variant→target paths. The `descriptor()` method returns the matching `PixelDescriptor` for any variant.
+Return whichever variant your codec produces natively. Callers use `into_rgb8()`, `into_rgba8()`, `into_gray8()`, etc. for conversion; the conversions handle all variant-to-target paths. The `descriptor()` method returns the matching `PixelDescriptor` for any variant.
 
-The 16→8 bit conversions use `(v * 255 + 32768) >> 16` for proper rounding. All conversions assume sRGB; no linearization is performed.
+The 16-to-8 bit conversions use `(v * 255 + 32768) >> 16` for proper rounding. All conversions assume sRGB; no linearization is performed.
 
 For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(pixel_data)` and work with raw byte rows instead of matching variants.
 
 ### Checklist for a new codec
 
-1. Define your config types (e.g., `MyEncoder`, `MyDecoder`) implementing `Clone + Send + Sync`
+1. Define your config types (e.g., `MyEncoderConfig`, `MyDecoderConfig`) implementing `Clone + Send + Sync`
 2. Define your job types with a `'a` lifetime for borrowed data
-3. Implement `Encoding`/`Decoding` on config types with GATs: `type Job<'a> = MyEncodeJob<'a> where Self: 'a`
-4. Define `static` `CodecCapabilities` for encode and decode (they can differ)
-5. Implement `probe_header()` — must be O(header). Override `probe_full()` only if needed.
-6. Implement `with_limits()` on all four traits (config and job level)
-7. Implement `with_stop()` and `with_metadata()` on job types
-8. Implement `encode_rgb8()`, `encode_rgba8()`, `encode_gray8()` at minimum
-9. Implement `decode()` returning the most natural `PixelData` variant for your format
-10. Override `encode_bgra8()`/`encode_bgrx8()` if your codec handles BGRA natively
-11. Override `decode_into_*()` if your codec can write directly to a caller buffer
+3. Define your executor types (`MyEncoder`, `MyFrameEncoder`, `MyDecoder`, `MyFrameDecoder`)
+4. Implement `EncoderConfig`/`DecoderConfig` on config types with GATs: `type Job<'a> = MyEncodeJob<'a> where Self: 'a`
+5. Define `static` `CodecCapabilities` for encode and decode (they can differ)
+6. Implement `probe_header()` — must be O(header). Override `probe_full()` only if needed.
+7. Implement `with_limits()` on all four traits (config and job level)
+8. Implement `with_stop()` and `with_metadata()` on job types
+9. Implement `Encoder::encode()` and `Decoder::decode()` at minimum
+10. Implement `Encoder::push_rows()`/`finish()` and `encode_from()` for incremental encode
+11. Implement `FrameEncoder`/`FrameDecoder` if your format supports animation
 12. Override `decode_info()` if your config transforms output dimensions
 
 ## License
