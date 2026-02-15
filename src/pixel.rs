@@ -1459,8 +1459,7 @@ impl PixelData {
             }
             PixelData::GrayAlpha8(img) => {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
-                let gray: Vec<Gray<u16>> =
-                    buf.iter().map(|p| Gray::new(u8_to_u16(p.v))).collect();
+                let gray: Vec<Gray<u16>> = buf.iter().map(|p| Gray::new(u8_to_u16(p.v))).collect();
                 ImgVec::new(gray, w, h)
             }
             PixelData::GrayAlpha16(img) => {
@@ -1470,8 +1469,7 @@ impl PixelData {
             }
             PixelData::GrayAlphaF32(img) => {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
-                let gray: Vec<Gray<u16>> =
-                    buf.iter().map(|p| Gray::new(f32_to_u16(p.v))).collect();
+                let gray: Vec<Gray<u16>> = buf.iter().map(|p| Gray::new(f32_to_u16(p.v))).collect();
                 ImgVec::new(gray, w, h)
             }
             PixelData::Rgb16(img) => {
@@ -1576,10 +1574,8 @@ impl PixelData {
             }
             PixelData::Gray8(img) => {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
-                let ga: Vec<GrayAlpha<u8>> = buf
-                    .iter()
-                    .map(|p| GrayAlpha::new(p.value(), 255))
-                    .collect();
+                let ga: Vec<GrayAlpha<u8>> =
+                    buf.iter().map(|p| GrayAlpha::new(p.value(), 255)).collect();
                 ImgVec::new(ga, w, h)
             }
             PixelData::Gray16(img) => {
@@ -1626,9 +1622,7 @@ impl PixelData {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
                 let ga: Vec<GrayAlpha<u8>> = buf
                     .iter()
-                    .map(|p| {
-                        GrayAlpha::new(u16_to_u8(rgb16_to_luma16(p.r, p.g, p.b)), 255)
-                    })
+                    .map(|p| GrayAlpha::new(u16_to_u8(rgb16_to_luma16(p.r, p.g, p.b)), 255))
                     .collect();
                 ImgVec::new(ga, w, h)
             }
@@ -1754,9 +1748,7 @@ impl PixelData {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
                 let ga: Vec<GrayAlpha<u16>> = buf
                     .iter()
-                    .map(|p| {
-                        GrayAlpha::new(u8_to_u16(rgb_to_luma(p.r, p.g, p.b)), u8_to_u16(p.a))
-                    })
+                    .map(|p| GrayAlpha::new(u8_to_u16(rgb_to_luma(p.r, p.g, p.b)), u8_to_u16(p.a)))
                     .collect();
                 ImgVec::new(ga, w, h)
             }
@@ -1764,9 +1756,7 @@ impl PixelData {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
                 let ga: Vec<GrayAlpha<u16>> = buf
                     .iter()
-                    .map(|p| {
-                        GrayAlpha::new(u8_to_u16(rgb_to_luma(p.r, p.g, p.b)), u8_to_u16(p.a))
-                    })
+                    .map(|p| GrayAlpha::new(u8_to_u16(rgb_to_luma(p.r, p.g, p.b)), u8_to_u16(p.a)))
                     .collect();
                 ImgVec::new(ga, w, h)
             }
@@ -1848,10 +1838,8 @@ impl PixelData {
             }
             PixelData::GrayF32(img) => {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
-                let ga: Vec<GrayAlpha<f32>> = buf
-                    .iter()
-                    .map(|p| GrayAlpha::new(p.value(), 1.0))
-                    .collect();
+                let ga: Vec<GrayAlpha<f32>> =
+                    buf.iter().map(|p| GrayAlpha::new(p.value(), 1.0)).collect();
                 ImgVec::new(ga, w, h)
             }
             other => {
@@ -1895,18 +1883,12 @@ impl PixelData {
                 Some(PixelData::GrayAlpha8(self.into_gray_alpha8()))
             }
             (ChannelType::U16, ChannelLayout::Rgb) => Some(PixelData::Rgb16(self.into_rgb16())),
-            (ChannelType::U16, ChannelLayout::Rgba) => {
-                Some(PixelData::Rgba16(self.into_rgba16()))
-            }
-            (ChannelType::U16, ChannelLayout::Gray) => {
-                Some(PixelData::Gray16(self.into_gray16()))
-            }
+            (ChannelType::U16, ChannelLayout::Rgba) => Some(PixelData::Rgba16(self.into_rgba16())),
+            (ChannelType::U16, ChannelLayout::Gray) => Some(PixelData::Gray16(self.into_gray16())),
             (ChannelType::U16, ChannelLayout::GrayAlpha) => {
                 Some(PixelData::GrayAlpha16(self.into_gray_alpha16()))
             }
-            (ChannelType::F32, ChannelLayout::Rgb) => {
-                Some(PixelData::RgbF32(self.into_rgb_f32()))
-            }
+            (ChannelType::F32, ChannelLayout::Rgb) => Some(PixelData::RgbF32(self.into_rgb_f32())),
             (ChannelType::F32, ChannelLayout::Rgba) => {
                 Some(PixelData::RgbaF32(self.into_rgba_f32()))
             }
@@ -2719,7 +2701,14 @@ mod tests {
 
     #[test]
     fn into_rgb16_no_clone() {
-        let pixels = vec![Rgb { r: 1u16, g: 2, b: 3 }; 6];
+        let pixels = vec![
+            Rgb {
+                r: 1u16,
+                g: 2,
+                b: 3
+            };
+            6
+        ];
         let ptr = pixels.as_ptr();
         let data = PixelData::Rgb16(ImgVec::new(pixels, 3, 2));
         let result = data.into_rgb16();
@@ -2748,7 +2737,15 @@ mod tests {
 
     #[test]
     fn to_rgba16_from_rgb8_adds_alpha() {
-        let data = PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 10, g: 20, b: 30 }], 1, 1));
+        let data = PixelData::Rgb8(ImgVec::new(
+            vec![Rgb {
+                r: 10,
+                g: 20,
+                b: 30,
+            }],
+            1,
+            1,
+        ));
         let rgba = data.to_rgba16();
         let px = &rgba.buf()[0];
         assert_eq!(px.a, 65535);
@@ -2816,15 +2813,7 @@ mod tests {
 
     #[test]
     fn to_gray_alpha8_from_rgb8() {
-        let data = PixelData::Rgb8(ImgVec::new(
-            vec![Rgb {
-                r: 255,
-                g: 0,
-                b: 0,
-            }],
-            1,
-            1,
-        ));
+        let data = PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 255, g: 0, b: 0 }], 1, 1));
         let ga = data.to_gray_alpha8();
         let px = &ga.buf()[0];
         assert_eq!(px.v, 76); // BT.601 red luma
@@ -2931,15 +2920,7 @@ mod tests {
 
     #[test]
     fn convert_to_different_format() {
-        let data = PixelData::Rgb8(ImgVec::new(
-            vec![Rgb {
-                r: 255,
-                g: 0,
-                b: 0,
-            }],
-            1,
-            1,
-        ));
+        let data = PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 255, g: 0, b: 0 }], 1, 1));
         let result = data.convert_to(crate::buffer::PixelDescriptor::RGBA16_SRGB);
         assert!(result.is_some());
         if let Some(PixelData::Rgba16(img)) = result {
@@ -2983,8 +2964,12 @@ mod tests {
             1,
             1,
         ));
-        let rgb16 = data.convert_to(crate::buffer::PixelDescriptor::RGB16_SRGB).unwrap();
-        let rgb8 = rgb16.convert_to(crate::buffer::PixelDescriptor::RGB8_SRGB).unwrap();
+        let rgb16 = data
+            .convert_to(crate::buffer::PixelDescriptor::RGB16_SRGB)
+            .unwrap();
+        let rgb8 = rgb16
+            .convert_to(crate::buffer::PixelDescriptor::RGB8_SRGB)
+            .unwrap();
         if let PixelData::Rgb8(img) = rgb8 {
             assert_eq!(img.buf()[0].r, 42);
             assert_eq!(img.buf()[0].g, 128);
@@ -3051,7 +3036,15 @@ mod tests {
                 1,
                 1,
             )),
-            PixelData::Rgb16(ImgVec::new(vec![Rgb { r: 0u16, g: 0, b: 0 }], 1, 1)),
+            PixelData::Rgb16(ImgVec::new(
+                vec![Rgb {
+                    r: 0u16,
+                    g: 0,
+                    b: 0,
+                }],
+                1,
+                1,
+            )),
             PixelData::Rgba16(ImgVec::new(
                 vec![Rgba {
                     r: 0u16,

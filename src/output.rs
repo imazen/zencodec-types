@@ -202,13 +202,11 @@ impl DecodeOutput {
     pub fn convert_to(self, desc: crate::buffer::PixelDescriptor) -> Option<DecodeOutput> {
         let info = self.info;
         let extras = self.extras;
-        self.pixels
-            .convert_to(desc)
-            .map(|pixels| DecodeOutput {
-                pixels,
-                info,
-                extras,
-            })
+        self.pixels.convert_to(desc).map(|pixels| DecodeOutput {
+            pixels,
+            info,
+            extras,
+        })
     }
 
     /// Image info.
@@ -349,13 +347,11 @@ impl DecodeFrame {
     pub fn convert_to(self, desc: crate::buffer::PixelDescriptor) -> Option<DecodeFrame> {
         let delay_ms = self.delay_ms;
         let index = self.index;
-        self.pixels
-            .convert_to(desc)
-            .map(|pixels| DecodeFrame {
-                pixels,
-                delay_ms,
-                index,
-            })
+        self.pixels.convert_to(desc).map(|pixels| DecodeFrame {
+            pixels,
+            delay_ms,
+            index,
+        })
     }
 
     /// Borrow as RGB8 if that's the native format.
@@ -603,7 +599,18 @@ mod tests {
 
     #[test]
     fn decode_output_into_rgb16() {
-        let img = ImgVec::new(vec![Rgb { r: 255u8, g: 0, b: 128 }; 4], 2, 2);
+        let img = ImgVec::new(
+            vec![
+                Rgb {
+                    r: 255u8,
+                    g: 0,
+                    b: 128
+                };
+                4
+            ],
+            2,
+            2,
+        );
         let info = ImageInfo::new(2, 2, ImageFormat::Png);
         let output = DecodeOutput::new(PixelData::Rgb8(img), info);
         let rgb16 = output.into_rgb16();
@@ -644,7 +651,18 @@ mod tests {
 
     #[test]
     fn decode_output_convert_to() {
-        let img = ImgVec::new(vec![Rgb { r: 10u8, g: 20, b: 30 }; 4], 2, 2);
+        let img = ImgVec::new(
+            vec![
+                Rgb {
+                    r: 10u8,
+                    g: 20,
+                    b: 30
+                };
+                4
+            ],
+            2,
+            2,
+        );
         let info = ImageInfo::new(2, 2, ImageFormat::Png);
         let output = DecodeOutput::new(PixelData::Rgb8(img), info);
         let result = output.convert_to(crate::buffer::PixelDescriptor::RGBA8_SRGB);
@@ -672,7 +690,18 @@ mod tests {
 
     #[test]
     fn decode_frame_into_rgb16() {
-        let img = ImgVec::new(vec![Rgb { r: 255u8, g: 0, b: 0 }; 4], 2, 2);
+        let img = ImgVec::new(
+            vec![
+                Rgb {
+                    r: 255u8,
+                    g: 0,
+                    b: 0
+                };
+                4
+            ],
+            2,
+            2,
+        );
         let frame = DecodeFrame::new(PixelData::Rgb8(img), 100, 0);
         let rgb16 = frame.into_rgb16();
         assert_eq!(rgb16.buf()[0].r, 65535);
