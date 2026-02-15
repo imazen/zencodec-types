@@ -339,6 +339,7 @@ impl core::fmt::Debug for DecodeFrame {
 ///
 /// Pairs pixel data with a frame duration. Used by
 /// `EncodingJob::encode_animation_*` methods.
+#[derive(Clone, Copy)]
 pub struct EncodeFrame<'a, Pixel> {
     /// The pixel data for this frame.
     pub image: ImgRef<'a, Pixel>,

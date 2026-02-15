@@ -153,6 +153,22 @@ pub trait Encoding: Sized + Clone + Send + Sync {
     ) -> Result<EncodeOutput, Self::Error> {
         self.job().encode_animation_rgba8(frames)
     }
+
+    /// Convenience: encode 16-bit RGB animation with default job settings.
+    fn encode_animation_rgb16(
+        &self,
+        frames: &[EncodeFrame<'_, Rgb<u16>>],
+    ) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_animation_rgb16(frames)
+    }
+
+    /// Convenience: encode 16-bit RGBA animation with default job settings.
+    fn encode_animation_rgba16(
+        &self,
+        frames: &[EncodeFrame<'_, Rgba<u16>>],
+    ) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_animation_rgba16(frames)
+    }
 }
 
 /// Per-operation encode job.
@@ -266,6 +282,24 @@ pub trait EncodingJob<'a>: Sized {
     fn encode_animation_rgba8(
         self,
         frames: &[EncodeFrame<'_, Rgba<u8>>],
+    ) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode an animation as a sequence of 16-bit RGB frames.
+    ///
+    /// Codecs that don't support animation should return an error.
+    /// Codecs without native 16-bit support should dither or truncate.
+    fn encode_animation_rgb16(
+        self,
+        frames: &[EncodeFrame<'_, Rgb<u16>>],
+    ) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode an animation as a sequence of 16-bit RGBA frames.
+    ///
+    /// Codecs that don't support animation should return an error.
+    /// Codecs without native 16-bit support should dither or truncate.
+    fn encode_animation_rgba16(
+        self,
+        frames: &[EncodeFrame<'_, Rgba<u16>>],
     ) -> Result<EncodeOutput, Self::Error>;
 }
 
@@ -399,6 +433,33 @@ pub trait Decoding: Sized + Clone + Send + Sync {
         self.job().decode_into_gray_f32(data, dst)
     }
 
+    /// Convenience: decode into a caller-provided 16-bit RGB buffer.
+    fn decode_into_rgb16(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgb<u16>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_rgb16(data, dst)
+    }
+
+    /// Convenience: decode into a caller-provided 16-bit RGBA buffer.
+    fn decode_into_rgba16(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgba<u16>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_rgba16(data, dst)
+    }
+
+    /// Convenience: decode into a caller-provided 16-bit grayscale buffer.
+    fn decode_into_gray16(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Gray<u16>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job().decode_into_gray16(data, dst)
+    }
+
     /// Convenience: decode all animation frames with default job settings.
     fn decode_animation(&self, data: &[u8]) -> Result<Vec<DecodeFrame>, Self::Error> {
         self.job().decode_animation(data)
@@ -504,10 +565,42 @@ pub trait DecodingJob<'a>: Sized {
         dst: ImgRefMut<'_, Gray<f32>>,
     ) -> Result<ImageInfo, Self::Error>;
 
+    /// Decode directly into a caller-provided 16-bit RGB buffer.
+    ///
+    /// Codecs with native 8-bit output should upscale to 16-bit.
+    fn decode_into_rgb16(
+        self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgb<u16>>,
+    ) -> Result<ImageInfo, Self::Error>;
+
+    /// Decode directly into a caller-provided 16-bit RGBA buffer.
+    ///
+    /// Codecs with native 8-bit output should upscale to 16-bit.
+    fn decode_into_rgba16(
+        self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgba<u16>>,
+    ) -> Result<ImageInfo, Self::Error>;
+
+    /// Decode directly into a caller-provided 16-bit grayscale buffer.
+    ///
+    /// Codecs with native 8-bit output should upscale to 16-bit.
+    fn decode_into_gray16(
+        self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Gray<u16>>,
+    ) -> Result<ImageInfo, Self::Error>;
+
     /// Decode all animation frames.
     ///
     /// Returns each frame with its pixel data and duration. For still images,
     /// returns a single frame with duration 0.
+    ///
+    /// **Note:** All frames are buffered in memory. For large animations
+    /// this can require significant memory (e.g. 100 frames at 4K RGBA8
+    /// is ~6 GB). A streaming frame iterator API is planned for a future
+    /// version.
     ///
     /// Codecs that don't support animation should return the primary image
     /// as a single frame. Check [`capabilities().decode_animation()`](CodecCapabilities::decode_animation).

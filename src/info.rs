@@ -12,7 +12,7 @@ use crate::{ImageFormat, Orientation};
 ///
 /// Common combinations:
 /// - sRGB: `(1, 13, 6, true)` — BT.709 primaries, sRGB transfer, BT.601 matrix
-/// - Display P3: `(12, 16, 6, true)` — P3 primaries, PQ transfer
+/// - Display P3: `(12, 13, 6, true)` — P3 primaries, sRGB transfer
 /// - BT.2100 PQ (HDR): `(9, 16, 9, true)` — BT.2020 primaries, PQ transfer
 /// - BT.2100 HLG (HDR): `(9, 18, 9, true)` — BT.2020 primaries, HLG transfer
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -88,6 +88,32 @@ pub struct MasteringDisplay {
     pub max_luminance: u32,
     /// Minimum display luminance in units of 0.0001 cd/m².
     pub min_luminance: u32,
+}
+
+impl MasteringDisplay {
+    /// Display primaries as CIE 1931 xy coordinates: `[[Rx, Ry], [Gx, Gy], [Bx, By]]`.
+    pub fn primaries_f64(&self) -> [[f64; 2]; 3] {
+        self.primaries
+            .map(|[x, y]| [x as f64 * 0.00002, y as f64 * 0.00002])
+    }
+
+    /// White point as CIE 1931 xy coordinates: `[x, y]`.
+    pub fn white_point_f64(&self) -> [f64; 2] {
+        [
+            self.white_point[0] as f64 * 0.00002,
+            self.white_point[1] as f64 * 0.00002,
+        ]
+    }
+
+    /// Maximum display luminance in cd/m² (nits).
+    pub fn max_luminance_nits(&self) -> f64 {
+        self.max_luminance as f64 * 0.0001
+    }
+
+    /// Minimum display luminance in cd/m² (nits).
+    pub fn min_luminance_nits(&self) -> f64 {
+        self.min_luminance as f64 * 0.0001
+    }
 }
 
 /// Image metadata obtained from probing or decoding.
@@ -528,5 +554,30 @@ mod tests {
             max_frame_average_light_level: 400,
         });
         assert!(!meta.is_empty());
+    }
+
+    #[test]
+    fn mastering_display_helpers() {
+        // BT.2020 primaries from the spec
+        let mdcv = MasteringDisplay {
+            primaries: [[34000, 16000], [13250, 34500], [7500, 3000]],
+            white_point: [15635, 16450],
+            max_luminance: 10_000_000, // 1000 nits
+            min_luminance: 500,        // 0.05 nits
+        };
+        let p = mdcv.primaries_f64();
+        assert!((p[0][0] - 0.680).abs() < 0.001); // Rx
+        assert!((p[0][1] - 0.320).abs() < 0.001); // Ry
+        assert!((p[1][0] - 0.265).abs() < 0.001); // Gx
+        assert!((p[1][1] - 0.690).abs() < 0.001); // Gy
+        assert!((p[2][0] - 0.150).abs() < 0.001); // Bx
+        assert!((p[2][1] - 0.060).abs() < 0.001); // By
+
+        let wp = mdcv.white_point_f64();
+        assert!((wp[0] - 0.3127).abs() < 0.001); // D65 x
+        assert!((wp[1] - 0.3290).abs() < 0.001); // D65 y
+
+        assert!((mdcv.max_luminance_nits() - 1000.0).abs() < 0.01);
+        assert!((mdcv.min_luminance_nits() - 0.05).abs() < 0.001);
     }
 }
