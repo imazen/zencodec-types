@@ -20,7 +20,15 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 **Traits** — `Encoding`, `EncodingJob`, `Decoding`, `DecodingJob`
 
-**Types** — `PixelData`, `ImageInfo`, `ImageMetadata`, `ImageFormat`, `Orientation`, `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `ResourceLimits`, `CodecCapabilities`
+**Pixel data** — `PixelData` (typed enum over `ImgVec<T>`), `GrayAlpha<T>`
+
+**Opaque pixel buffers** — `PixelBuffer`, `PixelSlice`, `PixelSliceMut`, `PixelDescriptor`, `ChannelType`, `ChannelLayout`, `AlphaMode`, `TransferFunction`, `BufferError`
+
+**Image metadata** — `ImageInfo`, `ImageMetadata`, `Cicp`, `ContentLightLevel`, `MasteringDisplay`, `Orientation`
+
+**I/O types** — `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `EncodeFrame`
+
+**Discovery** — `ImageFormat` (magic-byte detection), `CodecCapabilities` (17 feature flags), `ResourceLimits`
 
 **Re-exports** — `imgref`, `rgb`, `enough` (for `Stop`/`Unstoppable`)
 
@@ -47,6 +55,38 @@ let output = encoder.job()
     .with_stop(&stop_token)
     .encode_rgb8(img.as_ref())?;
 ```
+
+## Opaque pixel buffers
+
+`PixelData` is a 13-variant enum — every consumer must match all 13 arms to do anything generic. The `buffer` module provides an alternative: format-erased buffers tagged with a 4-byte `PixelDescriptor`.
+
+**`PixelDescriptor`** packs `ChannelType` (U8/U16/F32), `ChannelLayout` (Gray/GrayAlpha/Rgb/Rgba/Bgra), `AlphaMode` (None/Straight/Premultiplied), and `TransferFunction` (Linear/Srgb/Bt709/Pq/Hlg) into 4 bytes. Named constants like `PixelDescriptor::RGB8_SRGB` cover the 13 standard formats.
+
+**`PixelBuffer`** is an owned `Vec<u8>` with dimensions, stride, and descriptor. Allocate with `new()`, wrap a pool vec with `from_vec()`, recover it with `into_vec()`. Supports row access, sub-row slicing, and zero-copy crop views.
+
+**`PixelSlice<'a>`** / **`PixelSliceMut<'a>`** are borrowed views with the same row/crop API. Zero-copy `From<ImgRef<T>>` impls exist for all 10 rgb-crate pixel types.
+
+Conversions between `PixelData` and `PixelBuffer` always copy (no `unsafe` needed):
+
+```rust
+use zencodec_types::{PixelBuffer, PixelData, PixelDescriptor};
+
+// PixelData → PixelBuffer
+let buf = PixelBuffer::from(pixel_data);
+
+// PixelBuffer → PixelData
+let data = PixelData::try_from(buf)?;
+
+// ImgRef → PixelSlice (zero-copy)
+let slice = PixelSlice::from(img.as_ref());
+```
+
+### Transfer function conventions
+
+- **u8 / u16**: gamma-encoded (typically sRGB). u16 uses the full 0-65535 range.
+- **f32**: linear light (gamma = 1.0).
+
+The actual transfer function is recorded in `PixelDescriptor::transfer` and in `ImageInfo::cicp`. Use `TransferFunction::from_cicp()` to map CICP transfer characteristic codes to the enum.
 
 ## Implementor reference
 
@@ -147,9 +187,11 @@ Each trait has an associated `type Error: core::error::Error + Send + Sync + 'st
 - `GrayAlpha8`, `GrayAlpha16`, `GrayAlphaF32` — grayscale + alpha
 - `RgbF32`, `RgbaF32`, `GrayF32` — 32-bit float
 
-Return whichever variant your codec produces natively. Callers use `into_rgb8()`, `into_rgba8()`, `into_gray8()`, etc. for conversion; the conversions handle all variant→target paths.
+Return whichever variant your codec produces natively. Callers use `into_rgb8()`, `into_rgba8()`, `into_gray8()`, etc. for conversion; the conversions handle all variant→target paths. The `descriptor()` method returns the matching `PixelDescriptor` for any variant.
 
 The 16→8 bit conversions use `(v * 255 + 32768) >> 16` for proper rounding. All conversions assume sRGB; no linearization is performed.
+
+For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(pixel_data)` and work with raw byte rows instead of matching variants.
 
 ### Checklist for a new codec
 
