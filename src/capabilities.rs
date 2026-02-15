@@ -46,6 +46,9 @@ pub struct CodecCapabilities {
     hdr: bool,
     encode_cicp: bool,
     decode_cicp: bool,
+    enforces_max_pixels: bool,
+    enforces_max_memory: bool,
+    enforces_max_file_size: bool,
 }
 
 impl Default for CodecCapabilities {
@@ -75,6 +78,9 @@ impl CodecCapabilities {
             hdr: false,
             encode_cicp: false,
             decode_cicp: false,
+            enforces_max_pixels: false,
+            enforces_max_memory: false,
+            enforces_max_file_size: false,
         }
     }
 
@@ -163,6 +169,21 @@ impl CodecCapabilities {
     /// Whether the decoder extracts CICP color description into `ImageInfo`.
     pub const fn decode_cicp(&self) -> bool {
         self.decode_cicp
+    }
+
+    /// Whether the codec enforces [`ResourceLimits::max_pixels`](crate::ResourceLimits::max_pixels).
+    pub const fn enforces_max_pixels(&self) -> bool {
+        self.enforces_max_pixels
+    }
+
+    /// Whether the codec enforces [`ResourceLimits::max_memory_bytes`](crate::ResourceLimits::max_memory_bytes).
+    pub const fn enforces_max_memory(&self) -> bool {
+        self.enforces_max_memory
+    }
+
+    /// Whether the codec enforces [`ResourceLimits::max_file_size`](crate::ResourceLimits::max_file_size).
+    pub const fn enforces_max_file_size(&self) -> bool {
+        self.enforces_max_file_size
     }
 
     // --- const builder methods for static construction ---
@@ -268,6 +289,24 @@ impl CodecCapabilities {
         self.decode_cicp = v;
         self
     }
+
+    /// Set whether the codec enforces max_pixels limits.
+    pub const fn with_enforces_max_pixels(mut self, v: bool) -> Self {
+        self.enforces_max_pixels = v;
+        self
+    }
+
+    /// Set whether the codec enforces max_memory limits.
+    pub const fn with_enforces_max_memory(mut self, v: bool) -> Self {
+        self.enforces_max_memory = v;
+        self
+    }
+
+    /// Set whether the codec enforces max_file_size limits.
+    pub const fn with_enforces_max_file_size(mut self, v: bool) -> Self {
+        self.enforces_max_file_size = v;
+        self
+    }
 }
 
 impl core::fmt::Debug for CodecCapabilities {
@@ -290,6 +329,9 @@ impl core::fmt::Debug for CodecCapabilities {
             .field("hdr", &self.hdr)
             .field("encode_cicp", &self.encode_cicp)
             .field("decode_cicp", &self.decode_cicp)
+            .field("enforces_max_pixels", &self.enforces_max_pixels)
+            .field("enforces_max_memory", &self.enforces_max_memory)
+            .field("enforces_max_file_size", &self.enforces_max_file_size)
             .finish()
     }
 }
@@ -318,6 +360,9 @@ mod tests {
         assert!(!caps.hdr());
         assert!(!caps.encode_cicp());
         assert!(!caps.decode_cicp());
+        assert!(!caps.enforces_max_pixels());
+        assert!(!caps.enforces_max_memory());
+        assert!(!caps.enforces_max_file_size());
     }
 
     #[test]
@@ -363,5 +408,26 @@ mod tests {
         assert!(CAPS.lossless());
         assert!(CAPS.encode_cicp());
         assert!(CAPS.decode_cicp());
+    }
+
+    #[test]
+    fn enforces_limits_flags() {
+        let caps = CodecCapabilities::new()
+            .with_enforces_max_pixels(true)
+            .with_enforces_max_memory(true)
+            .with_enforces_max_file_size(true);
+        assert!(caps.enforces_max_pixels());
+        assert!(caps.enforces_max_memory());
+        assert!(caps.enforces_max_file_size());
+    }
+
+    #[test]
+    fn enforces_limits_static() {
+        static CAPS: CodecCapabilities = CodecCapabilities::new()
+            .with_enforces_max_pixels(true)
+            .with_enforces_max_file_size(true);
+        assert!(CAPS.enforces_max_pixels());
+        assert!(!CAPS.enforces_max_memory());
+        assert!(CAPS.enforces_max_file_size());
     }
 }
