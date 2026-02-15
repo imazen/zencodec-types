@@ -28,6 +28,7 @@ use rgb::{Gray, Rgb, Rgba};
 use imgref::ImgRefMut;
 
 use crate::output::EncodeFrame;
+use crate::pixel::PixelData;
 use crate::{
     CodecCapabilities, DecodeFrame, DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata,
     ResourceLimits, Stop,
@@ -182,6 +183,13 @@ pub trait Encoding: Sized + Clone + Send + Sync {
     ) -> Result<EncodeOutput, Self::Error> {
         self.job().encode_animation_rgba16(frames)
     }
+
+    /// Convenience: encode from a [`PixelData`] value with default job settings.
+    ///
+    /// Dispatches to the correct typed encode method based on the variant.
+    fn encode_pixel_data(&self, pixels: &PixelData) -> Result<EncodeOutput, Self::Error> {
+        self.job().encode_pixel_data(pixels)
+    }
 }
 
 /// Per-operation encode job.
@@ -329,6 +337,27 @@ pub trait EncodingJob<'a>: Sized {
         self,
         frames: &[EncodeFrame<'_, Rgba<u16>>],
     ) -> Result<EncodeOutput, Self::Error>;
+
+    /// Encode from a [`PixelData`] value, dispatching to the correct typed method.
+    ///
+    /// Provided as a default implementation — codecs don't need to override this.
+    fn encode_pixel_data(self, pixels: &PixelData) -> Result<EncodeOutput, Self::Error> {
+        match pixels {
+            PixelData::Rgb8(img) => self.encode_rgb8(img.as_ref()),
+            PixelData::Rgba8(img) => self.encode_rgba8(img.as_ref()),
+            PixelData::Gray8(img) => self.encode_gray8(img.as_ref()),
+            PixelData::Bgra8(img) => self.encode_bgra8(img.as_ref()),
+            PixelData::Rgb16(img) => self.encode_rgb16(img.as_ref()),
+            PixelData::Rgba16(img) => self.encode_rgba16(img.as_ref()),
+            PixelData::Gray16(img) => self.encode_gray16(img.as_ref()),
+            PixelData::RgbF32(img) => self.encode_rgb_f32(img.as_ref()),
+            PixelData::RgbaF32(img) => self.encode_rgba_f32(img.as_ref()),
+            PixelData::GrayF32(img) => self.encode_gray_f32(img.as_ref()),
+            PixelData::GrayAlpha8(img) => self.encode_gray_alpha8(img.as_ref()),
+            PixelData::GrayAlpha16(img) => self.encode_gray_alpha16(img.as_ref()),
+            PixelData::GrayAlphaF32(img) => self.encode_gray_alpha_f32(img.as_ref()),
+        }
+    }
 }
 
 /// Common interface for decode configurations.
