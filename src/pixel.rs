@@ -426,7 +426,11 @@ impl PixelData {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
                 let rgb: Vec<Rgb<f32>> = buf
                     .iter()
-                    .map(|p| Rgb { r: p.r, g: p.g, b: p.b })
+                    .map(|p| Rgb {
+                        r: p.r,
+                        g: p.g,
+                        b: p.b,
+                    })
                     .collect();
                 ImgVec::new(rgb, w, h)
             }
@@ -549,7 +553,12 @@ impl PixelData {
                 let (buf, w, h) = img.as_ref().to_contiguous_buf();
                 let rgba: Vec<Rgba<f32>> = buf
                     .iter()
-                    .map(|p| Rgba { r: p.r, g: p.g, b: p.b, a: 1.0 })
+                    .map(|p| Rgba {
+                        r: p.r,
+                        g: p.g,
+                        b: p.b,
+                        a: 1.0,
+                    })
                     .collect();
                 ImgVec::new(rgba, w, h)
             }
@@ -559,7 +568,12 @@ impl PixelData {
                     .iter()
                     .map(|p| {
                         let v = p.value();
-                        Rgba { r: v, g: v, b: v, a: 1.0 }
+                        Rgba {
+                            r: v,
+                            g: v,
+                            b: v,
+                            a: 1.0,
+                        }
                     })
                     .collect();
                 ImgVec::new(rgba, w, h)
@@ -596,7 +610,12 @@ impl PixelData {
                     .iter()
                     .map(|p| {
                         let v = p.value() as f32 / 255.0;
-                        Rgba { r: v, g: v, b: v, a: 1.0 }
+                        Rgba {
+                            r: v,
+                            g: v,
+                            b: v,
+                            a: 1.0,
+                        }
                     })
                     .collect();
                 ImgVec::new(rgba, w, h)
@@ -607,7 +626,12 @@ impl PixelData {
                     .iter()
                     .map(|p| {
                         let v = p.value() as f32 / 65535.0;
-                        Rgba { r: v, g: v, b: v, a: 1.0 }
+                        Rgba {
+                            r: v,
+                            g: v,
+                            b: v,
+                            a: 1.0,
+                        }
                     })
                     .collect();
                 ImgVec::new(rgba, w, h)

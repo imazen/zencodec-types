@@ -348,17 +348,26 @@ mod tests {
 
     #[test]
     fn detect_pnm_p5() {
-        assert_eq!(ImageFormat::detect(b"P5\n3 2\n255\n"), Some(ImageFormat::Pnm));
+        assert_eq!(
+            ImageFormat::detect(b"P5\n3 2\n255\n"),
+            Some(ImageFormat::Pnm)
+        );
     }
 
     #[test]
     fn detect_pnm_p6() {
-        assert_eq!(ImageFormat::detect(b"P6\n3 2\n255\n"), Some(ImageFormat::Pnm));
+        assert_eq!(
+            ImageFormat::detect(b"P6\n3 2\n255\n"),
+            Some(ImageFormat::Pnm)
+        );
     }
 
     #[test]
     fn detect_pnm_p7() {
-        assert_eq!(ImageFormat::detect(b"P7\nWIDTH 2\n"), Some(ImageFormat::Pnm));
+        assert_eq!(
+            ImageFormat::detect(b"P7\nWIDTH 2\n"),
+            Some(ImageFormat::Pnm)
+        );
     }
 
     #[test]
