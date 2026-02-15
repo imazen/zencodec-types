@@ -91,6 +91,30 @@ pub enum PixelData {
 }
 
 impl PixelData {
+    /// Pixel format descriptor for this variant.
+    ///
+    /// Returns `Srgb` transfer for u8/u16 variants and `Linear` for f32
+    /// variants. Alpha variants use [`AlphaMode::Straight`](crate::AlphaMode::Straight).
+    /// Callers with CICP metadata can override the transfer function.
+    pub fn descriptor(&self) -> crate::buffer::PixelDescriptor {
+        use crate::buffer::PixelDescriptor;
+        match self {
+            PixelData::Rgb8(_) => PixelDescriptor::RGB8_SRGB,
+            PixelData::Rgba8(_) => PixelDescriptor::RGBA8_SRGB,
+            PixelData::Rgb16(_) => PixelDescriptor::RGB16_SRGB,
+            PixelData::Rgba16(_) => PixelDescriptor::RGBA16_SRGB,
+            PixelData::RgbF32(_) => PixelDescriptor::RGBF32_LINEAR,
+            PixelData::RgbaF32(_) => PixelDescriptor::RGBAF32_LINEAR,
+            PixelData::Gray8(_) => PixelDescriptor::GRAY8_SRGB,
+            PixelData::Gray16(_) => PixelDescriptor::GRAY16_SRGB,
+            PixelData::GrayF32(_) => PixelDescriptor::GRAYF32_LINEAR,
+            PixelData::Bgra8(_) => PixelDescriptor::BGRA8_SRGB,
+            PixelData::GrayAlpha8(_) => PixelDescriptor::GRAYA8_SRGB,
+            PixelData::GrayAlpha16(_) => PixelDescriptor::GRAYA16_SRGB,
+            PixelData::GrayAlphaF32(_) => PixelDescriptor::GRAYAF32_LINEAR,
+        }
+    }
+
     /// Image width in pixels.
     pub fn width(&self) -> u32 {
         match self {

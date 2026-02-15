@@ -21,6 +21,7 @@
 
 extern crate alloc;
 
+pub mod buffer;
 mod capabilities;
 mod format;
 mod info;
@@ -30,6 +31,10 @@ mod output;
 mod pixel;
 mod traits;
 
+pub use buffer::{
+    AlphaMode, BufferError, ChannelLayout, ChannelType, PixelBuffer, PixelDescriptor, PixelSlice,
+    PixelSliceMut, TransferFunction,
+};
 pub use capabilities::CodecCapabilities;
 pub use format::ImageFormat;
 pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageMetadata, MasteringDisplay};
