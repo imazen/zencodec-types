@@ -115,12 +115,12 @@ Every match arm in `PixelData` was updated — `width()`, `height()`, `has_alpha
 
 Each codec interpreted u16 differently before we defined a convention:
 
-| Codec | u16 meaning | Range | Transfer function |
-|-------|-------------|-------|-------------------|
-| zenavif decode | gamma-encoded | 0–1023 (10-bit, not scaled) | sRGB/PQ/HLG (metadata) |
-| zenavif encode | gamma-encoded | expects 0–1023 | passthrough |
-| zenjpeg | **linear** (`Rgb16Linear`) | 0–65535 | linearizes internally |
-| zenwebp/zengif | no u16 path | n/a | f32 linear only |
+| Codec | u16 meaning | Range | Transfer function | Status |
+|-------|-------------|-------|-------------------|--------|
+| zenavif decode | gamma-encoded | ~~0–1023~~ → 0–65535 | sRGB/PQ/HLG (metadata) | ✅ Fixed |
+| zenavif encode | gamma-encoded | ~~expects 0–1023~~ → accepts 0–65535 | scales to 10-bit internally | ✅ Fixed |
+| zenjpeg | **linear** (`Rgb16Linear`) | 0–65535 | linearizes internally | ❌ Needs change |
+| zenwebp/zengif | no u16 path | n/a | f32 linear only | ✅ No change needed |
 
 ### What AV1 actually stores
 
@@ -140,13 +140,13 @@ This matches libavif, PNG, image-rs, stb_image. The `transfer_characteristics` i
 
 ### What each codec needs to change
 
-1. **zenavif decode**: Scale 10-bit output (0–1023) to 16-bit (0–65535). Use LSB replication: `(v << 6) | (v >> 4)`. The `yuv` crate's `i010_to_rgb10()` already preserves full 10-bit precision — the old `yuv_convert_libyuv_16bit.rs` with its 8-bit bottleneck is dead code and should be removed.
+1. ✅ **zenavif decode**: Scaled 10-bit output to full u16 via LSB replication: `(v << 6) | (v >> 4)`. Removed dead `yuv_convert_libyuv_16bit.rs` (had 8-bit bottleneck, was never called). Also fixed latent `unpremultiply16` bug where alpha was 10-bit but divisor was 0xFFFF.
 
-2. **zenavif encode**: Accept 0–65535 sRGB, scale down to 10-bit internally. Simple `>> 6` or rounded division.
+2. ✅ **zenavif encode**: Accepts 0–65535, scales to 10-bit via `((v + 32) >> 6).min(1023)`. All 4 encode functions (rgb16, rgba16, animation_rgb16, animation_rgba16) updated.
 
-3. **zenjpeg**: Its `encode_rgb16` implementation should accept sRGB gamma u16 (0–65535) and linearize internally before its JPEG pipeline. The internal `Rgb16Linear` type is an implementation detail — the trait method semantics override it.
+3. ❌ **zenjpeg**: Its `encode_rgb16` implementation currently accepts linear u16 via `Rgb16Linear`. It should accept sRGB gamma u16 (0–65535) per the convention, and linearize internally before its JPEG pipeline. The `linear-srgb` crate's `LinearTable16` (256KB LUT, ~450-820 Melem/s) is the right tool. The internal `Rgb16Linear` type becomes an implementation detail — the trait method semantics override it.
 
-4. **zenwebp/zengif**: No changes needed. They don't have u16 paths, and their f32 paths are already linear.
+4. ✅ **zenwebp/zengif**: No changes needed. They don't have u16 paths, and their f32 paths are already linear.
 
 ### Performance of linearization (for codecs that need it internally)
 
