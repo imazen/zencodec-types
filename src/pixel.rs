@@ -4,8 +4,28 @@
 
 use alloc::vec::Vec;
 use imgref::ImgVec;
-use rgb::alt::{BGRA, GrayAlpha};
+use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
+
+/// Grayscale pixel with alpha channel.
+///
+/// A simple two-component pixel type. Not from the `rgb` crate — we own this
+/// type to avoid API instability in `rgb::alt::GrayAlpha`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct GrayAlpha<T> {
+    /// Gray value.
+    pub v: T,
+    /// Alpha value.
+    pub a: T,
+}
+
+impl<T> GrayAlpha<T> {
+    /// Create a new gray+alpha pixel.
+    pub const fn new(v: T, a: T) -> Self {
+        Self { v, a }
+    }
+}
 
 /// Decoded pixel data in a typed buffer.
 ///
@@ -1073,15 +1093,29 @@ impl PixelData {
             }
             PixelData::GrayAlpha8(img) => {
                 let (buf, _, _) = img.as_ref().to_contiguous_buf();
-                buf.as_bytes().to_vec()
+                buf.iter().flat_map(|p| [p.v, p.a]).collect()
             }
             PixelData::GrayAlpha16(img) => {
                 let (buf, _, _) = img.as_ref().to_contiguous_buf();
-                buf.as_bytes().to_vec()
+                buf.iter()
+                    .flat_map(|p| {
+                        let mut b = [0u8; 4];
+                        b[..2].copy_from_slice(&p.v.to_ne_bytes());
+                        b[2..].copy_from_slice(&p.a.to_ne_bytes());
+                        b
+                    })
+                    .collect()
             }
             PixelData::GrayAlphaF32(img) => {
                 let (buf, _, _) = img.as_ref().to_contiguous_buf();
-                buf.as_bytes().to_vec()
+                buf.iter()
+                    .flat_map(|p| {
+                        let mut b = [0u8; 8];
+                        b[..4].copy_from_slice(&p.v.to_ne_bytes());
+                        b[4..].copy_from_slice(&p.a.to_ne_bytes());
+                        b
+                    })
+                    .collect()
             }
         }
     }
@@ -1609,7 +1643,7 @@ mod tests {
 
     #[test]
     fn gray_alpha8_has_alpha() {
-        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(128, 200); 4], 2, 2));
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha::new(128, 200); 4], 2, 2));
         assert!(data.has_alpha());
         assert_eq!(data.width(), 2);
         assert_eq!(data.height(), 2);
@@ -1617,7 +1651,7 @@ mod tests {
 
     #[test]
     fn gray_alpha8_to_rgba8() {
-        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(128, 200); 1], 1, 1));
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha::new(128, 200); 1], 1, 1));
         let rgba = data.to_rgba8();
         let px = &rgba.buf()[0];
         assert_eq!((px.r, px.g, px.b, px.a), (128, 128, 128, 200));
@@ -1625,7 +1659,7 @@ mod tests {
 
     #[test]
     fn gray_alpha8_to_rgb8() {
-        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(200u8, 50); 1], 1, 1));
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha::new(200u8, 50); 1], 1, 1));
         let rgb = data.to_rgb8();
         let px = &rgb.buf()[0];
         assert_eq!((px.r, px.g, px.b), (200, 200, 200));
@@ -1633,14 +1667,15 @@ mod tests {
 
     #[test]
     fn gray_alpha8_to_gray8() {
-        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(42u8, 255); 1], 1, 1));
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha::new(42u8, 255); 1], 1, 1));
         let gray = data.to_gray8();
         assert_eq!(gray.buf()[0].value(), 42);
     }
 
     #[test]
     fn gray_alpha16_to_rgba8() {
-        let data = PixelData::GrayAlpha16(ImgVec::new(vec![GrayAlpha(65535u16, 32768); 1], 1, 1));
+        let data =
+            PixelData::GrayAlpha16(ImgVec::new(vec![GrayAlpha::new(65535u16, 32768); 1], 1, 1));
         let rgba = data.to_rgba8();
         let px = &rgba.buf()[0];
         assert_eq!((px.r, px.g, px.b, px.a), (255, 255, 255, 128));
@@ -1648,7 +1683,8 @@ mod tests {
 
     #[test]
     fn gray_alpha_f32_to_rgba8() {
-        let data = PixelData::GrayAlphaF32(ImgVec::new(vec![GrayAlpha(0.5f32, 0.75); 1], 1, 1));
+        let data =
+            PixelData::GrayAlphaF32(ImgVec::new(vec![GrayAlpha::new(0.5f32, 0.75); 1], 1, 1));
         let rgba = data.to_rgba8();
         let px = &rgba.buf()[0];
         assert_eq!((px.r, px.g, px.b, px.a), (127, 127, 127, 191));
@@ -1656,7 +1692,7 @@ mod tests {
 
     #[test]
     fn gray_alpha_debug() {
-        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha(0u8, 0); 6], 3, 2));
+        let data = PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha::new(0u8, 0); 6], 3, 2));
         assert_eq!(alloc::format!("{:?}", data), "PixelData::GrayAlpha8(3x2)");
     }
 

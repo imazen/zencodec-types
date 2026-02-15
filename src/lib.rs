@@ -36,7 +36,7 @@ pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageMetadata, MasteringDispl
 pub use limits::ResourceLimits;
 pub use orientation::Orientation;
 pub use output::{DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput};
-pub use pixel::PixelData;
+pub use pixel::{GrayAlpha, PixelData};
 pub use traits::{Decoding, DecodingJob, Encoding, EncodingJob};
 
 // Re-exports for codec implementors and users.
@@ -44,5 +44,4 @@ pub use enough::{Stop, Unstoppable};
 pub use imgref::{Img, ImgRef, ImgRefMut, ImgVec};
 pub use rgb;
 pub use rgb::alt::BGRA as Bgra;
-pub use rgb::alt::GrayAlpha;
 pub use rgb::{Gray, Rgb, Rgba};

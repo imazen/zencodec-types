@@ -9,7 +9,9 @@
 
 use alloc::vec::Vec;
 use imgref::ImgRef;
-use rgb::alt::{BGRA, GrayAlpha};
+use rgb::alt::BGRA;
+
+use crate::pixel::GrayAlpha;
 use rgb::{Gray, Rgb, Rgba};
 
 use imgref::ImgRefMut;
