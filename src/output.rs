@@ -422,30 +422,60 @@ impl core::fmt::Debug for DecodeFrame {
     }
 }
 
-/// A single frame for animation encoding.
+/// A single typed frame for animation encoding.
 ///
-/// Pairs pixel data with a frame duration. Used by
-/// `EncodingJob::encode_animation_*` methods.
+/// Pairs typed pixel data with a frame duration. Used by
+/// typed convenience methods on [`EncoderConfig`](crate::EncoderConfig).
 #[derive(Clone, Copy)]
-pub struct EncodeFrame<'a, Pixel> {
+pub struct TypedEncodeFrame<'a, Pixel> {
     /// The pixel data for this frame.
     pub image: ImgRef<'a, Pixel>,
     /// Frame duration in milliseconds.
     pub duration_ms: u32,
 }
 
-impl<'a, Pixel> EncodeFrame<'a, Pixel> {
-    /// Create a new encode frame.
+impl<'a, Pixel> TypedEncodeFrame<'a, Pixel> {
+    /// Create a new typed encode frame.
     pub fn new(image: ImgRef<'a, Pixel>, duration_ms: u32) -> Self {
         Self { image, duration_ms }
     }
 }
 
-impl<Pixel> core::fmt::Debug for EncodeFrame<'_, Pixel> {
+impl<Pixel> core::fmt::Debug for TypedEncodeFrame<'_, Pixel> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("EncodeFrame")
+        f.debug_struct("TypedEncodeFrame")
             .field("width", &self.image.width())
             .field("height", &self.image.height())
+            .field("duration_ms", &self.duration_ms)
+            .finish()
+    }
+}
+
+/// A format-erased frame for animation encoding.
+///
+/// Pairs a [`PixelSlice`](crate::PixelSlice) with a frame duration. Used by
+/// [`FrameEncoder::push_frame`](crate::FrameEncoder::push_frame).
+pub struct EncodeFrame<'a> {
+    /// The pixel data for this frame.
+    pub pixels: crate::PixelSlice<'a>,
+    /// Frame duration in milliseconds.
+    pub duration_ms: u32,
+}
+
+impl<'a> EncodeFrame<'a> {
+    /// Create a new format-erased encode frame.
+    pub fn new(pixels: crate::PixelSlice<'a>, duration_ms: u32) -> Self {
+        Self {
+            pixels,
+            duration_ms,
+        }
+    }
+}
+
+impl core::fmt::Debug for EncodeFrame<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EncodeFrame")
+            .field("pixels", &self.pixels)
             .field("duration_ms", &self.duration_ms)
             .finish()
     }

@@ -1,11 +1,21 @@
 //! Common codec traits.
 //!
-//! These traits define the execution interface for image codecs. Configuration
-//! (quality, effort, lossless, etc.) lives on each codec's concrete types —
-//! the traits handle execution, metadata, cancellation, and resource limits.
+//! These traits define the execution interface for image codecs, split into
+//! four layers per side (encode and decode):
 //!
-//! Individual codecs implement these traits on their config types.
-//! Format-specific settings live on the concrete types, not on the traits.
+//! ```text
+//!                               ┌→ Encoder (one-shot or row-level push)
+//! EncoderConfig → EncodeJob<'a> ┤
+//!                               └→ FrameEncoder (animation: push frames or rows-per-frame)
+//!
+//!                               ┌→ Decoder (one-shot, decode-into, or row callback)
+//! DecoderConfig → DecodeJob<'a> ┤
+//!                               └→ FrameDecoder (animation: pull frames)
+//! ```
+//!
+//! Configuration (quality, effort, lossless, etc.) lives on each codec's
+//! concrete types — the traits handle execution, metadata, cancellation,
+//! and resource limits.
 //!
 //! # Transfer function conventions
 //!
@@ -19,20 +29,21 @@
 //! [`PixelData`](crate::PixelData) for more details.
 
 use alloc::vec::Vec;
-use imgref::ImgRef;
-use rgb::alt::BGRA;
 
-use crate::pixel::GrayAlpha;
+use imgref::{ImgRef, ImgRefMut, ImgVec};
+use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
-use imgref::ImgRefMut;
-
-use crate::output::EncodeFrame;
-use crate::pixel::PixelData;
+use crate::output::TypedEncodeFrame;
+use crate::pixel::{GrayAlpha, PixelData};
 use crate::{
     CodecCapabilities, DecodeFrame, DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata,
-    ResourceLimits, Stop,
+    PixelSlice, PixelSliceMut, ResourceLimits, Stop,
 };
+
+// ===========================================================================
+// Encode traits (4)
+// ===========================================================================
 
 /// Common interface for encode configurations.
 ///
@@ -42,16 +53,16 @@ use crate::{
 ///
 /// Format-specific settings (quality, effort, lossless mode) are set on the
 /// concrete config type before it enters the trait interface. The trait handles
-/// only universal concerns: resource limits and job creation.
+/// only universal concerns: job creation and typed convenience methods.
 ///
-/// The `job()` method creates a per-operation [`EncodingJob`] that can borrow
-/// temporary data (stop tokens, metadata).
-pub trait Encoding: Sized + Clone + Send + Sync {
+/// The `job()` method creates a per-operation [`EncodeJob`] that can borrow
+/// temporary data (stop tokens, metadata, resource limits).
+pub trait EncoderConfig: Clone + Send + Sync {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
-    /// Per-operation job type, created by [`job()`](Encoding::job).
-    type Job<'a>: EncodingJob<'a, Error = Self::Error>
+    /// Per-operation job type, created by [`job()`](EncoderConfig::job).
+    type Job<'a>: EncodeJob<'a, Error = Self::Error>
     where
         Self: 'a;
 
@@ -61,287 +72,159 @@ pub trait Encoding: Sized + Clone + Send + Sync {
     /// Use this to check before calling methods that may be no-ops.
     fn capabilities() -> &'static CodecCapabilities;
 
-    /// Apply resource limits.
-    ///
-    /// Codecs enforce the limits they support (pixel count, memory, output size).
-    /// Check [`capabilities()`](Encoding::capabilities) to see which limits are enforced.
-    fn with_limits(self, limits: ResourceLimits) -> Self;
-
     /// Create a per-operation job for this config.
     ///
     /// The job borrows the config and can accept temporary references
-    /// (stop tokens, metadata) before executing.
+    /// (stop tokens, metadata, resource limits) before creating an
+    /// encoder or frame encoder.
     fn job(&self) -> Self::Job<'_>;
 
     /// Convenience: encode RGB8 with default job settings.
     fn encode_rgb8(&self, img: ImgRef<'_, Rgb<u8>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_rgb8(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode RGBA8 with default job settings.
     fn encode_rgba8(&self, img: ImgRef<'_, Rgba<u8>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_rgba8(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode Gray8 with default job settings.
     fn encode_gray8(&self, img: ImgRef<'_, Gray<u8>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_gray8(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode BGRA8 with default job settings.
     fn encode_bgra8(&self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_bgra8(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode BGRX8 (opaque BGRA, padding byte ignored) with default job settings.
     fn encode_bgrx8(&self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_bgrx8(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode linear RGB f32 with default job settings.
     fn encode_rgb_f32(&self, img: ImgRef<'_, Rgb<f32>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_rgb_f32(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode linear RGBA f32 with default job settings.
     fn encode_rgba_f32(&self, img: ImgRef<'_, Rgba<f32>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_rgba_f32(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode linear grayscale f32 with default job settings.
     fn encode_gray_f32(&self, img: ImgRef<'_, Gray<f32>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_gray_f32(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode RGB16 with default job settings.
     fn encode_rgb16(&self, img: ImgRef<'_, Rgb<u16>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_rgb16(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode RGBA16 with default job settings.
     fn encode_rgba16(&self, img: ImgRef<'_, Rgba<u16>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_rgba16(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode Gray16 with default job settings.
     fn encode_gray16(&self, img: ImgRef<'_, Gray<u16>>) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_gray16(img)
+        self.job().encoder().encode(PixelSlice::from(img))
     }
 
     /// Convenience: encode GrayAlpha8 with default job settings.
+    ///
+    /// Routes through [`PixelData`] conversion since `GrayAlpha` lacks
+    /// `ComponentBytes` (not zero-copy).
     fn encode_gray_alpha8(
         &self,
         img: ImgRef<'_, GrayAlpha<u8>>,
     ) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_gray_alpha8(img)
+        let pixels: Vec<_> = img.pixels().collect();
+        let owned = ImgVec::new(pixels, img.width(), img.height());
+        self.encode_pixel_data(&PixelData::GrayAlpha8(owned))
     }
 
     /// Convenience: encode GrayAlpha16 with default job settings.
+    ///
+    /// Routes through [`PixelData`] conversion since `GrayAlpha` lacks
+    /// `ComponentBytes` (not zero-copy).
     fn encode_gray_alpha16(
         &self,
         img: ImgRef<'_, GrayAlpha<u16>>,
     ) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_gray_alpha16(img)
+        let pixels: Vec<_> = img.pixels().collect();
+        let owned = ImgVec::new(pixels, img.width(), img.height());
+        self.encode_pixel_data(&PixelData::GrayAlpha16(owned))
     }
 
     /// Convenience: encode linear GrayAlpha f32 with default job settings.
+    ///
+    /// Routes through [`PixelData`] conversion since `GrayAlpha` lacks
+    /// `ComponentBytes` (not zero-copy).
     fn encode_gray_alpha_f32(
         &self,
         img: ImgRef<'_, GrayAlpha<f32>>,
     ) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_gray_alpha_f32(img)
+        let pixels: Vec<_> = img.pixels().collect();
+        let owned = ImgVec::new(pixels, img.width(), img.height());
+        self.encode_pixel_data(&PixelData::GrayAlphaF32(owned))
     }
 
     /// Convenience: encode RGB8 animation with default job settings.
     fn encode_animation_rgb8(
         &self,
-        frames: &[EncodeFrame<'_, Rgb<u8>>],
+        frames: &[TypedEncodeFrame<'_, Rgb<u8>>],
     ) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_animation_rgb8(frames)
+        let mut enc = self.job().frame_encoder()?;
+        for frame in frames {
+            enc.push_frame(PixelSlice::from(frame.image), frame.duration_ms)?;
+        }
+        enc.finish()
     }
 
     /// Convenience: encode RGBA8 animation with default job settings.
     fn encode_animation_rgba8(
         &self,
-        frames: &[EncodeFrame<'_, Rgba<u8>>],
+        frames: &[TypedEncodeFrame<'_, Rgba<u8>>],
     ) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_animation_rgba8(frames)
+        let mut enc = self.job().frame_encoder()?;
+        for frame in frames {
+            enc.push_frame(PixelSlice::from(frame.image), frame.duration_ms)?;
+        }
+        enc.finish()
     }
 
     /// Convenience: encode 16-bit RGB animation with default job settings.
     fn encode_animation_rgb16(
         &self,
-        frames: &[EncodeFrame<'_, Rgb<u16>>],
+        frames: &[TypedEncodeFrame<'_, Rgb<u16>>],
     ) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_animation_rgb16(frames)
+        let mut enc = self.job().frame_encoder()?;
+        for frame in frames {
+            enc.push_frame(PixelSlice::from(frame.image), frame.duration_ms)?;
+        }
+        enc.finish()
     }
 
     /// Convenience: encode 16-bit RGBA animation with default job settings.
     fn encode_animation_rgba16(
         &self,
-        frames: &[EncodeFrame<'_, Rgba<u16>>],
+        frames: &[TypedEncodeFrame<'_, Rgba<u16>>],
     ) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_animation_rgba16(frames)
+        let mut enc = self.job().frame_encoder()?;
+        for frame in frames {
+            enc.push_frame(PixelSlice::from(frame.image), frame.duration_ms)?;
+        }
+        enc.finish()
     }
 
     /// Convenience: encode from a [`PixelData`] value with default job settings.
     ///
     /// Dispatches to the correct typed encode method based on the variant.
     fn encode_pixel_data(&self, pixels: &PixelData) -> Result<EncodeOutput, Self::Error> {
-        self.job().encode_pixel_data(pixels)
-    }
-}
-
-/// Per-operation encode job.
-///
-/// Created by [`Encoding::job()`]. Borrows temporary data (stop token,
-/// metadata) and is consumed by terminal encode methods.
-///
-/// Every codec must accept a stop token and metadata. The codec embeds
-/// whatever metadata the format supports and periodically checks the
-/// stop token for cooperative cancellation.
-///
-/// Check [`Encoding::capabilities()`] to see which metadata types and
-/// cancellation are actually supported.
-pub trait EncodingJob<'a>: Sized {
-    /// The codec-specific error type.
-    type Error: core::error::Error + Send + Sync + 'static;
-
-    /// Set cooperative cancellation token.
-    ///
-    /// The codec periodically calls `stop.check()` and returns an error
-    /// if the operation should be cancelled. No-op if the codec doesn't
-    /// support cancellation (check [`capabilities().encode_cancel()`](CodecCapabilities::encode_cancel)).
-    fn with_stop(self, stop: &'a dyn Stop) -> Self;
-
-    /// Set all metadata (ICC, EXIF, XMP) from an [`ImageMetadata`].
-    ///
-    /// The codec embeds whatever metadata the format supports. Metadata
-    /// types not supported by the format are silently skipped — check
-    /// [`capabilities()`](Encoding::capabilities) to see what's supported.
-    fn with_metadata(self, meta: &'a ImageMetadata<'a>) -> Self;
-
-    /// Override resource limits for this operation.
-    fn with_limits(self, limits: ResourceLimits) -> Self;
-
-    /// Encode RGB8 pixels.
-    fn encode_rgb8(self, img: ImgRef<'_, Rgb<u8>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode RGBA8 pixels.
-    fn encode_rgba8(self, img: ImgRef<'_, Rgba<u8>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode grayscale 8-bit pixels.
-    fn encode_gray8(self, img: ImgRef<'_, Gray<u8>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode BGRA8 pixels.
-    fn encode_bgra8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode BGRX8 pixels (opaque BGRA — padding byte is ignored).
-    fn encode_bgrx8(self, img: ImgRef<'_, BGRA<u8>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode linear RGB f32 pixels.
-    ///
-    /// Input is expected in linear light (not sRGB gamma). Codecs that store
-    /// sRGB should convert using the [`linear_srgb`](https://crates.io/crates/linear_srgb) crate.
-    /// Codecs with native f32 support (JXL, PFM) can encode directly.
-    fn encode_rgb_f32(self, img: ImgRef<'_, Rgb<f32>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode linear RGBA f32 pixels.
-    ///
-    /// Input is expected in linear light. See [`encode_rgb_f32`](EncodingJob::encode_rgb_f32).
-    fn encode_rgba_f32(self, img: ImgRef<'_, Rgba<f32>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode linear grayscale f32 pixels.
-    ///
-    /// Input is expected in linear light. See [`encode_rgb_f32`](EncodingJob::encode_rgb_f32).
-    fn encode_gray_f32(self, img: ImgRef<'_, Gray<f32>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode 16-bit RGB pixels.
-    ///
-    /// Input is in the image's native transfer function (typically sRGB gamma),
-    /// using the full 0–65535 range. For linear-light input, use
-    /// [`encode_rgb_f32`](EncodingJob::encode_rgb_f32) instead.
-    ///
-    /// Codecs without native 16-bit support should dither or truncate to their
-    /// native bit depth. Check [`capabilities().native_16bit()`](CodecCapabilities::native_16bit).
-    fn encode_rgb16(self, img: ImgRef<'_, Rgb<u16>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode 16-bit RGBA pixels.
-    ///
-    /// Input is in the image's native transfer function (typically sRGB gamma).
-    /// See [`encode_rgb16`](EncodingJob::encode_rgb16).
-    fn encode_rgba16(self, img: ImgRef<'_, Rgba<u16>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode 16-bit grayscale pixels.
-    ///
-    /// Input is in the image's native transfer function (typically sRGB gamma).
-    /// See [`encode_rgb16`](EncodingJob::encode_rgb16).
-    fn encode_gray16(self, img: ImgRef<'_, Gray<u16>>) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode 8-bit grayscale + alpha pixels.
-    fn encode_gray_alpha8(
-        self,
-        img: ImgRef<'_, GrayAlpha<u8>>,
-    ) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode 16-bit grayscale + alpha pixels.
-    ///
-    /// Input is in the image's native transfer function (typically sRGB gamma).
-    fn encode_gray_alpha16(
-        self,
-        img: ImgRef<'_, GrayAlpha<u16>>,
-    ) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode linear grayscale + alpha f32 pixels.
-    ///
-    /// Input is expected in linear light.
-    fn encode_gray_alpha_f32(
-        self,
-        img: ImgRef<'_, GrayAlpha<f32>>,
-    ) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode an animation as a sequence of RGB8 frames.
-    ///
-    /// Codecs that don't support animation should return an error.
-    /// Check [`capabilities().encode_animation()`](CodecCapabilities::encode_animation).
-    fn encode_animation_rgb8(
-        self,
-        frames: &[EncodeFrame<'_, Rgb<u8>>],
-    ) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode an animation as a sequence of RGBA8 frames.
-    ///
-    /// Codecs that don't support animation should return an error.
-    fn encode_animation_rgba8(
-        self,
-        frames: &[EncodeFrame<'_, Rgba<u8>>],
-    ) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode an animation as a sequence of 16-bit RGB frames.
-    ///
-    /// Input is in the image's native transfer function (typically sRGB gamma),
-    /// using the full 0–65535 range. Codecs that don't support animation
-    /// should return an error. Codecs without native 16-bit support should
-    /// dither or truncate.
-    fn encode_animation_rgb16(
-        self,
-        frames: &[EncodeFrame<'_, Rgb<u16>>],
-    ) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode an animation as a sequence of 16-bit RGBA frames.
-    ///
-    /// Input is in the image's native transfer function (typically sRGB gamma).
-    /// Codecs that don't support animation should return an error.
-    /// Codecs without native 16-bit support should dither or truncate.
-    fn encode_animation_rgba16(
-        self,
-        frames: &[EncodeFrame<'_, Rgba<u16>>],
-    ) -> Result<EncodeOutput, Self::Error>;
-
-    /// Encode from a [`PixelData`] value, dispatching to the correct typed method.
-    ///
-    /// Provided as a default implementation — codecs don't need to override this.
-    fn encode_pixel_data(self, pixels: &PixelData) -> Result<EncodeOutput, Self::Error> {
         match pixels {
             PixelData::Rgb8(img) => self.encode_rgb8(img.as_ref()),
             PixelData::Rgba8(img) => self.encode_rgba8(img.as_ref()),
@@ -360,19 +243,122 @@ pub trait EncodingJob<'a>: Sized {
     }
 }
 
-/// Common interface for decode configurations.
+/// Per-operation encode job.
 ///
-/// Implemented by each codec's config type (e.g. `zenjpeg::DecodeConfig`).
-/// Config types are reusable (`Clone`) and have no lifetimes.
+/// Created by [`EncoderConfig::job()`]. Borrows temporary data (stop token,
+/// metadata, resource limits) and produces either an [`Encoder`] (single image)
+/// or a [`FrameEncoder`] (animation).
 ///
-/// Format-specific decode settings live on the concrete config type.
-/// The trait handles resource limits, job creation, and probing.
-pub trait Decoding: Sized + Clone + Send + Sync {
+/// Every codec must accept a stop token and metadata. The codec embeds
+/// whatever metadata the format supports and periodically checks the
+/// stop token for cooperative cancellation.
+///
+/// Check [`EncoderConfig::capabilities()`] to see which metadata types and
+/// cancellation are actually supported.
+pub trait EncodeJob<'a>: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
-    /// Per-operation job type, created by [`job()`](Decoding::job).
-    type Job<'a>: DecodingJob<'a, Error = Self::Error>
+    /// Single-image encoder type.
+    type Encoder: Encoder<Error = Self::Error>;
+
+    /// Animation encoder type.
+    type FrameEncoder: FrameEncoder<Error = Self::Error>;
+
+    /// Set cooperative cancellation token.
+    ///
+    /// The codec periodically calls `stop.check()` and returns an error
+    /// if the operation should be cancelled. No-op if the codec doesn't
+    /// support cancellation (check [`capabilities().encode_cancel()`](CodecCapabilities::encode_cancel)).
+    fn with_stop(self, stop: &'a dyn Stop) -> Self;
+
+    /// Set all metadata (ICC, EXIF, XMP) from an [`ImageMetadata`].
+    ///
+    /// The codec embeds whatever metadata the format supports. Metadata
+    /// types not supported by the format are silently skipped — check
+    /// [`capabilities()`](EncoderConfig::capabilities) to see what's supported.
+    fn with_metadata(self, meta: &'a ImageMetadata<'a>) -> Self;
+
+    /// Override resource limits for this operation.
+    fn with_limits(self, limits: ResourceLimits) -> Self;
+
+    /// Create a one-shot/row-level encoder for a single image.
+    fn encoder(self) -> Self::Encoder;
+
+    /// Create a frame-by-frame encoder for animation.
+    ///
+    /// Returns an error if the codec does not support animation encoding.
+    fn frame_encoder(self) -> Result<Self::FrameEncoder, Self::Error>;
+}
+
+/// Single-image encode: one-shot or row-level push.
+///
+/// Two mutually exclusive usage paths:
+/// - [`encode()`](Encoder::encode) — all at once, consumes self
+/// - [`push_rows()`](Encoder::push_rows) + [`finish()`](Encoder::finish) — incremental
+///
+/// Codecs that need full-frame data (e.g. AV1) may buffer internally
+/// when rows are pushed incrementally.
+pub trait Encoder: Sized {
+    /// The codec-specific error type.
+    type Error: core::error::Error + Send + Sync + 'static;
+
+    /// Encode a complete image at once (consumes self).
+    fn encode(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+
+    /// Push scanline rows incrementally.
+    ///
+    /// Codec may buffer internally if it needs full-frame data (e.g. AV1).
+    fn push_rows(&mut self, rows: PixelSlice<'_>) -> Result<(), Self::Error>;
+
+    /// Finalize after push_rows. Returns encoded output.
+    fn finish(self) -> Result<EncodeOutput, Self::Error>;
+}
+
+/// Animation encode: push complete frames or build frames row-by-row.
+///
+/// Two mutually exclusive per-frame paths:
+/// - [`push_frame()`](FrameEncoder::push_frame) — complete frame at once
+/// - [`begin_frame()`](FrameEncoder::begin_frame) +
+///   [`push_rows()`](FrameEncoder::push_rows) +
+///   [`end_frame()`](FrameEncoder::end_frame) — row-level within a frame
+pub trait FrameEncoder: Sized {
+    /// The codec-specific error type.
+    type Error: core::error::Error + Send + Sync + 'static;
+
+    /// Push a complete frame.
+    fn push_frame(&mut self, pixels: PixelSlice<'_>, duration_ms: u32) -> Result<(), Self::Error>;
+
+    /// Begin a new frame (for row-level building).
+    fn begin_frame(&mut self, duration_ms: u32) -> Result<(), Self::Error>;
+
+    /// Push rows into the current frame (after begin_frame).
+    fn push_rows(&mut self, rows: PixelSlice<'_>) -> Result<(), Self::Error>;
+
+    /// End the current frame (after pushing all rows).
+    fn end_frame(&mut self) -> Result<(), Self::Error>;
+
+    /// Finalize animation. Returns encoded output.
+    fn finish(self) -> Result<EncodeOutput, Self::Error>;
+}
+
+// ===========================================================================
+// Decode traits (4)
+// ===========================================================================
+
+/// Common interface for decode configurations.
+///
+/// Implemented by each codec's config type (e.g. `zenjpeg::DecoderConfig`).
+/// Config types are reusable (`Clone`) and have no lifetimes.
+///
+/// Format-specific decode settings live on the concrete config type.
+/// The trait handles job creation, probing, and typed convenience methods.
+pub trait DecoderConfig: Clone + Send + Sync {
+    /// The codec-specific error type.
+    type Error: core::error::Error + Send + Sync + 'static;
+
+    /// Per-operation job type, created by [`job()`](DecoderConfig::job).
+    type Job<'a>: DecodeJob<'a, Error = Self::Error>
     where
         Self: 'a;
 
@@ -380,13 +366,6 @@ pub trait Decoding: Sized + Clone + Send + Sync {
     ///
     /// Returns a static reference describing what this codec supports.
     fn capabilities() -> &'static CodecCapabilities;
-
-    /// Apply resource limits.
-    ///
-    /// Codecs enforce the limits they support (pixel count, memory, dimensions,
-    /// file size). Check [`capabilities()`](Decoding::capabilities) to see which
-    /// limits are enforced.
-    fn with_limits(self, limits: ResourceLimits) -> Self;
 
     /// Create a per-operation job for this config.
     fn job(&self) -> Self::Job<'_>;
@@ -397,7 +376,7 @@ pub trait Decoding: Sized + Clone + Send + Sync {
     /// headers to extract dimensions, format, and basic metadata. May not
     /// return frame counts or other data requiring a full parse.
     ///
-    /// Use [`probe_full`](Decoding::probe_full) when you need complete
+    /// Use [`probe_full`](DecoderConfig::probe_full) when you need complete
     /// metadata including frame counts.
     fn probe_header(&self, data: &[u8]) -> Result<ImageInfo, Self::Error>;
 
@@ -407,124 +386,15 @@ pub trait Decoding: Sized + Clone + Send + Sync {
     /// decoding AVIF container metadata). Returns complete metadata
     /// including frame counts.
     ///
-    /// Default: delegates to [`probe_header`](Decoding::probe_header).
+    /// Default: delegates to [`probe_header`](DecoderConfig::probe_header).
     /// Codecs that need a full parse for complete metadata should override.
     fn probe_full(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
         self.probe_header(data)
     }
 
-    /// Convenience: decode with default job settings.
-    fn decode(&self, data: &[u8]) -> Result<DecodeOutput, Self::Error> {
-        self.job().decode(data)
-    }
-
-    /// Convenience: decode into a caller-provided RGB8 buffer.
-    fn decode_into_rgb8(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgb<u8>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_rgb8(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided RGBA8 buffer.
-    fn decode_into_rgba8(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgba<u8>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_rgba8(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided Gray8 buffer.
-    fn decode_into_gray8(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Gray<u8>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_gray8(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided BGRA8 buffer.
-    fn decode_into_bgra8(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, BGRA<u8>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_bgra8(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided BGRX8 buffer (alpha byte set to 255).
-    fn decode_into_bgrx8(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, BGRA<u8>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_bgrx8(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided linear RGB f32 buffer.
-    fn decode_into_rgb_f32(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgb<f32>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_rgb_f32(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided linear RGBA f32 buffer.
-    fn decode_into_rgba_f32(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgba<f32>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_rgba_f32(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided linear grayscale f32 buffer.
-    fn decode_into_gray_f32(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Gray<f32>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_gray_f32(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided 16-bit RGB buffer.
-    fn decode_into_rgb16(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgb<u16>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_rgb16(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided 16-bit RGBA buffer.
-    fn decode_into_rgba16(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgba<u16>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_rgba16(data, dst)
-    }
-
-    /// Convenience: decode into a caller-provided 16-bit grayscale buffer.
-    fn decode_into_gray16(
-        &self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Gray<u16>>,
-    ) -> Result<ImageInfo, Self::Error> {
-        self.job().decode_into_gray16(data, dst)
-    }
-
-    /// Convenience: decode all animation frames with default job settings.
-    fn decode_animation(&self, data: &[u8]) -> Result<Vec<DecodeFrame>, Self::Error> {
-        self.job().decode_animation(data)
-    }
-
     /// Compute output dimensions/info for this data given current config.
     ///
-    /// Unlike [`probe_header()`](Decoding::probe_header) which returns stored
+    /// Unlike [`probe_header()`](DecoderConfig::probe_header) which returns stored
     /// file dimensions, this applies config transforms (scaling, orientation)
     /// to predict actual decode output. Use this to allocate buffers for
     /// `decode_into_*` methods.
@@ -533,15 +403,148 @@ pub trait Decoding: Sized + Clone + Send + Sync {
     fn decode_info(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
         self.probe_header(data)
     }
+
+    /// Convenience: decode with default job settings.
+    fn decode(&self, data: &[u8]) -> Result<DecodeOutput, Self::Error> {
+        self.job().decoder().decode(data)
+    }
+
+    /// Convenience: decode into a caller-provided RGB8 buffer.
+    fn decode_into_rgb8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgb<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided RGBA8 buffer.
+    fn decode_into_rgba8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgba<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided Gray8 buffer.
+    fn decode_into_gray8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Gray<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided BGRA8 buffer.
+    fn decode_into_bgra8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, BGRA<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided BGRX8 buffer (alpha byte set to 255).
+    fn decode_into_bgrx8(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, BGRA<u8>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided linear RGB f32 buffer.
+    fn decode_into_rgb_f32(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgb<f32>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided linear RGBA f32 buffer.
+    fn decode_into_rgba_f32(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgba<f32>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided linear grayscale f32 buffer.
+    fn decode_into_gray_f32(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Gray<f32>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided 16-bit RGB buffer.
+    fn decode_into_rgb16(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgb<u16>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided 16-bit RGBA buffer.
+    fn decode_into_rgba16(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Rgba<u16>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
+
+    /// Convenience: decode into a caller-provided 16-bit grayscale buffer.
+    fn decode_into_gray16(
+        &self,
+        data: &[u8],
+        dst: ImgRefMut<'_, Gray<u16>>,
+    ) -> Result<ImageInfo, Self::Error> {
+        self.job()
+            .decoder()
+            .decode_into(data, PixelSliceMut::from(dst))
+    }
 }
 
 /// Per-operation decode job.
 ///
-/// Created by [`Decoding::job()`]. Borrows temporary data (stop token)
-/// and is consumed by terminal decode methods.
-pub trait DecodingJob<'a>: Sized {
+/// Created by [`DecoderConfig::job()`]. Borrows temporary data (stop token,
+/// resource limits) and produces either a [`Decoder`] (single image) or a
+/// [`FrameDecoder`] (animation).
+pub trait DecodeJob<'a>: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
+
+    /// Single-image decoder type.
+    type Decoder: Decoder<Error = Self::Error>;
+
+    /// Animation decoder type.
+    type FrameDecoder: FrameDecoder<Error = Self::Error>;
 
     /// Set cooperative cancellation token.
     ///
@@ -552,120 +555,50 @@ pub trait DecodingJob<'a>: Sized {
     /// Override resource limits for this operation.
     fn with_limits(self, limits: ResourceLimits) -> Self;
 
-    /// Decode image data to pixels.
+    /// Create a one-shot decoder.
+    fn decoder(self) -> Self::Decoder;
+
+    /// Create a frame-by-frame decoder. Parses container upfront.
+    ///
+    /// Returns an error if the codec does not support animation decoding
+    /// or if the container parse fails.
+    fn frame_decoder(self, data: &[u8]) -> Result<Self::FrameDecoder, Self::Error>;
+}
+
+/// One-shot decode: all pixels at once, into a caller buffer, or row-level callback.
+pub trait Decoder: Sized {
+    /// The codec-specific error type.
+    type Error: core::error::Error + Send + Sync + 'static;
+
+    /// Decode to owned pixels (codec picks native format).
     fn decode(self, data: &[u8]) -> Result<DecodeOutput, Self::Error>;
 
-    /// Decode directly into a caller-provided RGB8 buffer.
+    /// Decode into caller-provided buffer.
     ///
-    /// The buffer must have dimensions matching [`Decoding::decode_info()`] results.
-    /// Returns [`ImageInfo`] with metadata from the decoded image.
-    fn decode_into_rgb8(
+    /// The buffer must have dimensions matching
+    /// [`DecoderConfig::decode_info()`] results.
+    fn decode_into(self, data: &[u8], dst: PixelSliceMut<'_>) -> Result<ImageInfo, Self::Error>;
+
+    /// Decode with row-level callback. Codec pushes rows as they become
+    /// available.
+    ///
+    /// For codecs that need full-frame decode (AV1), all rows arrive at once.
+    fn decode_rows(
         self,
         data: &[u8],
-        dst: ImgRefMut<'_, Rgb<u8>>,
+        sink: &mut dyn FnMut(u32, PixelSlice<'_>),
     ) -> Result<ImageInfo, Self::Error>;
+}
 
-    /// Decode directly into a caller-provided RGBA8 buffer.
-    fn decode_into_rgba8(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgba<u8>>,
-    ) -> Result<ImageInfo, Self::Error>;
+/// Streaming animation decode: pull frames.
+pub trait FrameDecoder: Sized {
+    /// The codec-specific error type.
+    type Error: core::error::Error + Send + Sync + 'static;
 
-    /// Decode directly into a caller-provided Gray8 buffer.
-    fn decode_into_gray8(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Gray<u8>>,
-    ) -> Result<ImageInfo, Self::Error>;
+    /// Pull next complete frame. Returns `None` when done.
+    fn next_frame(&mut self) -> Result<Option<DecodeFrame>, Self::Error>;
 
-    /// Decode directly into a caller-provided BGRA8 buffer.
-    fn decode_into_bgra8(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, BGRA<u8>>,
-    ) -> Result<ImageInfo, Self::Error>;
-
-    /// Decode directly into a caller-provided BGRX8 buffer (alpha byte set to 255).
-    fn decode_into_bgrx8(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, BGRA<u8>>,
-    ) -> Result<ImageInfo, Self::Error>;
-
-    /// Decode directly into a caller-provided linear RGB f32 buffer.
-    ///
-    /// Output is in linear light (not sRGB gamma). Codecs that store sRGB
-    /// should convert using the [`linear_srgb`](https://crates.io/crates/linear_srgb) crate.
-    /// Codecs with native f32 support (JXL, PFM) can decode directly.
-    fn decode_into_rgb_f32(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgb<f32>>,
-    ) -> Result<ImageInfo, Self::Error>;
-
-    /// Decode directly into a caller-provided linear RGBA f32 buffer.
-    ///
-    /// Output is in linear light. See [`decode_into_rgb_f32`](DecodingJob::decode_into_rgb_f32).
-    fn decode_into_rgba_f32(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgba<f32>>,
-    ) -> Result<ImageInfo, Self::Error>;
-
-    /// Decode directly into a caller-provided linear grayscale f32 buffer.
-    ///
-    /// Output is in linear light. See [`decode_into_rgb_f32`](DecodingJob::decode_into_rgb_f32).
-    fn decode_into_gray_f32(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Gray<f32>>,
-    ) -> Result<ImageInfo, Self::Error>;
-
-    /// Decode directly into a caller-provided 16-bit RGB buffer.
-    ///
-    /// Output is in the image's native transfer function (typically sRGB gamma),
-    /// using the full 0–65535 range regardless of source bit depth.
-    /// For linear-light output, use [`decode_into_rgb_f32`](DecodingJob::decode_into_rgb_f32).
-    ///
-    /// Codecs with native 8-bit output should upscale to 16-bit.
-    fn decode_into_rgb16(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgb<u16>>,
-    ) -> Result<ImageInfo, Self::Error>;
-
-    /// Decode directly into a caller-provided 16-bit RGBA buffer.
-    ///
-    /// Output is in the image's native transfer function (typically sRGB gamma).
-    /// See [`decode_into_rgb16`](DecodingJob::decode_into_rgb16).
-    fn decode_into_rgba16(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Rgba<u16>>,
-    ) -> Result<ImageInfo, Self::Error>;
-
-    /// Decode directly into a caller-provided 16-bit grayscale buffer.
-    ///
-    /// Output is in the image's native transfer function (typically sRGB gamma).
-    /// See [`decode_into_rgb16`](DecodingJob::decode_into_rgb16).
-    fn decode_into_gray16(
-        self,
-        data: &[u8],
-        dst: ImgRefMut<'_, Gray<u16>>,
-    ) -> Result<ImageInfo, Self::Error>;
-
-    /// Decode all animation frames.
-    ///
-    /// Returns each frame with its pixel data and duration. For still images,
-    /// returns a single frame with duration 0.
-    ///
-    /// **Note:** All frames are buffered in memory. For large animations
-    /// this can require significant memory (e.g. 100 frames at 4K RGBA8
-    /// is ~6 GB). A streaming frame iterator API is planned for a future
-    /// version.
-    ///
-    /// Codecs that don't support animation should return the primary image
-    /// as a single frame. Check [`capabilities().decode_animation()`](CodecCapabilities::decode_animation).
-    fn decode_animation(self, data: &[u8]) -> Result<Vec<DecodeFrame>, Self::Error>;
+    /// Pull next frame into caller buffer. Returns `None` when done.
+    fn next_frame_into(&mut self, dst: PixelSliceMut<'_>)
+    -> Result<Option<ImageInfo>, Self::Error>;
 }

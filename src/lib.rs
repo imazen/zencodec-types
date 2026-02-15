@@ -2,9 +2,10 @@
 //!
 //! This crate defines the common API surface that all zen* codecs implement:
 //!
-//! - [`Encoding`] / [`EncodingJob`] — config and per-operation encode traits
-//! - [`Decoding`] / [`DecodingJob`] — config and per-operation decode traits
+//! - [`EncoderConfig`] / [`EncodeJob`] / [`Encoder`] / [`FrameEncoder`] — encode traits
+//! - [`DecoderConfig`] / [`DecodeJob`] / [`Decoder`] / [`FrameDecoder`] — decode traits
 //! - [`EncodeOutput`] / [`DecodeOutput`] — unified output types
+//! - [`PixelSlice`] / [`PixelSliceMut`] / [`PixelBuffer`] — format-erased pixel buffers
 //! - [`PixelData`] — typed pixel buffer enum over `imgref::ImgVec`
 //! - [`ImageInfo`] / [`ImageMetadata`] / [`Orientation`] — image metadata
 //! - [`ImageFormat`] — format detection from magic bytes
@@ -40,9 +41,12 @@ pub use format::ImageFormat;
 pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageMetadata, MasteringDisplay};
 pub use limits::ResourceLimits;
 pub use orientation::Orientation;
-pub use output::{DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput};
+pub use output::{DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput, TypedEncodeFrame};
 pub use pixel::{GrayAlpha, PixelData};
-pub use traits::{Decoding, DecodingJob, Encoding, EncodingJob};
+pub use traits::{
+    DecodeJob, Decoder, DecoderConfig, EncodeJob, Encoder, EncoderConfig, FrameDecoder,
+    FrameEncoder,
+};
 
 // Re-exports for codec implementors and users.
 pub use enough::{Stop, Unstoppable};

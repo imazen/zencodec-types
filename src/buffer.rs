@@ -966,6 +966,43 @@ impl_from_imgref!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
 impl_from_imgref!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
 
 // ---------------------------------------------------------------------------
+// ImgRefMut → PixelSliceMut (zero-copy From impls)
+// ---------------------------------------------------------------------------
+
+macro_rules! impl_from_imgref_mut {
+    ($pixel:ty, $descriptor:expr) => {
+        impl<'a> From<imgref::ImgRefMut<'a, $pixel>> for PixelSliceMut<'a> {
+            fn from(img: imgref::ImgRefMut<'a, $pixel>) -> Self {
+                use rgb::ComponentBytes;
+                let width = img.width() as u32;
+                let rows = img.height() as u32;
+                let byte_stride = img.stride() * core::mem::size_of::<$pixel>();
+                let buf = img.into_buf();
+                let bytes = buf.as_bytes_mut();
+                PixelSliceMut {
+                    data: bytes,
+                    width,
+                    rows,
+                    stride: byte_stride,
+                    descriptor: $descriptor,
+                }
+            }
+        }
+    };
+}
+
+impl_from_imgref_mut!(Rgb<u8>, PixelDescriptor::RGB8_SRGB);
+impl_from_imgref_mut!(Rgba<u8>, PixelDescriptor::RGBA8_SRGB);
+impl_from_imgref_mut!(Rgb<u16>, PixelDescriptor::RGB16_SRGB);
+impl_from_imgref_mut!(Rgba<u16>, PixelDescriptor::RGBA16_SRGB);
+impl_from_imgref_mut!(Rgb<f32>, PixelDescriptor::RGBF32_LINEAR);
+impl_from_imgref_mut!(Rgba<f32>, PixelDescriptor::RGBAF32_LINEAR);
+impl_from_imgref_mut!(Gray<u8>, PixelDescriptor::GRAY8_SRGB);
+impl_from_imgref_mut!(Gray<u16>, PixelDescriptor::GRAY16_SRGB);
+impl_from_imgref_mut!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
+impl_from_imgref_mut!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
+
+// ---------------------------------------------------------------------------
 // PixelData → PixelBuffer (From, always copies)
 // ---------------------------------------------------------------------------
 
