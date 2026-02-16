@@ -64,31 +64,28 @@ pub use rgb;
 pub use rgb::alt::BGRA as Bgra;
 pub use rgb::{Gray, Rgb, Rgba};
 
-// Error handling re-exports.
+// Error location tracking re-exports.
 //
-// Codec error types should use `thiserror` for `Error` derives and
-// `whereat` for location tracking. The recommended pattern:
+// Codec error types use `whereat` for file:line tracking.
+// The recommended pattern (codecs depend on `thiserror` directly):
 //
 // ```rust,ignore
-// use zencodec_types::{thiserror, At, ResultAtExt};
+// use zencodec_types::{At, ResultAtExt};
 //
 // #[derive(Debug, thiserror::Error)]
 // pub enum MyCodecError {
 //     #[error("invalid header")]
 //     InvalidHeader,
-//     #[error("unsupported format: {0}")]
-//     Unsupported(&'static str),
 // }
 //
 // // In trait impl:
 // type Error = At<MyCodecError>;
 //
-// // In methods — .at() captures file:line on error:
+// // .at() captures file:line on error:
 // fn decode(&self, data: &[u8]) -> Result<..., At<MyCodecError>> {
 //     parse_header(data).at()?;
 //     Ok(...)
 // }
 // ```
-pub use thiserror;
 pub use whereat;
 pub use whereat::{At, AtTrace, AtTraceable, ErrorAtExt, ResultAtExt};
