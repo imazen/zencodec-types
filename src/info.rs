@@ -495,6 +495,46 @@ impl OutputInfo {
         self.crop_applied = Some(rect);
         self
     }
+
+    /// Minimum buffer size in bytes for the native format (no padding).
+    ///
+    /// This is `width * height * bytes_per_pixel`. For aligned/strided
+    /// buffers, use [`PixelDescriptor::aligned_stride()`] instead.
+    pub fn buffer_size(&self) -> u64 {
+        self.width as u64 * self.height as u64 * self.native_format.bytes_per_pixel() as u64
+    }
+
+    /// Pixel count (`width * height`).
+    pub fn pixel_count(&self) -> u64 {
+        self.width as u64 * self.height as u64
+    }
+}
+
+/// Estimated resource cost of a decode operation.
+///
+/// Returned by [`DecodeJob::estimated_cost()`](crate::DecodeJob::estimated_cost).
+/// Lets callers make resource management decisions (reject oversized images,
+/// limit concurrency, choose quality/speed tradeoffs) before committing
+/// to a decode.
+///
+/// `output_bytes` and `pixel_count` are always accurate (derived from
+/// [`OutputInfo`]). `peak_memory` is a codec-specific estimate of total
+/// working memory and may be `None` if the codec can't predict it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodeCost {
+    /// Output buffer size in bytes (width × height × bytes_per_pixel).
+    pub output_bytes: u64,
+    /// Total pixels in the output (width × height).
+    pub pixel_count: u64,
+    /// Estimated peak memory during decode, in bytes.
+    ///
+    /// Includes working buffers (YUV planes, entropy decode state, etc.)
+    /// plus the output buffer. `None` if the codec can't estimate this.
+    ///
+    /// For AV1/AVIF this can be significantly larger than `output_bytes`
+    /// due to tile buffers, loop filter state, and reference frames.
+    /// For JPEG it's typically close to `output_bytes`.
+    pub peak_memory: Option<u64>,
 }
 
 #[cfg(test)]

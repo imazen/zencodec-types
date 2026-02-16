@@ -446,24 +446,6 @@ pub trait DecoderConfig: Clone + Send + Sync {
         self.probe_header(data)
     }
 
-    /// Predict decode output for default settings (no hints).
-    ///
-    /// Returns [`OutputInfo`](crate::OutputInfo) describing the width, height,
-    /// and pixel format that `decode()` / `decode_into()` will produce.
-    /// Use this to allocate buffers for `decode_into_*` methods.
-    ///
-    /// Unlike [`probe_header()`](DecoderConfig::probe_header) which returns
-    /// the file's natural/stored dimensions, this returns what the decoder
-    /// will actually output given the current config.
-    ///
-    /// For hint-aware prediction (crop, scale, orientation), create a job
-    /// and call [`DecodeJob::output_info()`].
-    ///
-    /// Default: delegates to `self.job().output_info(data)`.
-    fn decode_info(&self, data: &[u8]) -> Result<crate::OutputInfo, Self::Error> {
-        self.job().output_info(data)
-    }
-
     /// Convenience: decode with default job settings.
     fn decode(&self, data: &[u8]) -> Result<DecodeOutput, Self::Error> {
         self.job().decoder().decode(data)
@@ -680,6 +662,25 @@ pub trait DecodeJob<'a>: Sized {
     /// decoder will honor.
     fn output_info(&self, data: &[u8]) -> Result<crate::OutputInfo, Self::Error>;
 
+    // --- Cost estimation ---
+
+    /// Estimate the resource cost of this decode.
+    ///
+    /// Returns output buffer size, pixel count, and optionally peak memory.
+    /// Accounts for current hints (crop, scale, etc.).
+    ///
+    /// Default: derives `output_bytes` and `pixel_count` from
+    /// [`output_info()`](DecodeJob::output_info) with `peak_memory: None`.
+    /// Override to provide codec-specific peak memory estimates.
+    fn estimated_cost(&self, data: &[u8]) -> Result<crate::DecodeCost, Self::Error> {
+        let info = self.output_info(data)?;
+        Ok(crate::DecodeCost {
+            output_bytes: info.buffer_size(),
+            pixel_count: info.pixel_count(),
+            peak_memory: None,
+        })
+    }
+
     // --- Executor creation ---
 
     /// Create a one-shot decoder.
@@ -702,8 +703,8 @@ pub trait Decoder: Sized {
 
     /// Decode into caller-provided buffer.
     ///
-    /// The buffer dimensions must match [`DecodeJob::output_info()`] or
-    /// [`DecoderConfig::decode_info()`]. The buffer's pixel format must be
+    /// The buffer dimensions must match [`DecodeJob::output_info()`].
+    /// The buffer's pixel format must be
     /// one of [`DecoderConfig::supported_descriptors()`].
     fn decode_into(self, data: &[u8], dst: PixelSliceMut<'_>) -> Result<ImageInfo, Self::Error>;
 

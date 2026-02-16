@@ -119,8 +119,8 @@ let output = enc.finish()?;
 // One-shot decode (typed convenience)
 let output = config.decode(data)?;
 
-// Decode into caller buffer (use decode_info or output_info to size the buffer)
-let info = config.decode_info(data)?;
+// Decode into caller buffer (use output_info to size the buffer)
+let info = config.job().output_info(data)?;
 let mut buf = PixelBuffer::new(info.width, info.height, info.native_format)?;
 config.job().decoder().decode_into(data, buf.as_mut_slice())?;
 
@@ -228,7 +228,7 @@ let natural = config.probe_header(data)?;
 println!("Stored: {}x{}, orientation {:?}", natural.width, natural.height, natural.orientation);
 
 // Output info with no hints: what decode() will produce by default
-let output = config.decode_info(data)?;
+let output = config.job().output_info(data)?;
 
 // Output info with hints: request crop + prescale + orientation
 let output = config.job()
@@ -253,6 +253,24 @@ Decode hints are optional suggestions — the decoder may ignore them, apply the
 | `has_alpha` | Whether the output has an alpha channel |
 | `orientation_applied` | Orientation the decoder will handle (Normal = caller must handle it) |
 | `crop_applied` | Actual crop region in source coordinates (may differ from hint) |
+
+### Cost estimation
+
+`DecodeJob::estimated_cost()` returns a `DecodeCost` before decoding starts. Use it for resource management — rejecting oversized images, limiting concurrency, choosing memory pools.
+
+```rust
+let job = config.job().with_crop_hint(0, 0, 1000, 1000);
+let cost = job.estimated_cost(data)?;
+
+if cost.pixel_count > 100_000_000 {
+    return Err("image too large");
+}
+if let Some(peak) = cost.peak_memory {
+    ensure_memory_available(peak)?;
+}
+```
+
+`output_bytes` and `pixel_count` are always accurate (computed from `OutputInfo`). `peak_memory` is codec-specific — AV1 needs significant working buffers for tiles and reference frames; JPEG needs much less. Codecs that can't estimate peak memory return `None`.
 
 ### Transfer function conventions
 
@@ -355,7 +373,7 @@ fn probe_full(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
 }
 ```
 
-### `output_info()` and `decode_info()` — predict output dimensions
+### `output_info()` — predict output dimensions
 
 `DecodeJob::output_info()` is the required method for predicting decode output. It returns `OutputInfo` with the width, height, pixel format, and applied transforms that `decode()` / `decode_into()` will produce. Callers use this to allocate destination buffers.
 
@@ -371,7 +389,23 @@ fn output_info(&self, data: &[u8]) -> Result<OutputInfo, Self::Error> {
 }
 ```
 
-`DecoderConfig::decode_info()` is a convenience that delegates to `self.job().output_info(data)`. Override it only if you need a cheaper path that skips creating a job.
+### `estimated_cost()` — resource management
+
+`DecodeJob::estimated_cost()` returns a `DecodeCost` with output buffer size, pixel count, and optionally peak memory. The default implementation derives `output_bytes` and `pixel_count` from `output_info()` with `peak_memory: None`.
+
+Override to provide codec-specific peak memory estimates:
+
+```rust
+fn estimated_cost(&self, data: &[u8]) -> Result<DecodeCost, Self::Error> {
+    let info = self.output_info(data)?;
+    Ok(DecodeCost {
+        output_bytes: info.buffer_size(),
+        pixel_count: info.pixel_count(),
+        // AV1 needs ~3x output for tile buffers + reference frames
+        peak_memory: Some(info.buffer_size() * 3),
+    })
+}
+```
 
 ### Decode hints — `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()`
 
@@ -462,7 +496,7 @@ The `EncoderConfig` trait provides default implementations that route through `P
 
 ### `decode_into_*()` — zero-copy decode path
 
-The `DecoderConfig` trait provides default implementations that route through `Decoder::decode_into()`. If your codec can decode directly into a caller-provided buffer, override `Decoder::decode_into()`. Callers should use `decode_info()` or `DecodeJob::output_info()` to determine the required buffer dimensions and pixel format.
+The `DecoderConfig` trait provides default implementations that route through `Decoder::decode_into()`. If your codec can decode directly into a caller-provided buffer, override `Decoder::decode_into()`. Callers should use `DecodeJob::output_info()` to determine the required buffer dimensions and pixel format.
 
 ### Error types
 
@@ -505,8 +539,8 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 **Should implement** (have defaults, but override when beneficial):
 
 15. `probe_full()` — override when frame count or complete metadata requires a full parse
-16. `decode_info()` on `DecoderConfig` — override when you need a cheaper path than creating a job
-17. `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()` on `DecodeJob` — honor decode hints when the codec can apply spatial transforms cheaply (JPEG MCU-aligned crop, JPEG 1/2/4/8 prescale, etc.)
+16. `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()` on `DecodeJob` — honor decode hints when the codec can apply spatial transforms cheaply (JPEG MCU-aligned crop, JPEG 1/2/4/8 prescale, etc.)
+17. `estimated_cost()` on `DecodeJob` — override to provide codec-specific `peak_memory` estimates (default derives `output_bytes`/`pixel_count` from `output_info()`)
 18. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
 19. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
 20. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
