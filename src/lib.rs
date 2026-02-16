@@ -23,9 +23,9 @@
 
 extern crate alloc;
 
-pub mod buffer;
+mod buffer;
 mod capabilities;
-pub mod color;
+mod color;
 mod format;
 mod info;
 mod limits;

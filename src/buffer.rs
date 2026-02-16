@@ -349,6 +349,8 @@ impl fmt::Display for BufferError {
     }
 }
 
+impl core::error::Error for BufferError {}
+
 // ---------------------------------------------------------------------------
 // PixelSlice (borrowed, immutable)
 // ---------------------------------------------------------------------------

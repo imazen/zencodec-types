@@ -6,8 +6,8 @@
 
 /// Describes what a codec supports.
 ///
-/// Returned by [`Encoding::capabilities()`](crate::Encoding::capabilities) and
-/// [`Decoding::capabilities()`](crate::Decoding::capabilities) as a `&'static`
+/// Returned by [`EncoderConfig::capabilities()`](crate::EncoderConfig::capabilities) and
+/// [`DecoderConfig::capabilities()`](crate::DecoderConfig::capabilities) as a `&'static`
 /// reference. The struct uses getter methods so fields can be added over time
 /// without breaking changes.
 ///

@@ -150,7 +150,7 @@ impl ImageFormat {
     pub fn supports_animation(self) -> bool {
         matches!(
             self,
-            ImageFormat::WebP | ImageFormat::Gif | ImageFormat::Jxl
+            ImageFormat::WebP | ImageFormat::Gif | ImageFormat::Avif | ImageFormat::Jxl
         )
     }
 
