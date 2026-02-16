@@ -30,7 +30,9 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 **Color management** — `ColorProfileSource`, `NamedProfile`
 
-**Discovery** — `ImageFormat` (magic-byte detection), `CodecCapabilities` (17 feature flags), `ResourceLimits`
+**Cost estimation** — `DecodeCost`, `EncodeCost`
+
+**Resource management** — `ResourceLimits`, `LimitExceeded`, `ImageFormat` (magic-byte detection), `CodecCapabilities` (20 feature flags)
 
 **Re-exports** — `imgref`, `rgb`, `enough` (for `Stop`/`Unstoppable`)
 
@@ -254,23 +256,47 @@ Decode hints are optional suggestions — the decoder may ignore them, apply the
 | `orientation_applied` | Orientation the decoder will handle (Normal = caller must handle it) |
 | `crop_applied` | Actual crop region in source coordinates (may differ from hint) |
 
-### Cost estimation
+### Cost estimation and resource limits
 
-`DecodeJob::estimated_cost()` returns a `DecodeCost` before decoding starts. Use it for resource management — rejecting oversized images, limiting concurrency, choosing memory pools.
+Both decode and encode jobs provide cost estimation. Use `ResourceLimits` with the `check_*` methods for a complete resource management pipeline.
+
+**Decode cost:**
 
 ```rust
+let limits = ResourceLimits::none()
+    .with_max_pixels(100_000_000)
+    .with_max_memory(512 * 1024 * 1024);
+
+// 1. Parse-time rejection (fastest — no pixel work yet)
+let info = config.probe_header(data)?;
+limits.check_image_info(&info)?;
+
+// 2. Cost-aware rejection (after hints, before decode)
 let job = config.job().with_crop_hint(0, 0, 1000, 1000);
 let cost = job.estimated_cost(data)?;
-
-if cost.pixel_count > 100_000_000 {
-    return Err("image too large");
-}
-if let Some(peak) = cost.peak_memory {
-    ensure_memory_available(peak)?;
-}
+limits.check_decode_cost(&cost)?;
 ```
 
-`output_bytes` and `pixel_count` are always accurate (computed from `OutputInfo`). `peak_memory` is codec-specific — AV1 needs significant working buffers for tiles and reference frames; JPEG needs much less. Codecs that can't estimate peak memory return `None`.
+**Encode cost:**
+
+```rust
+let cost = encode_job.estimated_cost(width, height, PixelDescriptor::RGBA8_SRGB);
+limits.check_encode_cost(&cost)?;
+```
+
+`DecodeCost` and `EncodeCost` both carry `output_bytes`/`input_bytes`, `pixel_count`, and an optional `peak_memory`. When `peak_memory` is `None`, the `check_*` methods fall back to the buffer size as a lower-bound estimate.
+
+Typical working memory multipliers over buffer size:
+
+| Codec | Decode | Encode |
+|-------|--------|--------|
+| JPEG | ~1-2x | ~2-3x |
+| PNG | ~1-2x | ~2x |
+| WebP lossy | ~2x | ~3-4x |
+| AV1/AVIF | ~2-3x | ~4-8x |
+| JPEG XL (u8) | ~1-2x | ~6-22x |
+
+`LimitExceeded` is a proper `Error` type with variant-specific `actual`/`max` fields for useful error messages. Individual `check_*` methods are available for fine-grained validation: `check_dimensions()`, `check_memory()`, `check_file_size()`, `check_output_size()`, `check_frames()`, `check_duration()`.
 
 ### Transfer function conventions
 
@@ -391,9 +417,9 @@ fn output_info(&self, data: &[u8]) -> Result<OutputInfo, Self::Error> {
 
 ### `estimated_cost()` — resource management
 
-`DecodeJob::estimated_cost()` returns a `DecodeCost` with output buffer size, pixel count, and optionally peak memory. The default implementation derives `output_bytes` and `pixel_count` from `output_info()` with `peak_memory: None`.
+Both `DecodeJob` and `EncodeJob` provide `estimated_cost()` with defaults that compute buffer sizes. Override to provide codec-specific `peak_memory` estimates.
 
-Override to provide codec-specific peak memory estimates:
+**Decode side** (default derives from `output_info()`):
 
 ```rust
 fn estimated_cost(&self, data: &[u8]) -> Result<DecodeCost, Self::Error> {
@@ -401,11 +427,27 @@ fn estimated_cost(&self, data: &[u8]) -> Result<DecodeCost, Self::Error> {
     Ok(DecodeCost {
         output_bytes: info.buffer_size(),
         pixel_count: info.pixel_count(),
-        // AV1 needs ~3x output for tile buffers + reference frames
+        // AV1: ~3x output for tile buffers + CDEF + reference frames
         peak_memory: Some(info.buffer_size() * 3),
     })
 }
 ```
+
+**Encode side** (default computes input_bytes from dimensions):
+
+```rust
+fn estimated_cost(&self, width: u32, height: u32, format: PixelDescriptor) -> EncodeCost {
+    let input_bytes = width as u64 * height as u64 * format.bytes_per_pixel() as u64;
+    EncodeCost {
+        input_bytes,
+        pixel_count: width as u64 * height as u64,
+        // AV1: ~6x input for transform + RDO + reference frames
+        peak_memory: Some(input_bytes * 6),
+    }
+}
+```
+
+Callers validate costs against `ResourceLimits` using `check_decode_cost()` / `check_encode_cost()`. When `peak_memory` is `None`, these fall back to buffer size as a lower-bound estimate.
 
 ### Decode hints — `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()`
 
@@ -540,10 +582,11 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 
 15. `probe_full()` — override when frame count or complete metadata requires a full parse
 16. `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()` on `DecodeJob` — honor decode hints when the codec can apply spatial transforms cheaply (JPEG MCU-aligned crop, JPEG 1/2/4/8 prescale, etc.)
-17. `estimated_cost()` on `DecodeJob` — override to provide codec-specific `peak_memory` estimates (default derives `output_bytes`/`pixel_count` from `output_info()`)
-18. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
-19. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
-20. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
+17. `estimated_cost()` on `DecodeJob` — override to provide codec-specific `peak_memory` estimates (default derives from `output_info()`)
+18. `estimated_cost()` on `EncodeJob` — override to provide codec-specific `peak_memory` estimates (default computes `input_bytes` from dimensions)
+19. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
+20. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
+21. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
 
 ## License
 

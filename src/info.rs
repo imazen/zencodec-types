@@ -513,13 +513,28 @@ impl OutputInfo {
 /// Estimated resource cost of a decode operation.
 ///
 /// Returned by [`DecodeJob::estimated_cost()`](crate::DecodeJob::estimated_cost).
-/// Lets callers make resource management decisions (reject oversized images,
-/// limit concurrency, choose quality/speed tradeoffs) before committing
-/// to a decode.
+/// Use this for resource management: reject oversized images, limit
+/// concurrency, enforce memory budgets, or choose processing strategies
+/// before committing to a decode.
 ///
 /// `output_bytes` and `pixel_count` are always accurate (derived from
-/// [`OutputInfo`]). `peak_memory` is a codec-specific estimate of total
-/// working memory and may be `None` if the codec can't predict it.
+/// [`OutputInfo`]). `peak_memory` is a codec-specific estimate and may
+/// be `None` if the codec can't predict it.
+///
+/// Use [`ResourceLimits::check_decode_cost()`](crate::ResourceLimits::check_decode_cost)
+/// to validate against limits.
+///
+/// # Typical working memory multipliers (over output buffer size)
+///
+/// | Codec | Multiplier | Notes |
+/// |-------|-----------|-------|
+/// | JPEG | ~1-2x | DCT blocks + Huffman state |
+/// | PNG | ~1-2x | Filter + zlib state |
+/// | GIF | ~1-2x | LZW + frame compositing canvas |
+/// | WebP lossy | ~2x | VP8 reference frames |
+/// | AV1/AVIF | ~2-3x | Tile buffers + CDEF + loop restoration + reference frames |
+/// | JPEG XL to u8 | ~1-2x | Native format output |
+/// | JPEG XL to f32 | ~4x | Float conversion overhead |
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DecodeCost {
     /// Output buffer size in bytes (width × height × bytes_per_pixel).
@@ -531,9 +546,49 @@ pub struct DecodeCost {
     /// Includes working buffers (YUV planes, entropy decode state, etc.)
     /// plus the output buffer. `None` if the codec can't estimate this.
     ///
-    /// For AV1/AVIF this can be significantly larger than `output_bytes`
-    /// due to tile buffers, loop filter state, and reference frames.
-    /// For JPEG it's typically close to `output_bytes`.
+    /// When `None`, callers should fall back to `output_bytes` as a
+    /// lower-bound estimate for limit checks.
+    pub peak_memory: Option<u64>,
+}
+
+/// Estimated resource cost of an encode operation.
+///
+/// Returned by [`EncodeJob::estimated_cost()`](crate::EncodeJob::estimated_cost).
+/// Use this for resource management before committing to an encode.
+///
+/// The caller already knows the input dimensions and pixel format, so
+/// `input_bytes` and `pixel_count` are provided for convenience (the
+/// caller could compute these). `peak_memory` is the useful codec-specific
+/// estimate.
+///
+/// Use [`ResourceLimits::check_encode_cost()`](crate::ResourceLimits::check_encode_cost)
+/// to validate against limits.
+///
+/// # Typical working memory multipliers (over input buffer size)
+///
+/// | Codec | Multiplier | Notes |
+/// |-------|-----------|-------|
+/// | JPEG | ~2-3x | DCT blocks + Huffman coding |
+/// | PNG | ~2x | Filter selection + zlib |
+/// | GIF | ~1-2x | LZW + quantization palette |
+/// | WebP lossy | ~3-4x | VP8 RDO + reference frames |
+/// | AV1/AVIF | ~4-8x | Transform + RDO + reference frames |
+/// | JPEG XL lossless | ~12x | Float buffers + ANS tokens |
+/// | JPEG XL lossy | ~6-22x | Highly variable with effort/quality |
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EncodeCost {
+    /// Input buffer size in bytes (width × height × bytes_per_pixel).
+    pub input_bytes: u64,
+    /// Total pixels in the input (width × height).
+    pub pixel_count: u64,
+    /// Estimated peak memory during encode, in bytes.
+    ///
+    /// Includes input pixel data, working buffers (transform coefficients,
+    /// entropy coding state, rate-distortion buffers), and output buffer.
+    /// `None` if the codec can't estimate this.
+    ///
+    /// When `None`, callers should fall back to `input_bytes` as a
+    /// lower-bound estimate for limit checks.
     pub peak_memory: Option<u64>,
 }
 

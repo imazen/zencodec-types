@@ -295,6 +295,28 @@ pub trait EncodeJob<'a>: Sized {
     /// Override resource limits for this operation.
     fn with_limits(self, limits: ResourceLimits) -> Self;
 
+    /// Estimate the resource cost of encoding an image with these dimensions.
+    ///
+    /// Returns `input_bytes` and `pixel_count` (trivially computed from the
+    /// arguments) plus an optional `peak_memory` estimate that accounts for
+    /// this codec's quality/speed settings.
+    ///
+    /// Default: returns `input_bytes` and `pixel_count` with `peak_memory: None`.
+    /// Override to provide codec-specific peak memory estimates.
+    fn estimated_cost(
+        &self,
+        width: u32,
+        height: u32,
+        format: crate::PixelDescriptor,
+    ) -> crate::EncodeCost {
+        let input_bytes = width as u64 * height as u64 * format.bytes_per_pixel() as u64;
+        crate::EncodeCost {
+            input_bytes,
+            pixel_count: width as u64 * height as u64,
+            peak_memory: None,
+        }
+    }
+
     /// Create a one-shot/row-level encoder for a single image.
     fn encoder(self) -> Self::Encoder;
 

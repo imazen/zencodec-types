@@ -41,9 +41,10 @@ pub use capabilities::CodecCapabilities;
 pub use color::{ColorProfileSource, NamedProfile};
 pub use format::ImageFormat;
 pub use info::{
-    Cicp, ContentLightLevel, DecodeCost, ImageInfo, ImageMetadata, MasteringDisplay, OutputInfo,
+    Cicp, ContentLightLevel, DecodeCost, EncodeCost, ImageInfo, ImageMetadata, MasteringDisplay,
+    OutputInfo,
 };
-pub use limits::ResourceLimits;
+pub use limits::{LimitExceeded, ResourceLimits};
 pub use orientation::Orientation;
 pub use output::{
     DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput, FrameBlend, FrameDisposal,
