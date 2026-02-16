@@ -282,6 +282,7 @@ impl ResourceLimits {
 /// Implements [`core::error::Error`] so codecs can wrap it in their own
 /// error types.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LimitExceeded {
     /// Image width exceeded `max_width`.
     Width {

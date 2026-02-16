@@ -12,6 +12,7 @@ use rgb::{Gray, Rgb, Rgba};
 /// A simple two-component pixel type. Not from the `rgb` crate — we own this
 /// type to avoid API instability in `rgb::alt::GrayAlpha`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 #[repr(C)]
 pub struct GrayAlpha<T> {
     /// Gray value.

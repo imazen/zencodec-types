@@ -12,6 +12,7 @@ use crate::{ImageFormat, ImageInfo, ImageMetadata, PixelData};
 
 /// Output from an encode operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EncodeOutput {
     data: Vec<u8>,
     format: ImageFormat,
@@ -56,6 +57,7 @@ impl AsRef<[u8]> for EncodeOutput {
 }
 
 /// Output from a decode operation.
+#[non_exhaustive]
 pub struct DecodeOutput {
     pixels: PixelData,
     info: ImageInfo,
@@ -251,6 +253,7 @@ impl core::fmt::Debug for DecodeOutput {
 
 /// How a frame is composited over the previous canvas state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum FrameBlend {
     /// Replace the region with this frame's pixels.
     #[default]
@@ -261,6 +264,7 @@ pub enum FrameBlend {
 
 /// What happens to the canvas after displaying this frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum FrameDisposal {
     /// Leave the canvas as-is after this frame.
     #[default]
@@ -272,6 +276,7 @@ pub enum FrameDisposal {
 }
 
 /// A single frame from animation decoding.
+#[non_exhaustive]
 pub struct DecodeFrame {
     pixels: PixelData,
     delay_ms: u32,
@@ -530,6 +535,7 @@ impl core::fmt::Debug for DecodeFrame {
 /// Pairs typed pixel data with a frame duration. Used by
 /// typed convenience methods on [`EncoderConfig`](crate::EncoderConfig).
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct TypedEncodeFrame<'a, Pixel> {
     /// The pixel data for this frame.
     pub image: ImgRef<'a, Pixel>,
@@ -558,6 +564,7 @@ impl<Pixel> core::fmt::Debug for TypedEncodeFrame<'_, Pixel> {
 ///
 /// Pairs a [`PixelSlice`](crate::PixelSlice) with a frame duration. Used by
 /// [`FrameEncoder::push_frame`](crate::FrameEncoder::push_frame).
+#[non_exhaustive]
 pub struct EncodeFrame<'a> {
     /// The pixel data for this frame.
     pub pixels: crate::PixelSlice<'a>,

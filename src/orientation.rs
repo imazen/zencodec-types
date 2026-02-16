@@ -10,6 +10,7 @@
 /// When orientation is not applied, the caller is responsible for transforming
 /// the pixel data according to this value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum Orientation {
     /// No rotation or flip needed.

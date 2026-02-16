@@ -18,6 +18,7 @@ use crate::{ImageFormat, Orientation};
 /// - BT.2100 PQ (HDR): `(9, 16, 9, true)` — BT.2020 primaries, PQ transfer
 /// - BT.2100 HLG (HDR): `(9, 18, 9, true)` — BT.2020 primaries, HLG transfer
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Cicp {
     /// Color primaries (ColourPrimaries). Common values:
     /// 1 = BT.709/sRGB, 9 = BT.2020, 12 = Display P3.
@@ -34,6 +35,21 @@ pub struct Cicp {
 }
 
 impl Cicp {
+    /// Create a CICP color description from raw code points.
+    pub const fn new(
+        color_primaries: u8,
+        transfer_characteristics: u8,
+        matrix_coefficients: u8,
+        full_range: bool,
+    ) -> Self {
+        Self {
+            color_primaries,
+            transfer_characteristics,
+            matrix_coefficients,
+            full_range,
+        }
+    }
+
     /// sRGB color space: BT.709 primaries, sRGB transfer, BT.601 matrix, full range.
     pub const SRGB: Self = Self {
         color_primaries: 1,
@@ -72,6 +88,7 @@ impl Cicp {
 /// Describes the light level of HDR content. Used alongside [`MasteringDisplay`]
 /// to guide tone mapping on displays with different capabilities.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ContentLightLevel {
     /// Maximum Content Light Level in cd/m² (nits).
     /// Peak luminance of any single pixel in the content.
@@ -81,12 +98,23 @@ pub struct ContentLightLevel {
     pub max_frame_average_light_level: u16,
 }
 
+impl ContentLightLevel {
+    /// Create content light level info.
+    pub const fn new(max_content_light_level: u16, max_frame_average_light_level: u16) -> Self {
+        Self {
+            max_content_light_level,
+            max_frame_average_light_level,
+        }
+    }
+}
+
 /// Mastering Display Color Volume (SMPTE ST 2086).
 ///
 /// Describes the color volume of the display used to master HDR content.
 /// Chromaticity values are in units of 0.00002 (as per the spec).
 /// Luminance values are in units of 0.0001 cd/m².
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct MasteringDisplay {
     /// Display primaries chromaticity [R, G, B], each as [x, y].
     /// Values in units of 0.00002. (50000 = 1.0)
@@ -101,6 +129,21 @@ pub struct MasteringDisplay {
 }
 
 impl MasteringDisplay {
+    /// Create mastering display metadata.
+    pub const fn new(
+        primaries: [[u16; 2]; 3],
+        white_point: [u16; 2],
+        max_luminance: u32,
+        min_luminance: u32,
+    ) -> Self {
+        Self {
+            primaries,
+            white_point,
+            max_luminance,
+            min_luminance,
+        }
+    }
+
     /// Display primaries as CIE 1931 xy coordinates: `[[Rx, Ry], [Gx, Gy], [Bx, By]]`.
     pub fn primaries_f64(&self) -> [[f64; 2]; 3] {
         self.primaries
@@ -434,6 +477,7 @@ impl<'a> ImageMetadata<'a> {
 /// post-orientation dimensions and pixel format. This is what your
 /// buffer must match.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OutputInfo {
     /// Width of the decoded output in pixels.
     pub width: u32,
@@ -536,6 +580,7 @@ impl OutputInfo {
 /// | JPEG XL to u8 | ~1-2x | Native format output |
 /// | JPEG XL to f32 | ~4x | Float conversion overhead |
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DecodeCost {
     /// Output buffer size in bytes (width × height × bytes_per_pixel).
     pub output_bytes: u64,
@@ -549,6 +594,17 @@ pub struct DecodeCost {
     /// When `None`, callers should fall back to `output_bytes` as a
     /// lower-bound estimate for limit checks.
     pub peak_memory: Option<u64>,
+}
+
+impl DecodeCost {
+    /// Create a decode cost estimate.
+    pub const fn new(output_bytes: u64, pixel_count: u64, peak_memory: Option<u64>) -> Self {
+        Self {
+            output_bytes,
+            pixel_count,
+            peak_memory,
+        }
+    }
 }
 
 /// Estimated resource cost of an encode operation.
@@ -576,6 +632,7 @@ pub struct DecodeCost {
 /// | JPEG XL lossless | ~12x | Float buffers + ANS tokens |
 /// | JPEG XL lossy | ~6-22x | Highly variable with effort/quality |
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EncodeCost {
     /// Input buffer size in bytes (width × height × bytes_per_pixel).
     pub input_bytes: u64,
@@ -590,6 +647,17 @@ pub struct EncodeCost {
     /// When `None`, callers should fall back to `input_bytes` as a
     /// lower-bound estimate for limit checks.
     pub peak_memory: Option<u64>,
+}
+
+impl EncodeCost {
+    /// Create an encode cost estimate.
+    pub const fn new(input_bytes: u64, pixel_count: u64, peak_memory: Option<u64>) -> Self {
+        Self {
+            input_bytes,
+            pixel_count,
+            peak_memory,
+        }
+    }
 }
 
 #[cfg(test)]

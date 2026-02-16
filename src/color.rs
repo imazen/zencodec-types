@@ -20,6 +20,7 @@ use crate::Cicp;
 /// let transform = cms.create_transform(source, target, layout)?;
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ColorProfileSource<'a> {
     /// Raw ICC profile data.
     Icc(&'a [u8]),
@@ -35,6 +36,7 @@ pub enum ColorProfileSource<'a> {
 /// and HDR content. A CMS backend maps each to the appropriate internal
 /// representation (ICC profile, colorant matrix, etc.).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum NamedProfile {
     /// sRGB (IEC 61966-2-1). The web and desktop default.
     #[default]

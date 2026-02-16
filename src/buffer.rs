@@ -19,6 +19,7 @@ use crate::pixel::{GrayAlpha, PixelData};
 
 /// Channel storage type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ChannelType {
     /// 8-bit unsigned integer (1 byte per channel).
@@ -39,6 +40,7 @@ impl ChannelType {
 
 /// Channel layout (number and meaning of channels).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ChannelLayout {
     /// Single luminance channel.
@@ -74,6 +76,7 @@ impl ChannelLayout {
 
 /// Alpha channel interpretation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum AlphaMode {
     /// No alpha channel.
@@ -86,6 +89,7 @@ pub enum AlphaMode {
 
 /// Electro-optical transfer function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum TransferFunction {
     /// Linear light (gamma 1.0).
@@ -125,6 +129,7 @@ impl TransferFunction {
 /// Describes the format of pixel data without carrying the data itself.
 /// Used to tag [`PixelBuffer`] and [`PixelSlice`] with their format.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[non_exhaustive]
 pub struct PixelDescriptor {
     /// Channel storage type (u8, u16, f32).
     pub channel_type: ChannelType,
@@ -137,6 +142,21 @@ pub struct PixelDescriptor {
 }
 
 impl PixelDescriptor {
+    /// Create a pixel format descriptor.
+    pub const fn new(
+        channel_type: ChannelType,
+        layout: ChannelLayout,
+        alpha: AlphaMode,
+        transfer: TransferFunction,
+    ) -> Self {
+        Self {
+            channel_type,
+            layout,
+            alpha,
+            transfer,
+        }
+    }
+
     // Named constants ---------------------------------------------------------
 
     /// 8-bit sRGB RGB.
@@ -301,6 +321,7 @@ impl PixelDescriptor {
 
 /// Errors from pixel buffer operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BufferError {
     /// Data pointer is not aligned for the channel type.
     AlignmentViolation,
@@ -336,6 +357,7 @@ impl fmt::Display for BufferError {
 ///
 /// Represents a contiguous region of pixel rows, possibly a sub-region
 /// of a larger buffer. All rows share the same stride.
+#[non_exhaustive]
 pub struct PixelSlice<'a> {
     data: &'a [u8],
     width: u32,
@@ -531,6 +553,7 @@ impl fmt::Debug for PixelSlice<'_> {
 /// Mutable borrowed view of pixel data.
 ///
 /// Same semantics as [`PixelSlice`] but allows writing to rows.
+#[non_exhaustive]
 pub struct PixelSliceMut<'a> {
     data: &'a mut [u8],
     width: u32,
@@ -690,6 +713,7 @@ impl fmt::Debug for PixelSliceMut<'_> {
 /// rows start at the correct alignment for the channel type. The
 /// backing vec can be recovered with [`into_vec`](Self::into_vec) for
 /// pool reuse.
+#[non_exhaustive]
 pub struct PixelBuffer {
     data: Vec<u8>,
     /// Byte offset from `data` start to the first aligned pixel.

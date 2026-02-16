@@ -28,6 +28,7 @@
 /// assert!(CAPS.encode_icc());
 /// assert!(CAPS.cheap_probe());
 /// ```
+#[non_exhaustive]
 pub struct CodecCapabilities {
     encode_icc: bool,
     encode_exif: bool,
