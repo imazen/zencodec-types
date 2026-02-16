@@ -249,21 +249,82 @@ impl core::fmt::Debug for DecodeOutput {
     }
 }
 
+/// How a frame is composited over the previous canvas state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FrameBlend {
+    /// Replace the region with this frame's pixels.
+    #[default]
+    Source,
+    /// Alpha-blend this frame over the existing canvas.
+    Over,
+}
+
+/// What happens to the canvas after displaying this frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FrameDisposal {
+    /// Leave the canvas as-is after this frame.
+    #[default]
+    None,
+    /// Restore the canvas region to the background color.
+    RestoreBackground,
+    /// Restore the canvas region to the state before this frame.
+    RestorePrevious,
+}
+
 /// A single frame from animation decoding.
 pub struct DecodeFrame {
     pixels: PixelData,
     delay_ms: u32,
     index: u32,
+    /// Which previous frame this frame depends on for compositing.
+    /// `None` means this is a keyframe (fully independent).
+    required_frame: Option<u32>,
+    /// Blend mode for compositing this frame over the required frame.
+    blend: FrameBlend,
+    /// How to handle the canvas after this frame is displayed.
+    disposal: FrameDisposal,
+    /// Region of the canvas this frame updates (None = full canvas).
+    /// Format: `[x, y, width, height]`.
+    frame_rect: Option<[u32; 4]>,
 }
 
 impl DecodeFrame {
-    /// Create a new decode frame.
+    /// Create a new decode frame with default compositing (keyframe, source blend, no disposal).
     pub fn new(pixels: PixelData, delay_ms: u32, index: u32) -> Self {
         Self {
             pixels,
             delay_ms,
             index,
+            required_frame: None,
+            blend: FrameBlend::Source,
+            disposal: FrameDisposal::None,
+            frame_rect: None,
         }
+    }
+
+    /// Set the required prior frame for compositing.
+    pub fn with_required_frame(mut self, frame: u32) -> Self {
+        self.required_frame = Some(frame);
+        self
+    }
+
+    /// Set the blend mode.
+    pub fn with_blend(mut self, blend: FrameBlend) -> Self {
+        self.blend = blend;
+        self
+    }
+
+    /// Set the disposal method.
+    pub fn with_disposal(mut self, disposal: FrameDisposal) -> Self {
+        self.disposal = disposal;
+        self
+    }
+
+    /// Set the frame rectangle (region this frame updates).
+    /// Format: `[x, y, width, height]`.
+    pub fn with_frame_rect(mut self, rect: [u32; 4]) -> Self {
+        self.frame_rect = Some(rect);
+        self
     }
 
     /// Borrow the pixel data.
@@ -347,10 +408,18 @@ impl DecodeFrame {
     pub fn convert_to(self, desc: crate::buffer::PixelDescriptor) -> Option<DecodeFrame> {
         let delay_ms = self.delay_ms;
         let index = self.index;
+        let required_frame = self.required_frame;
+        let blend = self.blend;
+        let disposal = self.disposal;
+        let frame_rect = self.frame_rect;
         self.pixels.convert_to(desc).map(|pixels| DecodeFrame {
             pixels,
             delay_ms,
             index,
+            required_frame,
+            blend,
+            disposal,
+            frame_rect,
         })
     }
 
@@ -396,6 +465,28 @@ impl DecodeFrame {
         self.index
     }
 
+    /// Which previous frame this frame depends on for compositing.
+    /// `None` means this is a keyframe (fully independent).
+    pub fn required_frame(&self) -> Option<u32> {
+        self.required_frame
+    }
+
+    /// Blend mode for compositing this frame over the required frame.
+    pub fn blend(&self) -> FrameBlend {
+        self.blend
+    }
+
+    /// How to handle the canvas after this frame is displayed.
+    pub fn disposal(&self) -> FrameDisposal {
+        self.disposal
+    }
+
+    /// Region of the canvas this frame updates, or `None` for full canvas.
+    /// Format: `[x, y, width, height]`.
+    pub fn frame_rect(&self) -> Option<[u32; 4]> {
+        self.frame_rect
+    }
+
     /// Frame width.
     pub fn width(&self) -> u32 {
         self.pixels.width()
@@ -414,11 +505,23 @@ impl DecodeFrame {
 
 impl core::fmt::Debug for DecodeFrame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("DecodeFrame")
-            .field("pixels", &self.pixels)
+        let mut s = f.debug_struct("DecodeFrame");
+        s.field("pixels", &self.pixels)
             .field("delay_ms", &self.delay_ms)
-            .field("index", &self.index)
-            .finish()
+            .field("index", &self.index);
+        if let Some(req) = self.required_frame {
+            s.field("required_frame", &req);
+        }
+        if self.blend != FrameBlend::Source {
+            s.field("blend", &self.blend);
+        }
+        if self.disposal != FrameDisposal::None {
+            s.field("disposal", &self.disposal);
+        }
+        if let Some(rect) = &self.frame_rect {
+            s.field("frame_rect", rect);
+        }
+        s.finish()
     }
 }
 

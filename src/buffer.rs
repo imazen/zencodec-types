@@ -245,6 +245,18 @@ impl PixelDescriptor {
 
     // Methods -----------------------------------------------------------------
 
+    /// Check if this descriptor matches the layout and type of another,
+    /// ignoring transfer function and alpha mode.
+    ///
+    /// Useful for format negotiation: two descriptors are layout-compatible
+    /// if they have the same channel count, order, and storage type, even
+    /// if they differ in gamma or alpha interpretation.
+    #[inline]
+    pub const fn layout_compatible(&self, other: &PixelDescriptor) -> bool {
+        self.channel_type as u8 == other.channel_type as u8
+            && self.layout as u8 == other.layout as u8
+    }
+
     /// Minimum byte alignment required for the channel type (1, 2, or 4).
     #[inline]
     pub const fn min_alignment(self) -> usize {

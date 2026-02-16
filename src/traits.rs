@@ -58,6 +58,16 @@ use crate::{
 /// The `job()` method creates a per-operation [`EncodeJob`] that can borrow
 /// temporary data (stop tokens, metadata, resource limits).
 pub trait EncoderConfig: Clone + Send + Sync {
+    /// Pixel formats this encoder accepts natively.
+    ///
+    /// The encoder may accept other formats via internal conversion,
+    /// but these formats avoid any conversion overhead. Callers can
+    /// use this to choose the best pixel format for encoding.
+    ///
+    /// Returns an empty slice if the encoder accepts any format.
+    fn supported_descriptors() -> &'static [crate::PixelDescriptor] {
+        &[]
+    }
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
@@ -382,6 +392,16 @@ pub trait FrameEncoder: Sized {
 /// Format-specific decode settings live on the concrete config type.
 /// The trait handles job creation, probing, and typed convenience methods.
 pub trait DecoderConfig: Clone + Send + Sync {
+    /// Pixel formats this decoder can produce natively.
+    ///
+    /// These are the formats the decoder prefers to output. The decoder
+    /// may convert to other formats via decode_into, but these avoid
+    /// conversion overhead.
+    ///
+    /// Returns an empty slice if the decoder can produce any format.
+    fn supported_descriptors() -> &'static [crate::PixelDescriptor] {
+        &[]
+    }
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
@@ -623,12 +643,29 @@ pub trait FrameDecoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
+    /// Number of frames, if known without decoding.
+    ///
+    /// Some formats (GIF, APNG) require a full parse to count frames.
+    /// Returns `None` if unknown or if counting requires decoding.
+    fn frame_count(&self) -> Option<u32> {
+        None
+    }
+
     /// Pull next complete frame. Returns `None` when done.
     fn next_frame(&mut self) -> Result<Option<DecodeFrame>, Self::Error>;
 
-    /// Pull next frame into caller buffer. Returns `None` when done.
-    fn next_frame_into(&mut self, dst: PixelSliceMut<'_>)
-    -> Result<Option<ImageInfo>, Self::Error>;
+    /// Pull next frame into caller buffer.
+    ///
+    /// If `prior_frame` is `Some(n)`, the buffer already contains frame `n`'s
+    /// composited result, enabling efficient incremental compositing.
+    /// Pass `None` when the buffer does not contain a valid prior frame.
+    ///
+    /// Returns `None` when done.
+    fn next_frame_into(
+        &mut self,
+        dst: PixelSliceMut<'_>,
+        prior_frame: Option<u32>,
+    ) -> Result<Option<ImageInfo>, Self::Error>;
 
     /// Decode next frame, pushing rows to a callback as they become available.
     /// Returns `None` when there are no more frames.

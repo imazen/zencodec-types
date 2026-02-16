@@ -26,7 +26,7 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 **Image metadata** — `ImageInfo`, `ImageMetadata`, `Cicp`, `ContentLightLevel`, `MasteringDisplay`, `Orientation`
 
-**I/O types** — `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `EncodeFrame`, `TypedEncodeFrame`
+**I/O types** — `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `EncodeFrame`, `TypedEncodeFrame`, `FrameBlend`, `FrameDisposal`
 
 **Discovery** — `ImageFormat` (magic-byte detection), `CodecCapabilities` (17 feature flags), `ResourceLimits`
 
@@ -129,12 +129,21 @@ config.job().decoder().decode_rows(data, &mut |row_idx, row| {
 // Animation: pull complete frames
 let mut dec = config.job().frame_decoder(data)?;
 while let Some(frame) = dec.next_frame()? {
+    // Frame carries compositing info for correct rendering
+    let _blend = frame.blend();           // FrameBlend::Source or Over
+    let _disposal = frame.disposal();     // FrameDisposal::None, RestoreBackground, RestorePrevious
+    let _depends_on = frame.required_frame(); // None = keyframe, Some(n) = depends on frame n
+    let _region = frame.frame_rect();     // None = full canvas, Some([x, y, w, h])
     process(frame);
 }
 
-// Animation: pull frames into caller buffer
+// Animation: pull frames into caller buffer with prior-frame hint
 let mut dec = config.job().frame_decoder(data)?;
-while let Some(info) = dec.next_frame_into(buf.as_mut_slice())? {
+let mut prior = None;
+while let Some(info) = dec.next_frame_into(buf.as_mut_slice(), prior)? {
+    // prior_frame hint tells the decoder the buffer already contains
+    // a composited frame, enabling incremental compositing
+    prior = Some(info.frame_index().unwrap_or(0));
     process_buffer(&buf, &info);
 }
 
@@ -198,6 +207,21 @@ Each side (encode/decode) has four traits:
 | `FrameEncoder` / `FrameDecoder` | Animation execution | `Sized` |
 
 Config types create jobs. Jobs create executors. Executors run the codec.
+
+### `supported_descriptors()` — format negotiation
+
+Both `EncoderConfig` and `DecoderConfig` have a `supported_descriptors()` method that returns the pixel formats the codec handles natively (without internal conversion). Returns an empty slice by default, meaning "any format accepted."
+
+```rust
+impl EncoderConfig for MyJpegEncoder {
+    fn supported_descriptors() -> &'static [PixelDescriptor] {
+        &[PixelDescriptor::RGB8_SRGB, PixelDescriptor::GRAY8_SRGB]
+    }
+    // ...
+}
+```
+
+Callers use this to pick the best pixel format before encoding/decoding, avoiding unnecessary conversions. Use `PixelDescriptor::layout_compatible()` to compare formats while ignoring transfer function and alpha mode differences.
 
 ### `capabilities()` — declare what you support
 
@@ -302,10 +326,29 @@ The `Decoder` trait provides three options:
 The `FrameDecoder` trait provides three options per frame:
 
 1. **`next_frame(&mut self)`** — pull a complete `DecodeFrame`
-2. **`next_frame_into(&mut self, dst)`** — pull frame into caller buffer
+2. **`next_frame_into(&mut self, dst, prior_frame)`** — pull frame into caller buffer
 3. **`next_frame_rows(&mut self, sink)`** — decoder pushes rows to callback
 
 All return `None` when there are no more frames.
+
+**`frame_count(&self)`** returns the number of frames if known without decoding. Default returns `None`. Override for formats where the container header contains a frame count.
+
+**`next_frame_into`** takes a `prior_frame: Option<u32>` hint. When `Some(n)`, the caller's buffer already contains frame `n`'s composited result — the decoder can skip re-rendering the canvas from scratch. When `None`, the buffer contents are undefined. Codecs that don't use this hint can ignore it.
+
+### Frame compositing metadata
+
+`DecodeFrame` carries compositing information for correct animation rendering:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `required_frame()` | `Option<u32>` | `None` | Prior frame needed for compositing. `None` = keyframe. |
+| `blend()` | `FrameBlend` | `Source` | How to composite: `Source` (replace) or `Over` (alpha blend). |
+| `disposal()` | `FrameDisposal` | `None` | Canvas cleanup: `None`, `RestoreBackground`, or `RestorePrevious`. |
+| `frame_rect()` | `Option<[u32; 4]>` | `None` | Canvas region `[x, y, w, h]`. `None` = full canvas. |
+
+These map directly to the semantics used by APNG, GIF, and WebP animations. AVIF animations don't use partial-canvas updates, so AVIF codecs leave all fields at defaults (every frame is a full-canvas keyframe with `Source` blend).
+
+Builder methods: `with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`.
 
 ### `encode_bgra8()` and `encode_bgrx8()` — default swizzle
 
@@ -336,18 +379,29 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 
 ### Checklist for a new codec
 
-1. Define your config types (e.g., `MyEncoderConfig`, `MyDecoderConfig`) implementing `Clone + Send + Sync`
-2. Define your job types with a `'a` lifetime for borrowed data
-3. Define your executor types (`MyEncoder`, `MyFrameEncoder`, `MyDecoder`, `MyFrameDecoder`)
-4. Implement `EncoderConfig`/`DecoderConfig` on config types with GATs: `type Job<'a> = MyEncodeJob<'a> where Self: 'a`
-5. Define `static` `CodecCapabilities` for encode and decode (they can differ)
-6. Implement `probe_header()` — must be O(header). Override `probe_full()` only if needed.
-7. Implement `with_limits()` on all four traits (config and job level)
-8. Implement `with_stop()` and `with_metadata()` on job types
-9. Implement `Encoder::encode()` and `Decoder::decode()` at minimum
-10. Implement `Encoder::push_rows()`/`finish()` and `encode_from()` for incremental encode
-11. Implement `FrameEncoder`/`FrameDecoder` if your format supports animation
-12. Override `decode_info()` if your config transforms output dimensions
+**Must implement** (required by trait definitions):
+
+1. Config types (`MyEncoderConfig`, `MyDecoderConfig`) implementing `Clone + Send + Sync`
+2. Job types with `'a` lifetime for borrowed data
+3. Executor types (`MyEncoder`, `MyDecoder`, and optionally `MyFrameEncoder`, `MyFrameDecoder`)
+4. `EncoderConfig`/`DecoderConfig` on config types with GATs: `type Job<'a> = MyEncodeJob<'a> where Self: 'a`
+5. `fn capabilities() -> &'static CodecCapabilities` — honest feature flags
+6. `fn probe_header()` — O(header), never O(pixels)
+7. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
+8. `DecodeJob::with_stop()`, `with_limits()`
+9. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
+10. `Decoder::decode()`, `decode_into()`, `decode_rows()`
+11. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
+12. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
+
+**Should implement** (have defaults, but override when beneficial):
+
+13. `supported_descriptors()` on config traits — declare native pixel formats to avoid unnecessary conversions
+14. `probe_full()` — override when frame count or complete metadata requires a full parse
+15. `decode_info()` — override when config transforms output dimensions (scaling, orientation)
+16. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
+17. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
+18. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
 
 ## License
 

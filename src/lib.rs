@@ -41,7 +41,10 @@ pub use format::ImageFormat;
 pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageMetadata, MasteringDisplay};
 pub use limits::ResourceLimits;
 pub use orientation::Orientation;
-pub use output::{DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput, TypedEncodeFrame};
+pub use output::{
+    DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput, FrameBlend, FrameDisposal,
+    TypedEncodeFrame,
+};
 pub use pixel::{GrayAlpha, PixelData};
 pub use traits::{
     DecodeJob, Decoder, DecoderConfig, EncodeJob, Encoder, EncoderConfig, FrameDecoder,
