@@ -28,6 +28,8 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 **I/O types** — `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `EncodeFrame`, `TypedEncodeFrame`, `FrameBlend`, `FrameDisposal`
 
+**Color management** — `ColorProfileSource`, `NamedProfile`
+
 **Discovery** — `ImageFormat` (magic-byte detection), `CodecCapabilities` (17 feature flags), `ResourceLimits`
 
 **Re-exports** — `imgref`, `rgb`, `enough` (for `Stop`/`Unstoppable`)
@@ -184,6 +186,26 @@ let slice = PixelSlice::from(img.as_ref());
 let slice_mut = PixelSliceMut::from(img.as_mut());
 ```
 
+### Color profile source
+
+`ImageInfo` and `ImageMetadata` carry raw color data (CICP codes, ICC bytes, HDR metadata). The `color_profile_source()` method returns a unified `ColorProfileSource` that consumers can pass directly to a CMS backend (e.g., moxcms):
+
+```rust
+use zencodec_types::{ColorProfileSource, NamedProfile};
+
+let output = config.decode(data)?;
+
+// Get source color space (CICP takes precedence over ICC per AVIF/HEIF spec)
+let source = output.info().color_profile_source()
+    .unwrap_or(ColorProfileSource::Named(NamedProfile::Srgb));
+
+// Set up a CMS transform to your working color space
+let target = ColorProfileSource::Named(NamedProfile::LinearSrgb);
+let transform = cms.create_transform(source, target, layout)?;
+```
+
+`NamedProfile` covers the common profiles (sRGB, Display P3, BT.2020, BT.2020+PQ, BT.2020+HLG, Adobe RGB, Linear sRGB). Use `NamedProfile::to_cicp()` to convert to CICP codes when a standard mapping exists.
+
 ### Transfer function conventions
 
 - **u8 / u16**: gamma-encoded (typically sRGB). u16 uses the full 0-65535 range.
@@ -208,9 +230,11 @@ Each side (encode/decode) has four traits:
 
 Config types create jobs. Jobs create executors. Executors run the codec.
 
-### `supported_descriptors()` — format negotiation
+### `supported_descriptors()` — format negotiation (required)
 
-Both `EncoderConfig` and `DecoderConfig` have a `supported_descriptors()` method that returns the pixel formats the codec handles natively (without internal conversion). Returns an empty slice by default, meaning "any format accepted."
+Both `EncoderConfig` and `DecoderConfig` require a `supported_descriptors()` method (no default). This returns the pixel formats the codec handles natively, without any internal conversion.
+
+**This is a hard contract:** if a descriptor is in the list, `encode()`/`decode_into()` with a matching buffer **must work** — zero conversion overhead, the codec processes the data directly. The list must not be empty.
 
 ```rust
 impl EncoderConfig for MyJpegEncoder {
@@ -219,9 +243,19 @@ impl EncoderConfig for MyJpegEncoder {
     }
     // ...
 }
+
+impl DecoderConfig for MyJpegDecoder {
+    fn supported_descriptors() -> &'static [PixelDescriptor] {
+        // decode_into() with any of these must produce correct output directly
+        &[PixelDescriptor::RGB8_SRGB, PixelDescriptor::GRAY8_SRGB]
+    }
+    // ...
+}
 ```
 
-Callers use this to pick the best pixel format before encoding/decoding, avoiding unnecessary conversions. Use `PixelDescriptor::layout_compatible()` to compare formats while ignoring transfer function and alpha mode differences.
+Callers use this to pick the best pixel format before encoding/decoding, avoiding unnecessary conversions. The codec may also accept other formats via internal conversion, but the supported descriptors are the fast path.
+
+Use `PixelDescriptor::layout_compatible()` to compare formats while ignoring transfer function and alpha mode differences.
 
 ### `capabilities()` — declare what you support
 
@@ -386,17 +420,17 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 3. Executor types (`MyEncoder`, `MyDecoder`, and optionally `MyFrameEncoder`, `MyFrameDecoder`)
 4. `EncoderConfig`/`DecoderConfig` on config types with GATs: `type Job<'a> = MyEncodeJob<'a> where Self: 'a`
 5. `fn capabilities() -> &'static CodecCapabilities` — honest feature flags
-6. `fn probe_header()` — O(header), never O(pixels)
-7. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
-8. `DecodeJob::with_stop()`, `with_limits()`
-9. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
-10. `Decoder::decode()`, `decode_into()`, `decode_rows()`
-11. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
-12. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
+6. `fn supported_descriptors() -> &'static [PixelDescriptor]` — native pixel formats (hard guarantee: `decode_into`/`encode` must work without conversion for every listed descriptor)
+7. `fn probe_header()` — O(header), never O(pixels)
+8. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
+9. `DecodeJob::with_stop()`, `with_limits()`
+10. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
+11. `Decoder::decode()`, `decode_into()`, `decode_rows()`
+12. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
+13. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
 
 **Should implement** (have defaults, but override when beneficial):
 
-13. `supported_descriptors()` on config traits — declare native pixel formats to avoid unnecessary conversions
 14. `probe_full()` — override when frame count or complete metadata requires a full parse
 15. `decode_info()` — override when config transforms output dimensions (scaling, orientation)
 16. `frame_count()` on `FrameDecoder` — return frame count if known from container headers

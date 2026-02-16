@@ -58,16 +58,19 @@ use crate::{
 /// The `job()` method creates a per-operation [`EncodeJob`] that can borrow
 /// temporary data (stop tokens, metadata, resource limits).
 pub trait EncoderConfig: Clone + Send + Sync {
-    /// Pixel formats this encoder accepts natively.
+    /// Pixel formats this encoder accepts natively (without internal conversion).
     ///
-    /// The encoder may accept other formats via internal conversion,
-    /// but these formats avoid any conversion overhead. Callers can
-    /// use this to choose the best pixel format for encoding.
+    /// Every descriptor in this list is a guarantee: calling `encode()` or
+    /// `push_rows()` with a `PixelSlice` matching one of these descriptors
+    /// **must** work without any format conversion. The codec processes the
+    /// data directly.
     ///
-    /// Returns an empty slice if the encoder accepts any format.
-    fn supported_descriptors() -> &'static [crate::PixelDescriptor] {
-        &[]
-    }
+    /// The encoder may also accept other formats via internal conversion,
+    /// but these are the zero-overhead path. Callers use this to pick the
+    /// best pixel format before encoding.
+    ///
+    /// Must not be empty — every codec can natively accept at least one format.
+    fn supported_descriptors() -> &'static [crate::PixelDescriptor];
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
@@ -392,16 +395,19 @@ pub trait FrameEncoder: Sized {
 /// Format-specific decode settings live on the concrete config type.
 /// The trait handles job creation, probing, and typed convenience methods.
 pub trait DecoderConfig: Clone + Send + Sync {
-    /// Pixel formats this decoder can produce natively.
+    /// Pixel formats this decoder can produce natively (without internal conversion).
     ///
-    /// These are the formats the decoder prefers to output. The decoder
-    /// may convert to other formats via decode_into, but these avoid
-    /// conversion overhead.
+    /// Every descriptor in this list is a guarantee: calling `decode_into()`
+    /// with a `PixelSliceMut` matching one of these descriptors **must**
+    /// produce correct output without any format conversion. The codec
+    /// writes directly into the buffer.
     ///
-    /// Returns an empty slice if the decoder can produce any format.
-    fn supported_descriptors() -> &'static [crate::PixelDescriptor] {
-        &[]
-    }
+    /// The decoder may also produce other formats via internal conversion
+    /// in `decode()`, but `decode_into()` for a supported descriptor is the
+    /// zero-overhead path.
+    ///
+    /// Must not be empty — every codec can natively produce at least one format.
+    fn supported_descriptors() -> &'static [crate::PixelDescriptor];
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 

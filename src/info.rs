@@ -2,6 +2,7 @@
 
 use alloc::vec::Vec;
 
+use crate::color::ColorProfileSource;
 use crate::{ImageFormat, Orientation};
 
 /// CICP color description (ITU-T H.273).
@@ -53,6 +54,14 @@ impl Cicp {
         color_primaries: 9,
         transfer_characteristics: 18,
         matrix_coefficients: 9,
+        full_range: true,
+    };
+
+    /// Display P3 with sRGB transfer: P3 primaries, sRGB transfer, Identity matrix, full range.
+    pub const DISPLAY_P3: Self = Self {
+        color_primaries: 12,
+        transfer_characteristics: 13,
+        matrix_coefficients: 0,
         full_range: true,
     };
 }
@@ -292,6 +301,19 @@ impl ImageInfo {
         }
     }
 
+    /// Get the source color profile for CMS integration.
+    ///
+    /// Returns CICP if present (takes precedence per AVIF/HEIF specs),
+    /// otherwise returns the ICC profile. Returns `None` if neither is
+    /// available — callers should assume sRGB in that case.
+    pub fn color_profile_source(&self) -> Option<ColorProfileSource<'_>> {
+        if let Some(cicp) = self.cicp {
+            Some(ColorProfileSource::Cicp(cicp))
+        } else {
+            self.icc_profile.as_deref().map(ColorProfileSource::Icc)
+        }
+    }
+
     /// Borrow embedded metadata for roundtrip encode.
     pub fn metadata(&self) -> ImageMetadata<'_> {
         ImageMetadata {
@@ -367,6 +389,19 @@ impl<'a> ImageMetadata<'a> {
     pub fn with_mastering_display(mut self, mdcv: MasteringDisplay) -> Self {
         self.mastering_display = Some(mdcv);
         self
+    }
+
+    /// Get the source color profile for CMS integration.
+    ///
+    /// Returns CICP if present (takes precedence per AVIF/HEIF specs),
+    /// otherwise returns the ICC profile. Returns `None` if neither is
+    /// available — callers should assume sRGB in that case.
+    pub fn color_profile_source(&self) -> Option<ColorProfileSource<'a>> {
+        if let Some(cicp) = self.cicp {
+            Some(ColorProfileSource::Cicp(cicp))
+        } else {
+            self.icc_profile.map(ColorProfileSource::Icc)
+        }
     }
 
     /// Whether any metadata is present.

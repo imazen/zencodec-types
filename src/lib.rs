@@ -24,6 +24,7 @@ extern crate alloc;
 
 pub mod buffer;
 mod capabilities;
+pub mod color;
 mod format;
 mod info;
 mod limits;
@@ -37,6 +38,7 @@ pub use buffer::{
     PixelSliceMut, TransferFunction,
 };
 pub use capabilities::CodecCapabilities;
+pub use color::{ColorProfileSource, NamedProfile};
 pub use format::ImageFormat;
 pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageMetadata, MasteringDisplay};
 pub use limits::ResourceLimits;
