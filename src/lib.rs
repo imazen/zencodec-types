@@ -10,6 +10,7 @@
 //! - [`ImageInfo`] / [`ImageMetadata`] / [`Orientation`] — image metadata
 //! - [`ImageFormat`] — format detection from magic bytes
 //! - [`ResourceLimits`] — resource limit configuration
+//! - [`At`] / [`AtTrace`] / [`AtTraceable`] — error location tracking (via [`whereat`])
 //!
 //! Individual codecs (zenjpeg, zenwebp, zengif, zenavif) implement these traits
 //! on their own config types. Format-specific methods live on the concrete types,
@@ -62,3 +63,32 @@ pub use imgref::{Img, ImgRef, ImgRefMut, ImgVec};
 pub use rgb;
 pub use rgb::alt::BGRA as Bgra;
 pub use rgb::{Gray, Rgb, Rgba};
+
+// Error handling re-exports.
+//
+// Codec error types should use `thiserror` for `Error` derives and
+// `whereat` for location tracking. The recommended pattern:
+//
+// ```rust,ignore
+// use zencodec_types::{thiserror, At, ResultAtExt};
+//
+// #[derive(Debug, thiserror::Error)]
+// pub enum MyCodecError {
+//     #[error("invalid header")]
+//     InvalidHeader,
+//     #[error("unsupported format: {0}")]
+//     Unsupported(&'static str),
+// }
+//
+// // In trait impl:
+// type Error = At<MyCodecError>;
+//
+// // In methods — .at() captures file:line on error:
+// fn decode(&self, data: &[u8]) -> Result<..., At<MyCodecError>> {
+//     parse_header(data).at()?;
+//     Ok(...)
+// }
+// ```
+pub use thiserror;
+pub use whereat;
+pub use whereat::{At, AtTrace, AtTraceable, ErrorAtExt, ResultAtExt};

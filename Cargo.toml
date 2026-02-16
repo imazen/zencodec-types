@@ -13,3 +13,5 @@ repository = "https://github.com/imazen/zencodec-types"
 enough = "0.3"
 rgb = { version = "0.8", default-features = false, features = ["as-bytes"] }
 imgref = "1.12"
+thiserror = { version = "2", default-features = false }
+whereat = { version = "0.1", default-features = false }
