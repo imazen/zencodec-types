@@ -24,7 +24,7 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 **Opaque pixel buffers** — `PixelBuffer`, `PixelSlice`, `PixelSliceMut`, `PixelDescriptor`, `ChannelType`, `ChannelLayout`, `AlphaMode`, `TransferFunction`, `BufferError`
 
-**Image metadata** — `ImageInfo`, `ImageMetadata`, `Cicp`, `ContentLightLevel`, `MasteringDisplay`, `Orientation`
+**Image metadata** — `ImageInfo`, `ImageMetadata`, `OutputInfo`, `Cicp`, `ContentLightLevel`, `MasteringDisplay`, `Orientation`
 
 **I/O types** — `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `EncodeFrame`, `TypedEncodeFrame`, `FrameBlend`, `FrameDisposal`
 
@@ -119,9 +119,19 @@ let output = enc.finish()?;
 // One-shot decode (typed convenience)
 let output = config.decode(data)?;
 
-// Decode into caller buffer
-let mut buf = PixelBuffer::new(w, h, PixelDescriptor::RGBA8_SRGB)?;
+// Decode into caller buffer (use decode_info or output_info to size the buffer)
+let info = config.decode_info(data)?;
+let mut buf = PixelBuffer::new(info.width, info.height, info.native_format)?;
 config.job().decoder().decode_into(data, buf.as_mut_slice())?;
+
+// Decode with hints: crop + prescale + orientation
+let job = config.job()
+    .with_crop_hint(100, 100, 800, 600)
+    .with_scale_hint(400, 300)
+    .with_orientation_hint(Orientation::Rotate90);
+let info = job.output_info(data)?;  // ← dimensions reflect applied hints
+let mut buf = PixelBuffer::new(info.width, info.height, info.native_format)?;
+job.decoder().decode_into(data, buf.as_mut_slice())?;
 
 // Row-level callback: decoder pushes rows as they're available
 config.job().decoder().decode_rows(data, &mut |row_idx, row| {
@@ -205,6 +215,44 @@ let transform = cms.create_transform(source, target, layout)?;
 ```
 
 `NamedProfile` covers the common profiles (sRGB, Display P3, BT.2020, BT.2020+PQ, BT.2020+HLG, Adobe RGB, Linear sRGB). Use `NamedProfile::to_cicp()` to convert to CICP codes when a standard mapping exists.
+
+### Natural info vs output info
+
+`ImageInfo` describes the file as stored — original dimensions, original orientation, embedded metadata. You get it from `probe_header()` or `probe_full()`.
+
+`OutputInfo` describes what the decoder will actually produce — post-crop, post-scale, post-orientation dimensions and pixel format. **This is what your destination buffer must match.**
+
+```rust
+// Natural info: what's in the file
+let natural = config.probe_header(data)?;
+println!("Stored: {}x{}, orientation {:?}", natural.width, natural.height, natural.orientation);
+
+// Output info with no hints: what decode() will produce by default
+let output = config.decode_info(data)?;
+
+// Output info with hints: request crop + prescale + orientation
+let output = config.job()
+    .with_crop_hint(100, 100, 800, 600)   // request a region
+    .with_scale_hint(400, 300)             // request prescaling
+    .with_orientation_hint(natural.orientation)  // apply EXIF orientation
+    .output_info(data)?;                   // → what buffer to allocate
+
+// Allocate to match what the decoder will write
+let mut buf = PixelBuffer::new(output.width, output.height, output.native_format)?;
+
+// output.orientation_applied tells you what the decoder handled
+// output.crop_applied tells you the actual crop (may differ from hint due to block alignment)
+```
+
+Decode hints are optional suggestions — the decoder may ignore them, apply them partially (e.g., block-aligned crop on JPEG MCU boundaries), or apply them fully. Always check `OutputInfo` to learn what the decoder will actually do.
+
+| `OutputInfo` field | Meaning |
+|---|---|
+| `width`, `height` | Dimensions the decoder will write |
+| `native_format` | Pixel format the decoder would pick for `decode()` |
+| `has_alpha` | Whether the output has an alpha channel |
+| `orientation_applied` | Orientation the decoder will handle (Normal = caller must handle it) |
+| `crop_applied` | Actual crop region in source coordinates (may differ from hint) |
 
 ### Transfer function conventions
 
@@ -307,9 +355,33 @@ fn probe_full(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
 }
 ```
 
-### `decode_info()` — predict output dimensions
+### `output_info()` and `decode_info()` — predict output dimensions
 
-`decode_info()` defaults to `probe_header()`, which is correct when your config doesn't transform dimensions. Override it if your codec applies scaling, orientation, or other transforms that change the output size. Callers use this to allocate buffers for `decode_into_*` methods.
+`DecodeJob::output_info()` is the required method for predicting decode output. It returns `OutputInfo` with the width, height, pixel format, and applied transforms that `decode()` / `decode_into()` will produce. Callers use this to allocate destination buffers.
+
+After applying hints (crop, scale, orientation), `output_info()` must reflect those transforms. If the codec ignores a hint, the corresponding `OutputInfo` field should indicate that (e.g., `orientation_applied` remains `Normal` if orientation is not handled).
+
+For a simple codec that ignores all hints:
+
+```rust
+fn output_info(&self, data: &[u8]) -> Result<OutputInfo, Self::Error> {
+    let info = parse_header(data)?;
+    Ok(OutputInfo::full_decode(info.width, info.height, PixelDescriptor::RGB8_SRGB)
+        .with_alpha(info.has_alpha))
+}
+```
+
+`DecoderConfig::decode_info()` is a convenience that delegates to `self.job().output_info(data)`. Override it only if you need a cheaper path that skips creating a job.
+
+### Decode hints — `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()`
+
+These are optional hints on `DecodeJob`. The defaults are no-ops (return `self`). Override them when your codec can apply the transform cheaply during decode:
+
+- **`with_crop_hint(x, y, w, h)`**: Request a region crop. JPEG codecs can crop on MCU boundaries; AV1 codecs can skip tiles outside the region. The actual crop may differ from the request — check `OutputInfo::crop_applied`.
+- **`with_scale_hint(w, h)`**: Request prescaling. JPEG can decode at 1/2, 1/4, 1/8 resolution. JXL has resolution levels. The decoder picks the closest efficient resolution.
+- **`with_orientation_hint(orientation)`**: Request that the decoder apply EXIF orientation during decode. If honored, `OutputInfo::orientation_applied` reflects the applied orientation and `width`/`height` reflect the rotated dimensions.
+
+Codecs that don't support a hint simply ignore it (the default implementation returns `self`). `output_info()` must reflect whatever hints were actually applied.
 
 ### `with_limits(self, limits: ResourceLimits) -> Self`
 
@@ -390,7 +462,7 @@ The `EncoderConfig` trait provides default implementations that route through `P
 
 ### `decode_into_*()` — zero-copy decode path
 
-The `DecoderConfig` trait provides default implementations that route through `Decoder::decode_into()`. If your codec can decode directly into a caller-provided buffer, override `Decoder::decode_into()`. Callers should use `decode_info()` to determine the required buffer dimensions.
+The `DecoderConfig` trait provides default implementations that route through `Decoder::decode_into()`. If your codec can decode directly into a caller-provided buffer, override `Decoder::decode_into()`. Callers should use `decode_info()` or `DecodeJob::output_info()` to determine the required buffer dimensions and pixel format.
 
 ### Error types
 
@@ -424,18 +496,20 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 7. `fn probe_header()` — O(header), never O(pixels)
 8. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
 9. `DecodeJob::with_stop()`, `with_limits()`
-10. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
-11. `Decoder::decode()`, `decode_into()`, `decode_rows()`
-12. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
-13. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
+10. `DecodeJob::output_info()` — return `OutputInfo` reflecting current hints
+11. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
+12. `Decoder::decode()`, `decode_into()`, `decode_rows()`
+13. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
+14. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
 
 **Should implement** (have defaults, but override when beneficial):
 
-14. `probe_full()` — override when frame count or complete metadata requires a full parse
-15. `decode_info()` — override when config transforms output dimensions (scaling, orientation)
-16. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
-17. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
-18. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
+15. `probe_full()` — override when frame count or complete metadata requires a full parse
+16. `decode_info()` on `DecoderConfig` — override when you need a cheaper path than creating a job
+17. `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()` on `DecodeJob` — honor decode hints when the codec can apply spatial transforms cheaply (JPEG MCU-aligned crop, JPEG 1/2/4/8 prescale, etc.)
+18. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
+19. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
+20. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
 
 ## License
 

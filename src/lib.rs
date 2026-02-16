@@ -40,7 +40,7 @@ pub use buffer::{
 pub use capabilities::CodecCapabilities;
 pub use color::{ColorProfileSource, NamedProfile};
 pub use format::ImageFormat;
-pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageMetadata, MasteringDisplay};
+pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageMetadata, MasteringDisplay, OutputInfo};
 pub use limits::ResourceLimits;
 pub use orientation::Orientation;
 pub use output::{

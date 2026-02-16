@@ -2,6 +2,7 @@
 
 use alloc::vec::Vec;
 
+use crate::buffer::PixelDescriptor;
 use crate::color::ColorProfileSource;
 use crate::{ImageFormat, Orientation};
 
@@ -412,6 +413,87 @@ impl<'a> ImageMetadata<'a> {
             && self.cicp.is_none()
             && self.content_light_level.is_none()
             && self.mastering_display.is_none()
+    }
+}
+
+/// Predicted output from a decode operation.
+///
+/// Returned by [`DecodeJob::output_info()`](crate::DecodeJob::output_info).
+/// Describes what `decode()` or `decode_into()` will produce given the
+/// current decode hints (crop, scale, orientation).
+///
+/// Use this to allocate destination buffers — the `width` and `height`
+/// are what the decoder will actually write.
+///
+/// # Natural info vs output info
+///
+/// [`ImageInfo`] from `probe_header()` describes the file as stored:
+/// original dimensions, original orientation, embedded metadata.
+///
+/// `OutputInfo` describes the decoder's output: post-crop, post-scale,
+/// post-orientation dimensions and pixel format. This is what your
+/// buffer must match.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputInfo {
+    /// Width of the decoded output in pixels.
+    pub width: u32,
+    /// Height of the decoded output in pixels.
+    pub height: u32,
+    /// Pixel format the decoder will produce natively (for `decode()`).
+    ///
+    /// For `decode_into()`, use any format from
+    /// [`supported_descriptors()`](crate::DecoderConfig::supported_descriptors) —
+    /// this field tells you what the codec would pick if you let it choose.
+    pub native_format: PixelDescriptor,
+    /// Whether the output has an alpha channel.
+    pub has_alpha: bool,
+    /// Orientation the decoder will apply internally.
+    ///
+    /// [`Normal`](Orientation::Normal) means the decoder will NOT handle
+    /// orientation — the caller must apply it. Any other value means the
+    /// decoder will rotate/flip the pixels, and the output `width`/`height`
+    /// already reflect the rotated dimensions.
+    ///
+    /// Remaining orientation for the caller:
+    /// `natural.orientation - orientation_applied` (via D4 group composition).
+    pub orientation_applied: Orientation,
+    /// Crop the decoder will actually apply (`[x, y, width, height]` in
+    /// source coordinates).
+    ///
+    /// May differ from the crop hint due to block alignment (JPEG MCU
+    /// boundaries, AV1 superblock alignment, etc.). `None` if no crop.
+    pub crop_applied: Option<[u32; 4]>,
+}
+
+impl OutputInfo {
+    /// Create an `OutputInfo` for a simple full-frame decode (no hints applied).
+    pub fn full_decode(width: u32, height: u32, native_format: PixelDescriptor) -> Self {
+        Self {
+            width,
+            height,
+            native_format,
+            has_alpha: native_format.has_alpha(),
+            orientation_applied: Orientation::Normal,
+            crop_applied: None,
+        }
+    }
+
+    /// Set whether the output has alpha.
+    pub fn with_alpha(mut self, has_alpha: bool) -> Self {
+        self.has_alpha = has_alpha;
+        self
+    }
+
+    /// Set the orientation the decoder will apply.
+    pub fn with_orientation_applied(mut self, o: Orientation) -> Self {
+        self.orientation_applied = o;
+        self
+    }
+
+    /// Set the crop the decoder will apply.
+    pub fn with_crop_applied(mut self, rect: [u32; 4]) -> Self {
+        self.crop_applied = Some(rect);
+        self
     }
 }
 

@@ -446,16 +446,22 @@ pub trait DecoderConfig: Clone + Send + Sync {
         self.probe_header(data)
     }
 
-    /// Compute output dimensions/info for this data given current config.
+    /// Predict decode output for default settings (no hints).
     ///
-    /// Unlike [`probe_header()`](DecoderConfig::probe_header) which returns stored
-    /// file dimensions, this applies config transforms (scaling, orientation)
-    /// to predict actual decode output. Use this to allocate buffers for
-    /// `decode_into_*` methods.
+    /// Returns [`OutputInfo`](crate::OutputInfo) describing the width, height,
+    /// and pixel format that `decode()` / `decode_into()` will produce.
+    /// Use this to allocate buffers for `decode_into_*` methods.
     ///
-    /// Default: delegates to `probe_header()` (correct when config doesn't transform dims).
-    fn decode_info(&self, data: &[u8]) -> Result<ImageInfo, Self::Error> {
-        self.probe_header(data)
+    /// Unlike [`probe_header()`](DecoderConfig::probe_header) which returns
+    /// the file's natural/stored dimensions, this returns what the decoder
+    /// will actually output given the current config.
+    ///
+    /// For hint-aware prediction (crop, scale, orientation), create a job
+    /// and call [`DecodeJob::output_info()`].
+    ///
+    /// Default: delegates to `self.job().output_info(data)`.
+    fn decode_info(&self, data: &[u8]) -> Result<crate::OutputInfo, Self::Error> {
+        self.job().output_info(data)
     }
 
     /// Convenience: decode with default job settings.
@@ -590,6 +596,22 @@ pub trait DecoderConfig: Clone + Send + Sync {
 /// Created by [`DecoderConfig::job()`]. Borrows temporary data (stop token,
 /// resource limits) and produces either a [`Decoder`] (single image) or a
 /// [`FrameDecoder`] (animation).
+///
+/// # Decode hints
+///
+/// Hints let the caller request spatial transforms (crop, scale, orientation)
+/// that the decoder may apply during decode. The decoder is free to ignore
+/// any hint, apply it partially (e.g., block-aligned crop), or apply it
+/// fully. Call [`output_info()`](DecodeJob::output_info) after setting hints
+/// to learn what the decoder will actually produce.
+///
+/// ```text
+/// config.job()
+///     .with_crop_hint(100, 100, 800, 600)   // request crop
+///     .with_scale_hint(400, 300)             // request prescale
+///     .with_orientation_hint(Rotate90)       // request orientation
+///     .output_info(data)?                    // → what buffer to allocate
+/// ```
 pub trait DecodeJob<'a>: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
@@ -608,6 +630,57 @@ pub trait DecodeJob<'a>: Sized {
 
     /// Override resource limits for this operation.
     fn with_limits(self, limits: ResourceLimits) -> Self;
+
+    // --- Decode hints (optional, decoder may ignore) ---
+
+    /// Hint: crop to this region in source coordinates.
+    ///
+    /// The decoder may adjust the crop for block alignment (JPEG MCU
+    /// boundaries, etc.). Check [`OutputInfo::crop_applied`](crate::OutputInfo::crop_applied)
+    /// to see what the decoder will actually do.
+    ///
+    /// Default: no crop (full image).
+    fn with_crop_hint(self, _x: u32, _y: u32, _width: u32, _height: u32) -> Self {
+        self
+    }
+
+    /// Hint: target output dimensions for prescaling.
+    ///
+    /// Some codecs can decode at reduced resolution cheaply (JPEG 1/2/4/8
+    /// scaling, progressive JPEG XL). The decoder picks the closest
+    /// resolution it can produce efficiently.
+    ///
+    /// Default: no scaling (native resolution).
+    fn with_scale_hint(self, _width: u32, _height: u32) -> Self {
+        self
+    }
+
+    /// Hint: apply this orientation during decode.
+    ///
+    /// If the decoder handles orientation, the output pixels are already
+    /// rotated/flipped and [`OutputInfo::orientation_applied`](crate::OutputInfo::orientation_applied)
+    /// reflects what was applied. If ignored, orientation remains for
+    /// the caller to handle.
+    ///
+    /// Default: no orientation handling.
+    fn with_orientation_hint(self, _orientation: crate::Orientation) -> Self {
+        self
+    }
+
+    // --- Output prediction ---
+
+    /// Predict the decode output given current config and hints.
+    ///
+    /// Returns [`OutputInfo`](crate::OutputInfo) describing the width, height,
+    /// pixel format, and applied transforms. **This is what your destination
+    /// buffer must match.**
+    ///
+    /// Call after setting hints, before creating a decoder. The returned
+    /// info accounts for crop, scale, and orientation hints that the
+    /// decoder will honor.
+    fn output_info(&self, data: &[u8]) -> Result<crate::OutputInfo, Self::Error>;
+
+    // --- Executor creation ---
 
     /// Create a one-shot decoder.
     fn decoder(self) -> Self::Decoder;
@@ -629,8 +702,9 @@ pub trait Decoder: Sized {
 
     /// Decode into caller-provided buffer.
     ///
-    /// The buffer must have dimensions matching
-    /// [`DecoderConfig::decode_info()`] results.
+    /// The buffer dimensions must match [`DecodeJob::output_info()`] or
+    /// [`DecoderConfig::decode_info()`]. The buffer's pixel format must be
+    /// one of [`DecoderConfig::supported_descriptors()`].
     fn decode_into(self, data: &[u8], dst: PixelSliceMut<'_>) -> Result<ImageInfo, Self::Error>;
 
     /// Decode with row-level callback. Codec pushes rows as they become
