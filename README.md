@@ -588,6 +588,54 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 20. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
 21. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
 
+## Pre-v0.1 Concerns
+
+Open design questions that should be resolved before publishing. Adding required trait methods after v0.1 is a semver break, so the trait surface needs to be right.
+
+### Metadata communication
+
+**Orientation belongs in `ImageMetadata`.** Currently `ImageInfo` carries orientation but `ImageMetadata` does not. When a codec extracts and strips orientation from EXIF during decode, the roundtrip path (`decoded.metadata()` → `job.with_metadata(&meta)`) loses it. Orientation should be a field on `ImageMetadata` — and it must be mutable, because callers frequently resolve or remove orientation during processing (apply rotation, then set to Normal before re-encoding).
+
+**No encode-side contract for CICP vs ICC precedence.** The decode side documents "CICP takes precedence per AVIF/HEIF spec." On encode, if `ImageMetadata` contains both CICP and ICC, what should the codec do? Embed both when the format allows? Prefer one? The contract is silent.
+
+**`DecodeFrame` carries no metadata.** Individual animation frames have pixels but no `ImageInfo`, CICP, or bit depth. Container-level metadata covers most cases, but the frame has no way to communicate per-frame color info. Is that acceptable, or should `DecodeFrame` carry at least a reference to container-level `ImageInfo`?
+
+**No individual metadata setters on `EncodeJob`.** The api-design.md shows `with_icc()`, `with_exif()`, `with_xmp()` as separate methods. The current trait only has `with_metadata()`. This works (via `ImageMetadata::none().with_icc(data)`) but means the trait has no way to set orientation — it only flows through the `ImageMetadata` struct, which currently lacks that field.
+
+### Extra layers and gain maps
+
+**Extra layers come in multiple forms.** JPEG UltraHDR embeds a gain map as a secondary JPEG in MPF. AVIF stores it as a `tmap` item with an AV1-encoded gain map. JXL has its own gain map mechanism. A unified `GainMapImage` type needs to abstract over these container differences while preserving the metadata each format requires (ISO 21496-1 `GainMapMetadata`, base/alternate CICP, HDR metadata).
+
+**Extra layers need equal streamability.** A gain map is itself an image — it needs the same decode paths (one-shot, row-level, into-buffer) as the primary image. Strip-based pipelines that apply a gain map need to stream both the base image and the gain map simultaneously, with the gain map reader producing rows in lockstep. The current API has no mechanism for multi-layer streaming — `DecodeOutput` returns one `PixelData`, and extra layers are behind a type-erased `Any` escape hatch.
+
+**`DecodeOutput::extras` uses type-erased `Any`.** This is the current escape hatch for format-specific data (gain maps, MPF secondary images). It works but means callers must know the concrete type to downcast. For gain maps specifically, should there be a structured path (`decode_gain_map` / `encode_gain_map` on the traits) instead of or in addition to the `Any` escape hatch?
+
+**Timing: gain map trait methods before or after v0.1?** Adding them before v0.1 (as required methods) forces every codec to handle them immediately. Adding them after v0.1 (as default-impl'd methods returning `Ok(None)` or `Err(Unsupported)`) avoids the semver break but hides missing functionality behind defaults. Only JPEG, AVIF, and JXL support gain maps — GIF, PNG, and WebP do not.
+
+### Streaming
+
+**No incremental data feeding.** Every decode method takes `data: &[u8]` — the complete file must be in memory. There's no way to feed bytes incrementally from a network socket or streaming reader. This is a known v0.1 limitation. Adding it later means new trait methods (semver-safe with defaults) or a new `StreamingDataSource` trait. The question is whether v0.1's `&[u8]` constraint will cause real adoption pain.
+
+**Strip pipeline orchestration is undefined.** The traits provide row-level push/pull for individual images. But composing codecs into a pipeline (decode → color convert → apply gain map → resize → encode) requires strip-height negotiation between stages with different natural strip sizes (JPEG: 8/16 rows, AV1: 64x64 tiles, PNG: 1 row). This orchestration belongs in a pipeline crate, not here — but the boundary between "codec contract" and "pipeline concern" needs a clear line.
+
+**Animation streaming vs buffering.** The current `FrameEncoder` accepts frames one at a time (streamable). `FrameDecoder` returns frames one at a time (streamable). But the convenience `encode_animation_rgb8(&[TypedEncodeFrame])` buffers all frames in a slice, and there's no streaming counterpart on the trait. For large animations (animated AVIF, long GIF), the caller must drop to the `FrameEncoder` / `FrameDecoder` level manually. Is that acceptable, or should the trait provide iterator-based convenience methods?
+
+### Animation
+
+**Loop count and duration not on traits.** `FrameEncoder` has no `with_loop_count()`. `FrameDecoder` has no `loop_count()` or `total_duration_ms()`. These are currently format-specific methods on concrete types. Should the traits carry them?
+
+**Variable frame dimensions.** The API assumes all animation frames share one pixel format. `DecodeFrame` has `frame_rect` for sub-canvas regions, but the trait doesn't negotiate canvas dimensions upfront. For formats like GIF and APNG where frames can have different dimensions than the canvas, the canvas size comes from `ImageInfo` on probe — but `FrameEncoder` has no `with_canvas_size()`.
+
+### Pixel format
+
+**Quality/effort/lossless not on traits.** The api-design.md puts `with_quality()`, `with_effort()`, `with_lossless()` on the `Encoding` trait. The implementation leaves them on concrete types only. Putting them on the trait enables `fn compress(cfg: &impl EncoderConfig, ...)` to set quality generically. Leaving them off keeps the trait minimal and avoids forcing all codecs to accept parameters they might not support (GIF has no meaningful "quality 0-100" mapping). Decided against — but worth reconsidering if generic pipelines need it.
+
+**HDR encode paths.** The trait has `encode_rgb16` / `encode_rgba16` but the f32 → u16 → f32 roundtrip is lossy for HDR content. PQ-encoded u16 has 12-bit effective precision. For HDR workflows that stay in f32 linear light, the f32 encode methods exist — but there's no f32 animation encode convenience (`encode_animation_rgb_f32`). Is that a gap?
+
+### Naming and packaging
+
+**Crate name.** Currently `zencodec-types` (repo: `zencodec-types-api`). The api-design.md uses `zencodec`. Options: `zencodec`, `zencodec-types`, `zencodec-api`, `codec-api`. The name signals whether this is zen*-specific or potentially reusable by other codec families.
+
 ## License
 
 Apache-2.0 OR MIT
