@@ -53,8 +53,12 @@ use crate::{
 /// stored in structs and shared across threads.
 ///
 /// Universal encoding parameters — [`with_effort()`](EncoderConfig::with_effort),
-/// [`with_lossy_quality()`](EncoderConfig::with_lossy_quality),
-/// [`with_lossless()`](EncoderConfig::with_lossless) — are on the trait.
+/// [`with_calibrated_quality()`](EncoderConfig::with_calibrated_quality),
+/// [`with_lossless()`](EncoderConfig::with_lossless) — are on the trait
+/// with default no-op implementations. Getters ([`effort()`](EncoderConfig::effort),
+/// [`calibrated_quality()`](EncoderConfig::calibrated_quality),
+/// [`is_lossless()`](EncoderConfig::is_lossless)) return `Option` so callers
+/// can detect whether a codec supports a parameter.
 /// Quality uses a calibrated 0.0–100.0 scale where 85 matches libjpeg-turbo
 /// quality 85 (each codec maintains its own calibration table).
 /// Format-specific settings beyond these live on the concrete config type.
@@ -89,15 +93,25 @@ pub trait EncoderConfig: Clone + Send + Sync {
     /// Use this to check before calling methods that may be no-ops.
     fn capabilities() -> &'static CodecCapabilities;
 
+    // --- Universal encoding parameters ---
+    //
+    // These have default no-op implementations so codecs that don't support
+    // a parameter aren't forced to stub it out. Use the corresponding getter
+    // (e.g. `calibrated_quality()`) to check if the codec accepted the value.
+    // `CodecCapabilities` reports supported ranges.
+
     /// Set encoding effort on a signed scale.
     ///
     /// Higher values = slower / better compression. Each codec maps this
     /// to its internal effort/speed scale. Values outside the codec's
     /// meaningful range are clamped.
     ///
-    /// No-op if the codec has no effort tuning (check
-    /// [`capabilities().effort_range()`](CodecCapabilities::effort_range)).
-    fn with_effort(self, effort: i32) -> Self;
+    /// Default no-op. Check [`effort()`](EncoderConfig::effort) to see
+    /// the current value, or [`capabilities().effort_range()`](CodecCapabilities::effort_range)
+    /// for the supported range (`None` = no effort tuning).
+    fn with_effort(self, _effort: i32) -> Self {
+        self
+    }
 
     /// Set lossy quality on a calibrated 0.0–100.0 scale.
     ///
@@ -106,18 +120,39 @@ pub trait EncoderConfig: Clone + Send + Sync {
     /// libjpeg-turbo quality 85. Each codec maps this to its internal
     /// parameters via a calibration table.
     ///
-    /// Values are clamped to \[0.0, 100.0\]. No-op if the codec only
-    /// supports lossless encoding (check
-    /// [`capabilities().quality_range()`](CodecCapabilities::quality_range)).
-    fn with_lossy_quality(self, quality: f32) -> Self;
+    /// Values are clamped to \[0.0, 100.0\]. Default no-op. Check
+    /// [`calibrated_quality()`](EncoderConfig::calibrated_quality) to see
+    /// the current value, or [`capabilities().quality_range()`](CodecCapabilities::quality_range)
+    /// for the supported range (`None` = lossless-only codec).
+    fn with_calibrated_quality(self, _quality: f32) -> Self {
+        self
+    }
 
     /// Enable or disable lossless encoding.
     ///
-    /// No-op if the codec doesn't support lossless (check
-    /// [`capabilities().lossless()`](CodecCapabilities::lossless)).
-    /// When lossless is enabled, [`with_lossy_quality()`](EncoderConfig::with_lossy_quality)
+    /// Default no-op. Check [`is_lossless()`](EncoderConfig::is_lossless)
+    /// to see the current value, or
+    /// [`capabilities().lossless()`](CodecCapabilities::lossless) for support.
+    /// When lossless is enabled, [`with_calibrated_quality()`](EncoderConfig::with_calibrated_quality)
     /// is ignored.
-    fn with_lossless(self, lossless: bool) -> Self;
+    fn with_lossless(self, _lossless: bool) -> Self {
+        self
+    }
+
+    /// Current effort value, or `None` if the codec has no effort tuning.
+    fn effort(&self) -> Option<i32> {
+        None
+    }
+
+    /// Current calibrated quality value, or `None` if the codec is lossless-only.
+    fn calibrated_quality(&self) -> Option<f32> {
+        None
+    }
+
+    /// Current lossless setting, or `None` if the codec doesn't support lossless.
+    fn is_lossless(&self) -> Option<bool> {
+        None
+    }
 
     /// Create a per-operation job for this config.
     ///

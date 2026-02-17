@@ -50,7 +50,7 @@ DecoderConfig → DecodeJob<'a> ┤
                               └→ FrameDecoder (animation: pull frames, or row callback)
 ```
 
-**Config** types (`EncoderConfig`, `DecoderConfig`) are reusable, `Clone + Send + Sync`, and have no lifetimes. Universal encoding parameters — `with_effort()`, `with_lossy_quality()`, `with_lossless()` — are on the trait. Format-specific settings beyond those live on the concrete type. You can store configs in structs, share them across threads, and create multiple jobs from one config.
+**Config** types (`EncoderConfig`, `DecoderConfig`) are reusable, `Clone + Send + Sync`, and have no lifetimes. Universal encoding parameters — `with_effort()`, `with_calibrated_quality()`, `with_lossless()` — are on the trait with default no-op implementations. Getters (`effort()`, `calibrated_quality()`, `is_lossless()`) return `Option` so callers can detect support. Format-specific settings beyond those live on the concrete type. You can store configs in structs, share them across threads, and create multiple jobs from one config.
 
 **Job** types (`EncodeJob`, `DecodeJob`) are per-operation. They borrow temporary data (stop tokens, metadata, resource limits) via a `'a` lifetime and produce an executor.
 
@@ -62,7 +62,7 @@ use zencodec_types::{EncoderConfig, DecoderConfig, ResourceLimits};
 
 // Config: universal quality/effort on the trait, format-specific on the concrete type
 let config = JpegEncoderConfig::new()
-    .with_lossy_quality(85.0)
+    .with_calibrated_quality(85.0)
     .with_effort(1000);
 
 // One-shot convenience: encode directly from config
@@ -78,7 +78,7 @@ let output = config.job()
 
 ### Calibrated quality scale
 
-`EncoderConfig::with_lossy_quality()` uses a calibrated 0.0–100.0 scale. The baseline is libjpeg-turbo: quality 85 on any codec targets the same visual quality (butteraugli / SSIM2 score) as libjpeg-turbo quality 85. Each codec maintains a calibration table mapping universal quality to its internal parameters.
+`EncoderConfig::with_calibrated_quality()` uses a calibrated 0.0–100.0 scale. The baseline is libjpeg-turbo: quality 85 on any codec targets the same visual quality (butteraugli / SSIM2 score) as libjpeg-turbo quality 85. Each codec maintains a calibration table mapping universal quality to its internal parameters.
 
 | Universal quality | Visual target |
 |---|---|
@@ -90,7 +90,7 @@ let output = config.job()
 
 `EncoderConfig::with_effort()` takes an `i32`. Higher = slower / better compression. Each codec maps this to its internal effort/speed parameter. `CodecCapabilities::effort_range()` reports the meaningful `[min, max]` — values outside it are clamped.
 
-`EncoderConfig::with_lossless()` enables lossless encoding when supported (`CodecCapabilities::lossless()`). When lossless is enabled, `with_lossy_quality()` is ignored.
+`EncoderConfig::with_lossless()` enables lossless encoding when supported (`CodecCapabilities::lossless()`). When lossless is enabled, `with_calibrated_quality()` is ignored.
 
 ### Encode paths
 
@@ -588,7 +588,7 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 5. `fn capabilities() -> &'static CodecCapabilities` — honest feature flags (including `effort_range`, `quality_range`, `lossless`)
 6. `fn supported_descriptors() -> &'static [PixelDescriptor]` — native pixel formats (hard guarantee: `decode_into`/`encode` must work without conversion for every listed descriptor)
 7. `fn probe_header()` — O(header), never O(pixels)
-8. `EncoderConfig::with_effort()`, `with_lossy_quality()`, `with_lossless()` — map universal parameters to codec-specific settings, no-op when unsupported
+8. `EncoderConfig::with_effort()`, `with_calibrated_quality()`, `with_lossless()` — map universal parameters to codec-specific settings (have defaults, override when supported)
 9. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
 10. `DecodeJob::with_stop()`, `with_limits()`
 11. `DecodeJob::output_info()` — return `OutputInfo` reflecting current hints
