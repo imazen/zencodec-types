@@ -13,8 +13,9 @@
 //!                               └→ FrameDecoder (animation: pull frames)
 //! ```
 //!
-//! Configuration (quality, effort, lossless, etc.) lives on each codec's
-//! concrete types — the traits handle execution, metadata, cancellation,
+//! Universal encoding parameters (quality, effort, lossless) are on
+//! [`EncoderConfig`]. Format-specific settings live on each codec's
+//! concrete types. The traits handle execution, metadata, cancellation,
 //! and resource limits.
 //!
 //! # Transfer function conventions
@@ -51,9 +52,12 @@ use crate::{
 /// Config types are reusable (`Clone`) and have no lifetimes — they can be
 /// stored in structs and shared across threads.
 ///
-/// Format-specific settings (quality, effort, lossless mode) are set on the
-/// concrete config type before it enters the trait interface. The trait handles
-/// only universal concerns: job creation and typed convenience methods.
+/// Universal encoding parameters — [`with_effort()`](EncoderConfig::with_effort),
+/// [`with_lossy_quality()`](EncoderConfig::with_lossy_quality),
+/// [`with_lossless()`](EncoderConfig::with_lossless) — are on the trait.
+/// Quality uses a calibrated 0.0–100.0 scale where 85 matches libjpeg-turbo
+/// quality 85 (each codec maintains its own calibration table).
+/// Format-specific settings beyond these live on the concrete config type.
 ///
 /// The `job()` method creates a per-operation [`EncodeJob`] that can borrow
 /// temporary data (stop tokens, metadata, resource limits).
@@ -84,6 +88,36 @@ pub trait EncoderConfig: Clone + Send + Sync {
     /// Returns a static reference describing what this codec supports.
     /// Use this to check before calling methods that may be no-ops.
     fn capabilities() -> &'static CodecCapabilities;
+
+    /// Set encoding effort on the 0–[`u16::MAX`] scale.
+    ///
+    /// `0` = fastest, `u16::MAX` = slowest / best compression. Each codec
+    /// maps this to its internal effort/speed scale. Values outside the
+    /// codec's meaningful range are clamped.
+    ///
+    /// No-op if the codec has no effort tuning (check
+    /// [`capabilities().effort_range()`](CodecCapabilities::effort_range)).
+    fn with_effort(self, effort: u16) -> Self;
+
+    /// Set lossy quality on a calibrated 0.0–100.0 scale.
+    ///
+    /// The scale is calibrated to match libjpeg-turbo output: quality 85
+    /// on any codec targets the same butteraugli / SSIM2 score as
+    /// libjpeg-turbo quality 85. Each codec maps this to its internal
+    /// parameters via a calibration table.
+    ///
+    /// Values are clamped to \[0.0, 100.0\]. No-op if the codec only
+    /// supports lossless encoding (check
+    /// [`capabilities().quality_range()`](CodecCapabilities::quality_range)).
+    fn with_lossy_quality(self, quality: f32) -> Self;
+
+    /// Enable or disable lossless encoding.
+    ///
+    /// No-op if the codec doesn't support lossless (check
+    /// [`capabilities().lossless()`](CodecCapabilities::lossless)).
+    /// When lossless is enabled, [`with_lossy_quality()`](EncoderConfig::with_lossy_quality)
+    /// is ignored.
+    fn with_lossless(self, lossless: bool) -> Self;
 
     /// Create a per-operation job for this config.
     ///

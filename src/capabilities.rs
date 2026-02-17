@@ -50,6 +50,11 @@ pub struct CodecCapabilities {
     enforces_max_pixels: bool,
     enforces_max_memory: bool,
     enforces_max_file_size: bool,
+    /// Meaningful effort range `[min, max]`. `None` = no effort tuning.
+    effort_range: Option<[u16; 2]>,
+    /// Meaningful quality range `[min, max]` on the calibrated 0–100 scale.
+    /// `None` = lossless-only codec (no quality parameter).
+    quality_range: Option<[f32; 2]>,
 }
 
 impl Default for CodecCapabilities {
@@ -82,6 +87,8 @@ impl CodecCapabilities {
             enforces_max_pixels: false,
             enforces_max_memory: false,
             enforces_max_file_size: false,
+            effort_range: None,
+            quality_range: None,
         }
     }
 
@@ -185,6 +192,23 @@ impl CodecCapabilities {
     /// Whether the codec enforces [`ResourceLimits::max_file_size`](crate::ResourceLimits::max_file_size).
     pub const fn enforces_max_file_size(&self) -> bool {
         self.enforces_max_file_size
+    }
+
+    /// Meaningful effort range `[min, max]` on the 0–[`u16::MAX`] scale.
+    ///
+    /// `None` means the codec has no effort tuning —
+    /// [`EncoderConfig::with_effort()`](crate::EncoderConfig::with_effort) is a no-op.
+    pub const fn effort_range(&self) -> Option<[u16; 2]> {
+        self.effort_range
+    }
+
+    /// Meaningful quality range `[min, max]` on the calibrated 0.0–100.0 scale.
+    ///
+    /// `None` means the codec is lossless-only —
+    /// [`EncoderConfig::with_lossy_quality()`](crate::EncoderConfig::with_lossy_quality) is a no-op.
+    /// Most lossy codecs return `Some([0.0, 100.0])`.
+    pub const fn quality_range(&self) -> Option<[f32; 2]> {
+        self.quality_range
     }
 
     // --- const builder methods for static construction ---
@@ -308,12 +332,29 @@ impl CodecCapabilities {
         self.enforces_max_file_size = v;
         self
     }
+
+    /// Set the meaningful effort range `[min, max]` on the 0–[`u16::MAX`] scale.
+    ///
+    /// `None` (default) means the codec has no effort tuning.
+    pub const fn with_effort_range(mut self, min: u16, max: u16) -> Self {
+        self.effort_range = Some([min, max]);
+        self
+    }
+
+    /// Set the meaningful quality range `[min, max]` on the calibrated 0.0–100.0 scale.
+    ///
+    /// `None` (default) means the codec is lossless-only.
+    /// Most lossy codecs: `with_quality_range(0.0, 100.0)`.
+    pub const fn with_quality_range(mut self, min: f32, max: f32) -> Self {
+        self.quality_range = Some([min, max]);
+        self
+    }
 }
 
 impl core::fmt::Debug for CodecCapabilities {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("CodecCapabilities")
-            .field("encode_icc", &self.encode_icc)
+        let mut s = f.debug_struct("CodecCapabilities");
+        s.field("encode_icc", &self.encode_icc)
             .field("encode_exif", &self.encode_exif)
             .field("encode_xmp", &self.encode_xmp)
             .field("decode_icc", &self.decode_icc)
@@ -332,8 +373,14 @@ impl core::fmt::Debug for CodecCapabilities {
             .field("decode_cicp", &self.decode_cicp)
             .field("enforces_max_pixels", &self.enforces_max_pixels)
             .field("enforces_max_memory", &self.enforces_max_memory)
-            .field("enforces_max_file_size", &self.enforces_max_file_size)
-            .finish()
+            .field("enforces_max_file_size", &self.enforces_max_file_size);
+        if let Some(range) = &self.effort_range {
+            s.field("effort_range", range);
+        }
+        if let Some(range) = &self.quality_range {
+            s.field("quality_range", range);
+        }
+        s.finish()
     }
 }
 
@@ -364,6 +411,8 @@ mod tests {
         assert!(!caps.enforces_max_pixels());
         assert!(!caps.enforces_max_memory());
         assert!(!caps.enforces_max_file_size());
+        assert!(caps.effort_range().is_none());
+        assert!(caps.quality_range().is_none());
     }
 
     #[test]
@@ -430,5 +479,38 @@ mod tests {
         assert!(CAPS.enforces_max_pixels());
         assert!(!CAPS.enforces_max_memory());
         assert!(CAPS.enforces_max_file_size());
+    }
+
+    #[test]
+    fn effort_range_builder_and_getter() {
+        let caps = CodecCapabilities::new().with_effort_range(0, 10);
+        assert_eq!(caps.effort_range(), Some([0, 10]));
+    }
+
+    #[test]
+    fn quality_range_builder_and_getter() {
+        let caps = CodecCapabilities::new().with_quality_range(0.0, 100.0);
+        assert_eq!(caps.quality_range(), Some([0.0, 100.0]));
+    }
+
+    #[test]
+    fn effort_quality_static_construction() {
+        static CAPS: CodecCapabilities = CodecCapabilities::new()
+            .with_lossless(true)
+            .with_effort_range(0, 65535)
+            .with_quality_range(0.0, 100.0);
+        assert!(CAPS.lossless());
+        assert_eq!(CAPS.effort_range(), Some([0, 65535]));
+        assert_eq!(CAPS.quality_range(), Some([0.0, 100.0]));
+    }
+
+    #[test]
+    fn lossless_only_codec_no_quality_range() {
+        let caps = CodecCapabilities::new()
+            .with_lossless(true)
+            .with_effort_range(1, 9);
+        assert!(caps.lossless());
+        assert_eq!(caps.effort_range(), Some([1, 9]));
+        assert!(caps.quality_range().is_none()); // lossless-only → no quality range
     }
 }

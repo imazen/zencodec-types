@@ -367,16 +367,21 @@ impl ImageInfo {
             cicp: self.cicp,
             content_light_level: self.content_light_level,
             mastering_display: self.mastering_display,
+            orientation: self.orientation,
         }
     }
 }
 
-/// Borrowed view of image metadata (ICC/EXIF/XMP/CICP/HDR).
+/// Borrowed view of image metadata (ICC/EXIF/XMP/CICP/HDR/orientation).
 ///
 /// Used when encoding to preserve metadata from the source image.
-/// Borrows from [`ImageInfo`] or user-provided slices. CICP and HDR
-/// metadata are `Copy` types, so no borrowing needed for those.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Borrows from [`ImageInfo`] or user-provided slices. CICP, HDR,
+/// and orientation are `Copy` types, so no borrowing needed for those.
+///
+/// Orientation is mutable because callers frequently resolve it during
+/// transcoding (apply rotation, then set to [`Normal`](Orientation::Normal)
+/// before re-encoding).
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ImageMetadata<'a> {
     /// ICC color profile.
@@ -391,6 +396,25 @@ pub struct ImageMetadata<'a> {
     pub content_light_level: Option<ContentLightLevel>,
     /// Mastering Display Color Volume for HDR content.
     pub mastering_display: Option<MasteringDisplay>,
+    /// EXIF orientation.
+    ///
+    /// Set to [`Normal`](Orientation::Normal) after applying rotation,
+    /// or preserve the original value for the encoder to embed.
+    pub orientation: Orientation,
+}
+
+impl Default for ImageMetadata<'_> {
+    fn default() -> Self {
+        Self {
+            icc_profile: None,
+            exif: None,
+            xmp: None,
+            cicp: None,
+            content_light_level: None,
+            mastering_display: None,
+            orientation: Orientation::Normal,
+        }
+    }
 }
 
 impl<'a> ImageMetadata<'a> {
@@ -435,6 +459,12 @@ impl<'a> ImageMetadata<'a> {
         self
     }
 
+    /// Set the EXIF orientation.
+    pub fn with_orientation(mut self, orientation: Orientation) -> Self {
+        self.orientation = orientation;
+        self
+    }
+
     /// Get the source color profile for CMS integration.
     ///
     /// Returns CICP if present (takes precedence per AVIF/HEIF specs),
@@ -449,6 +479,9 @@ impl<'a> ImageMetadata<'a> {
     }
 
     /// Whether any metadata is present.
+    ///
+    /// Returns `false` if orientation is not [`Normal`](Orientation::Normal),
+    /// since orientation is meaningful metadata for roundtrip encoding.
     pub fn is_empty(&self) -> bool {
         self.icc_profile.is_none()
             && self.exif.is_none()
@@ -456,6 +489,7 @@ impl<'a> ImageMetadata<'a> {
             && self.cicp.is_none()
             && self.content_light_level.is_none()
             && self.mastering_display.is_none()
+            && self.orientation == Orientation::Normal
     }
 }
 
@@ -859,5 +893,37 @@ mod tests {
 
         assert!((mdcv.max_luminance_nits() - 1000.0).abs() < 0.01);
         assert!((mdcv.min_luminance_nits() - 0.05).abs() < 0.001);
+    }
+
+    #[test]
+    fn metadata_orientation_roundtrip() {
+        let info =
+            ImageInfo::new(100, 200, ImageFormat::Jpeg).with_orientation(Orientation::Rotate90);
+        let meta = info.metadata();
+        assert_eq!(meta.orientation, Orientation::Rotate90);
+    }
+
+    #[test]
+    fn metadata_orientation_default_is_normal() {
+        let meta = ImageMetadata::none();
+        assert_eq!(meta.orientation, Orientation::Normal);
+    }
+
+    #[test]
+    fn metadata_with_orientation_builder() {
+        let meta = ImageMetadata::none().with_orientation(Orientation::Rotate270);
+        assert_eq!(meta.orientation, Orientation::Rotate270);
+    }
+
+    #[test]
+    fn metadata_orientation_not_empty() {
+        let meta = ImageMetadata::none().with_orientation(Orientation::Rotate90);
+        assert!(!meta.is_empty());
+    }
+
+    #[test]
+    fn metadata_normal_orientation_is_empty() {
+        let meta = ImageMetadata::none().with_orientation(Orientation::Normal);
+        assert!(meta.is_empty());
     }
 }

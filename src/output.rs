@@ -1,6 +1,7 @@
 //! Encode and decode output types.
 
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
 use imgref::{ImgRef, ImgVec};
@@ -276,9 +277,13 @@ pub enum FrameDisposal {
 }
 
 /// A single frame from animation decoding.
+///
+/// Carries container-level metadata via `Arc<ImageInfo>` so each frame
+/// is self-describing without duplicating metadata per frame.
 #[non_exhaustive]
 pub struct DecodeFrame {
     pixels: PixelData,
+    info: Arc<ImageInfo>,
     delay_ms: u32,
     index: u32,
     /// Which previous frame this frame depends on for compositing.
@@ -295,9 +300,13 @@ pub struct DecodeFrame {
 
 impl DecodeFrame {
     /// Create a new decode frame with default compositing (keyframe, source blend, no disposal).
-    pub fn new(pixels: PixelData, delay_ms: u32, index: u32) -> Self {
+    ///
+    /// The `info` parameter carries container-level metadata (format, color space,
+    /// ICC/EXIF/XMP, orientation) shared across all frames via `Arc`.
+    pub fn new(pixels: PixelData, info: Arc<ImageInfo>, delay_ms: u32, index: u32) -> Self {
         Self {
             pixels,
+            info,
             delay_ms,
             index,
             required_frame: None,
@@ -411,6 +420,7 @@ impl DecodeFrame {
     ///
     /// Returns `None` if the combination is unsupported (e.g. Bgra16).
     pub fn convert_to(self, desc: crate::buffer::PixelDescriptor) -> Option<DecodeFrame> {
+        let info = self.info;
         let delay_ms = self.delay_ms;
         let index = self.index;
         let required_frame = self.required_frame;
@@ -419,6 +429,7 @@ impl DecodeFrame {
         let frame_rect = self.frame_rect;
         self.pixels.convert_to(desc).map(|pixels| DecodeFrame {
             pixels,
+            info,
             delay_ms,
             index,
             required_frame,
@@ -492,6 +503,30 @@ impl DecodeFrame {
         self.frame_rect
     }
 
+    /// Container-level image info (format, color space, metadata).
+    ///
+    /// Shared across all frames via `Arc` — cloning is cheap.
+    pub fn info(&self) -> &ImageInfo {
+        &self.info
+    }
+
+    /// Clone the `Arc<ImageInfo>` for sharing with other frames or consumers.
+    pub fn info_arc(&self) -> Arc<ImageInfo> {
+        Arc::clone(&self.info)
+    }
+
+    /// Borrow embedded metadata for roundtrip encode.
+    ///
+    /// Convenience for `self.info().metadata()`.
+    pub fn metadata(&self) -> ImageMetadata<'_> {
+        self.info.metadata()
+    }
+
+    /// Detected format (from container-level info).
+    pub fn format(&self) -> ImageFormat {
+        self.info.format
+    }
+
     /// Frame width.
     pub fn width(&self) -> u32 {
         self.pixels.width()
@@ -512,6 +547,7 @@ impl core::fmt::Debug for DecodeFrame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut s = f.debug_struct("DecodeFrame");
         s.field("pixels", &self.pixels)
+            .field("format", &self.info.format)
             .field("delay_ms", &self.delay_ms)
             .field("index", &self.index);
         if let Some(req) = self.required_frame {
@@ -596,6 +632,10 @@ mod tests {
     use super::*;
     use alloc::vec;
 
+    fn test_info(w: u32, h: u32, fmt: ImageFormat) -> Arc<ImageInfo> {
+        Arc::new(ImageInfo::new(w, h, fmt))
+    }
+
     #[test]
     fn encode_output() {
         let output = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
@@ -657,12 +697,14 @@ mod tests {
             2,
             2,
         );
-        let frame = DecodeFrame::new(PixelData::Rgba8(img), 100, 0);
+        let info = test_info(2, 2, ImageFormat::Png);
+        let frame = DecodeFrame::new(PixelData::Rgba8(img), info, 100, 0);
         assert_eq!(frame.delay_ms(), 100);
         assert_eq!(frame.index(), 0);
         assert_eq!(frame.width(), 2);
         assert_eq!(frame.height(), 2);
         assert!(frame.has_alpha());
+        assert_eq!(frame.format(), ImageFormat::Png);
     }
 
     #[test]
@@ -679,7 +721,12 @@ mod tests {
             2,
             2,
         );
-        let frame = DecodeFrame::new(PixelData::Rgb8(img), 50, 1);
+        let frame = DecodeFrame::new(
+            PixelData::Rgb8(img),
+            test_info(2, 2, ImageFormat::Png),
+            50,
+            1,
+        );
         assert!(frame.as_rgb8().is_some());
         assert!(frame.as_rgba8().is_none());
         assert!(frame.as_bgra8().is_none());
@@ -700,7 +747,12 @@ mod tests {
             2,
             2,
         );
-        let frame = DecodeFrame::new(PixelData::Rgb8(img), 0, 0);
+        let frame = DecodeFrame::new(
+            PixelData::Rgb8(img),
+            test_info(2, 2, ImageFormat::Png),
+            0,
+            0,
+        );
         let gray = frame.into_gray8();
         // BT.601: (77*128 + 150*128 + 29*128) >> 8 = (256*128) >> 8 = 128
         assert_eq!(gray.buf()[0].value(), 128);
@@ -709,7 +761,12 @@ mod tests {
     #[test]
     fn decode_frame_debug() {
         let img = ImgVec::new(vec![Gray::new(0u8); 4], 2, 2);
-        let frame = DecodeFrame::new(PixelData::Gray8(img), 100, 3);
+        let frame = DecodeFrame::new(
+            PixelData::Gray8(img),
+            test_info(2, 2, ImageFormat::Gif),
+            100,
+            3,
+        );
         let s = alloc::format!("{:?}", frame);
         assert!(s.contains("DecodeFrame"));
         assert!(s.contains("delay_ms: 100"));
@@ -842,7 +899,12 @@ mod tests {
             2,
             2,
         );
-        let frame = DecodeFrame::new(PixelData::Rgb8(img), 100, 0);
+        let frame = DecodeFrame::new(
+            PixelData::Rgb8(img),
+            test_info(2, 2, ImageFormat::Png),
+            100,
+            0,
+        );
         let rgb16 = frame.into_rgb16();
         assert_eq!(rgb16.buf()[0].r, 65535);
     }
@@ -850,11 +912,76 @@ mod tests {
     #[test]
     fn decode_frame_convert_to() {
         let img = ImgVec::new(vec![Gray::new(128u8); 4], 2, 2);
-        let frame = DecodeFrame::new(PixelData::Gray8(img), 50, 1);
+        let frame = DecodeFrame::new(
+            PixelData::Gray8(img),
+            test_info(2, 2, ImageFormat::Png),
+            50,
+            1,
+        );
         let result = frame.convert_to(crate::buffer::PixelDescriptor::GRAY16_SRGB);
         assert!(result.is_some());
         let converted = result.unwrap();
         assert_eq!(converted.delay_ms(), 50);
         assert_eq!(converted.index(), 1);
+    }
+
+    #[test]
+    fn decode_frame_info_accessor() {
+        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 4], 2, 2);
+        let info =
+            Arc::new(ImageInfo::new(2, 2, ImageFormat::WebP).with_icc_profile(vec![10, 20, 30]));
+        let frame = DecodeFrame::new(PixelData::Rgb8(img), Arc::clone(&info), 100, 0);
+        assert_eq!(frame.info().format, ImageFormat::WebP);
+        assert_eq!(
+            frame.info().icc_profile.as_deref(),
+            Some([10, 20, 30].as_slice())
+        );
+        assert_eq!(frame.format(), ImageFormat::WebP);
+    }
+
+    #[test]
+    fn decode_frame_metadata_accessor() {
+        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 4], 2, 2);
+        let info = Arc::new(
+            ImageInfo::new(2, 2, ImageFormat::Avif)
+                .with_cicp(crate::info::Cicp::SRGB)
+                .with_orientation(crate::Orientation::Rotate90),
+        );
+        let frame = DecodeFrame::new(PixelData::Rgb8(img), info, 50, 0);
+        let meta = frame.metadata();
+        assert_eq!(meta.cicp, Some(crate::info::Cicp::SRGB));
+        assert_eq!(meta.orientation, crate::Orientation::Rotate90);
+    }
+
+    #[test]
+    fn decode_frame_info_arc_shared() {
+        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 4], 2, 2);
+        let info = Arc::new(ImageInfo::new(2, 2, ImageFormat::Gif));
+        let frame = DecodeFrame::new(PixelData::Rgb8(img), Arc::clone(&info), 100, 0);
+        let arc2 = frame.info_arc();
+        assert!(Arc::ptr_eq(&info, &arc2));
+    }
+
+    #[test]
+    fn decode_frame_convert_to_preserves_info() {
+        let img = ImgVec::new(
+            vec![
+                Rgb {
+                    r: 10u8,
+                    g: 20,
+                    b: 30
+                };
+                4
+            ],
+            2,
+            2,
+        );
+        let info = Arc::new(ImageInfo::new(2, 2, ImageFormat::WebP).with_exif(vec![1, 2, 3]));
+        let frame = DecodeFrame::new(PixelData::Rgb8(img), Arc::clone(&info), 50, 1);
+        let converted = frame
+            .convert_to(crate::buffer::PixelDescriptor::RGBA8_SRGB)
+            .unwrap();
+        assert!(Arc::ptr_eq(&info, &converted.info_arc()));
+        assert_eq!(converted.format(), ImageFormat::WebP);
     }
 }

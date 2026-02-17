@@ -50,7 +50,7 @@ DecoderConfig → DecodeJob<'a> ┤
                               └→ FrameDecoder (animation: pull frames, or row callback)
 ```
 
-**Config** types (`EncoderConfig`, `DecoderConfig`) are reusable, `Clone + Send + Sync`, and have no lifetimes. They hold format-specific settings (quality, effort, lossless mode) as methods on the concrete type — the traits don't touch those. You can store configs in structs, share them across threads, and create multiple jobs from one config.
+**Config** types (`EncoderConfig`, `DecoderConfig`) are reusable, `Clone + Send + Sync`, and have no lifetimes. Universal encoding parameters — `with_effort()`, `with_lossy_quality()`, `with_lossless()` — are on the trait. Format-specific settings beyond those live on the concrete type. You can store configs in structs, share them across threads, and create multiple jobs from one config.
 
 **Job** types (`EncodeJob`, `DecodeJob`) are per-operation. They borrow temporary data (stop tokens, metadata, resource limits) via a `'a` lifetime and produce an executor.
 
@@ -60,10 +60,10 @@ DecoderConfig → DecodeJob<'a> ┤
 use zenjpeg::{JpegEncoderConfig, JpegDecoderConfig};
 use zencodec_types::{EncoderConfig, DecoderConfig, ResourceLimits};
 
-// Config: set format-specific options on the concrete type
+// Config: universal quality/effort on the trait, format-specific on the concrete type
 let config = JpegEncoderConfig::new()
-    .with_quality(85.0)
-    .with_limits(ResourceLimits::none().with_max_pixels(100_000_000));
+    .with_lossy_quality(85.0)
+    .with_effort(1000);
 
 // One-shot convenience: encode directly from config
 let output = config.encode_rgb8(img.as_ref())?;
@@ -75,6 +75,22 @@ let output = config.job()
     .encoder()
     .encode(PixelSlice::from(img.as_ref()))?;
 ```
+
+### Calibrated quality scale
+
+`EncoderConfig::with_lossy_quality()` uses a calibrated 0.0–100.0 scale. The baseline is libjpeg-turbo: quality 85 on any codec targets the same visual quality (butteraugli / SSIM2 score) as libjpeg-turbo quality 85. Each codec maintains a calibration table mapping universal quality to its internal parameters.
+
+| Universal quality | Visual target |
+|---|---|
+| 100.0 | Visually lossless (butteraugli < 0.5) |
+| 85.0 | High quality web (matches libjpeg-turbo q85) |
+| 75.0 | Standard web (matches libjpeg-turbo q75) |
+| 50.0 | Moderate compression |
+| 0.0 | Maximum compression |
+
+`EncoderConfig::with_effort()` uses a 0–`u16::MAX` scale (0 = fastest, 65535 = slowest/best compression). Each codec maps this to its internal effort/speed parameter. `CodecCapabilities::effort_range()` reports the meaningful range — values outside it are clamped.
+
+`EncoderConfig::with_lossless()` enables lossless encoding when supported (`CodecCapabilities::lossless()`). When lossless is enabled, `with_lossy_quality()` is ignored.
 
 ### Encode paths
 
@@ -519,7 +535,9 @@ All return `None` when there are no more frames.
 
 ### Frame compositing metadata
 
-`DecodeFrame` carries compositing information for correct animation rendering:
+`DecodeFrame` carries an `Arc<ImageInfo>` for container-level metadata (format, color space, ICC/EXIF/XMP, orientation) shared across all frames without per-frame duplication. Access via `info()`, `info_arc()`, `metadata()`, and `format()`.
+
+`DecodeFrame` also carries compositing information for correct animation rendering:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -567,26 +585,27 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 2. Job types with `'a` lifetime for borrowed data
 3. Executor types (`MyEncoder`, `MyDecoder`, and optionally `MyFrameEncoder`, `MyFrameDecoder`)
 4. `EncoderConfig`/`DecoderConfig` on config types with GATs: `type Job<'a> = MyEncodeJob<'a> where Self: 'a`
-5. `fn capabilities() -> &'static CodecCapabilities` — honest feature flags
+5. `fn capabilities() -> &'static CodecCapabilities` — honest feature flags (including `effort_range`, `quality_range`, `lossless`)
 6. `fn supported_descriptors() -> &'static [PixelDescriptor]` — native pixel formats (hard guarantee: `decode_into`/`encode` must work without conversion for every listed descriptor)
 7. `fn probe_header()` — O(header), never O(pixels)
-8. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
-9. `DecodeJob::with_stop()`, `with_limits()`
-10. `DecodeJob::output_info()` — return `OutputInfo` reflecting current hints
-11. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
-12. `Decoder::decode()`, `decode_into()`, `decode_rows()`
-13. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
-14. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
+8. `EncoderConfig::with_effort()`, `with_lossy_quality()`, `with_lossless()` — map universal parameters to codec-specific settings, no-op when unsupported
+9. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
+10. `DecodeJob::with_stop()`, `with_limits()`
+11. `DecodeJob::output_info()` — return `OutputInfo` reflecting current hints
+12. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
+13. `Decoder::decode()`, `decode_into()`, `decode_rows()`
+14. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
+15. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
 
 **Should implement** (have defaults, but override when beneficial):
 
-15. `probe_full()` — override when frame count or complete metadata requires a full parse
-16. `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()` on `DecodeJob` — honor decode hints when the codec can apply spatial transforms cheaply (JPEG MCU-aligned crop, JPEG 1/2/4/8 prescale, etc.)
-17. `estimated_cost()` on `DecodeJob` — override to provide codec-specific `peak_memory` estimates (default derives from `output_info()`)
-18. `estimated_cost()` on `EncodeJob` — override to provide codec-specific `peak_memory` estimates (default computes `input_bytes` from dimensions)
-19. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
-20. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
-21. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
+16. `probe_full()` — override when frame count or complete metadata requires a full parse
+17. `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()` on `DecodeJob` — honor decode hints when the codec can apply spatial transforms cheaply (JPEG MCU-aligned crop, JPEG 1/2/4/8 prescale, etc.)
+18. `estimated_cost()` on `DecodeJob` — override to provide codec-specific `peak_memory` estimates (default derives from `output_info()`)
+19. `estimated_cost()` on `EncodeJob` — override to provide codec-specific `peak_memory` estimates (default computes `input_bytes` from dimensions)
+20. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
+21. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
+22. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
 
 ## Pre-v0.1 Concerns
 
@@ -594,13 +613,9 @@ Open design questions that should be resolved before publishing. Adding required
 
 ### Metadata communication
 
-**Orientation belongs in `ImageMetadata`.** Currently `ImageInfo` carries orientation but `ImageMetadata` does not. When a codec extracts and strips orientation from EXIF during decode, the roundtrip path (`decoded.metadata()` → `job.with_metadata(&meta)`) loses it. Orientation should be a field on `ImageMetadata` — and it must be mutable, because callers frequently resolve or remove orientation during processing (apply rotation, then set to Normal before re-encoding).
-
 **No encode-side contract for CICP vs ICC precedence.** The decode side documents "CICP takes precedence per AVIF/HEIF spec." On encode, if `ImageMetadata` contains both CICP and ICC, what should the codec do? Embed both when the format allows? Prefer one? The contract is silent.
 
-**`DecodeFrame` carries no metadata.** Individual animation frames have pixels but no `ImageInfo`, CICP, or bit depth. Container-level metadata covers most cases, but the frame has no way to communicate per-frame color info. Is that acceptable, or should `DecodeFrame` carry at least a reference to container-level `ImageInfo`?
-
-**No individual metadata setters on `EncodeJob`.** The api-design.md shows `with_icc()`, `with_exif()`, `with_xmp()` as separate methods. The current trait only has `with_metadata()`. This works (via `ImageMetadata::none().with_icc(data)`) but means the trait has no way to set orientation — it only flows through the `ImageMetadata` struct, which currently lacks that field.
+**No individual metadata setters on `EncodeJob`.** The current trait only has `with_metadata()`. This works (via `ImageMetadata::none().with_icc(data).with_orientation(Rotate90)`) but is more verbose than separate `with_icc()`, `with_exif()`, `with_xmp()` methods.
 
 ### Extra layers and gain maps
 
@@ -627,8 +642,6 @@ Open design questions that should be resolved before publishing. Adding required
 **Variable frame dimensions.** The API assumes all animation frames share one pixel format. `DecodeFrame` has `frame_rect` for sub-canvas regions, but the trait doesn't negotiate canvas dimensions upfront. For formats like GIF and APNG where frames can have different dimensions than the canvas, the canvas size comes from `ImageInfo` on probe — but `FrameEncoder` has no `with_canvas_size()`.
 
 ### Pixel format
-
-**Quality/effort/lossless not on traits.** The api-design.md puts `with_quality()`, `with_effort()`, `with_lossless()` on the `Encoding` trait. The implementation leaves them on concrete types only. Putting them on the trait enables `fn compress(cfg: &impl EncoderConfig, ...)` to set quality generically. Leaving them off keeps the trait minimal and avoids forcing all codecs to accept parameters they might not support (GIF has no meaningful "quality 0-100" mapping). Decided against — but worth reconsidering if generic pipelines need it.
 
 **HDR encode paths.** The trait has `encode_rgb16` / `encode_rgba16` but the f32 → u16 → f32 roundtrip is lossy for HDR content. PQ-encoded u16 has 12-bit effective precision. For HDR workflows that stay in f32 linear light, the f32 encode methods exist — but there's no f32 animation encode convenience (`encode_animation_rgb_f32`). Is that a gap?
 
