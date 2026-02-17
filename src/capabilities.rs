@@ -51,7 +51,7 @@ pub struct CodecCapabilities {
     enforces_max_memory: bool,
     enforces_max_file_size: bool,
     /// Meaningful effort range `[min, max]`. `None` = no effort tuning.
-    effort_range: Option<[u16; 2]>,
+    effort_range: Option<[i32; 2]>,
     /// Meaningful quality range `[min, max]` on the calibrated 0–100 scale.
     /// `None` = lossless-only codec (no quality parameter).
     quality_range: Option<[f32; 2]>,
@@ -194,11 +194,11 @@ impl CodecCapabilities {
         self.enforces_max_file_size
     }
 
-    /// Meaningful effort range `[min, max]` on the 0–[`u16::MAX`] scale.
+    /// Meaningful effort range `[min, max]`.
     ///
     /// `None` means the codec has no effort tuning —
     /// [`EncoderConfig::with_effort()`](crate::EncoderConfig::with_effort) is a no-op.
-    pub const fn effort_range(&self) -> Option<[u16; 2]> {
+    pub const fn effort_range(&self) -> Option<[i32; 2]> {
         self.effort_range
     }
 
@@ -333,10 +333,10 @@ impl CodecCapabilities {
         self
     }
 
-    /// Set the meaningful effort range `[min, max]` on the 0–[`u16::MAX`] scale.
+    /// Set the meaningful effort range `[min, max]`.
     ///
     /// `None` (default) means the codec has no effort tuning.
-    pub const fn with_effort_range(mut self, min: u16, max: u16) -> Self {
+    pub const fn with_effort_range(mut self, min: i32, max: i32) -> Self {
         self.effort_range = Some([min, max]);
         self
     }
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn effort_range_builder_and_getter() {
         let caps = CodecCapabilities::new().with_effort_range(0, 10);
-        assert_eq!(caps.effort_range(), Some([0, 10]));
+        assert_eq!(caps.effort_range(), Some([0i32, 10]));
     }
 
     #[test]
@@ -497,10 +497,10 @@ mod tests {
     fn effort_quality_static_construction() {
         static CAPS: CodecCapabilities = CodecCapabilities::new()
             .with_lossless(true)
-            .with_effort_range(0, 65535)
+            .with_effort_range(0, 100)
             .with_quality_range(0.0, 100.0);
         assert!(CAPS.lossless());
-        assert_eq!(CAPS.effort_range(), Some([0, 65535]));
+        assert_eq!(CAPS.effort_range(), Some([0, 100]));
         assert_eq!(CAPS.quality_range(), Some([0.0, 100.0]));
     }
 

@@ -88,7 +88,7 @@ let output = config.job()
 | 50.0 | Moderate compression |
 | 0.0 | Maximum compression |
 
-`EncoderConfig::with_effort()` uses a 0–`u16::MAX` scale (0 = fastest, 65535 = slowest/best compression). Each codec maps this to its internal effort/speed parameter. `CodecCapabilities::effort_range()` reports the meaningful range — values outside it are clamped.
+`EncoderConfig::with_effort()` takes an `i32`. Higher = slower / better compression. Each codec maps this to its internal effort/speed parameter. `CodecCapabilities::effort_range()` reports the meaningful `[min, max]` — values outside it are clamped.
 
 `EncoderConfig::with_lossless()` enables lossless encoding when supported (`CodecCapabilities::lossless()`). When lossless is enabled, `with_lossy_quality()` is ignored.
 

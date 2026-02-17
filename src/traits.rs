@@ -89,15 +89,15 @@ pub trait EncoderConfig: Clone + Send + Sync {
     /// Use this to check before calling methods that may be no-ops.
     fn capabilities() -> &'static CodecCapabilities;
 
-    /// Set encoding effort on the 0–[`u16::MAX`] scale.
+    /// Set encoding effort on a signed scale.
     ///
-    /// `0` = fastest, `u16::MAX` = slowest / best compression. Each codec
-    /// maps this to its internal effort/speed scale. Values outside the
-    /// codec's meaningful range are clamped.
+    /// Higher values = slower / better compression. Each codec maps this
+    /// to its internal effort/speed scale. Values outside the codec's
+    /// meaningful range are clamped.
     ///
     /// No-op if the codec has no effort tuning (check
     /// [`capabilities().effort_range()`](CodecCapabilities::effort_range)).
-    fn with_effort(self, effort: u16) -> Self;
+    fn with_effort(self, effort: i32) -> Self;
 
     /// Set lossy quality on a calibrated 0.0–100.0 scale.
     ///
