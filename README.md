@@ -30,6 +30,8 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 **Color management** — `ColorProfileSource`, `NamedProfile`
 
+**Gain map support** — `GainMapMetadata` (ISO 21496-1 gain map parameters, shared by JPEG UltraHDR, AVIF, and JXL)
+
 **Cost estimation** — `DecodeCost`, `EncodeCost`
 
 **Resource management** — `ResourceLimits`, `LimitExceeded`, `ImageFormat` (magic-byte detection), `CodecCapabilities` (feature flags for capability discovery)
@@ -608,8 +610,9 @@ If you need a specific pixel format, use `Decoder::decode_into()` to request it 
 22. `loop_count()` on `FrameDecoder` — return animation loop count if known
 23. `with_loop_count()` on `FrameEncoder` — set animation loop count
 24. `with_alpha_quality()` / `alpha_quality()` on `EncoderConfig` — independent alpha plane quality for codecs that support it (AVIF, WebP, JXL)
-25. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
-26. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
+25. `with_canvas_size()` on `EncodeJob` — set animation canvas dimensions for compositing formats (GIF, APNG, WebP, JXL)
+26. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
+27. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
 
 ## Pre-v0.1 Concerns
 
@@ -623,13 +626,20 @@ Open design questions that should be resolved before publishing. Adding required
 
 ### Extra layers and gain maps
 
-**Extra layers come in multiple forms.** JPEG UltraHDR embeds a gain map as a secondary JPEG in MPF. AVIF stores it as a `tmap` item with an AV1-encoded gain map. JXL has its own gain map mechanism. A unified `GainMapImage` type needs to abstract over these container differences while preserving the metadata each format requires (ISO 21496-1 `GainMapMetadata`, base/alternate CICP, HDR metadata).
+**`GainMapMetadata` is defined** (ISO 21496-1), shared by JPEG UltraHDR, AVIF, and JXL. Codecs put `(PixelData, GainMapMetadata)` in `DecodeOutput::extras` via the type-erased `Any` escape hatch. This works but requires callers to know the concrete type to downcast.
 
-**Extra layers need equal streamability.** A gain map is itself an image — it needs the same decode paths (one-shot, row-level, into-buffer) as the primary image. Strip-based pipelines that apply a gain map need to stream both the base image and the gain map simultaneously, with the gain map reader producing rows in lockstep. The current API has no mechanism for multi-layer streaming — `DecodeOutput` returns one `PixelData`, and extra layers are behind a type-erased `Any` escape hatch.
+**Gain map trait methods are deferred.** Only 3 of 6 codecs support gain maps (JPEG, AVIF, JXL). Adding `decode_gain_map()` / `encode_gain_map()` to the traits before proving the pattern across implementations risks getting the API wrong. Plan: prove via `extras` across 2-3 codecs, then promote to trait methods with defaults (semver-safe addition).
 
-**`DecodeOutput::extras` uses type-erased `Any`.** This is the current escape hatch for format-specific data (gain maps, MPF secondary images). It works but means callers must know the concrete type to downcast. For gain maps specifically, should there be a structured path (`decode_gain_map` / `encode_gain_map` on the traits) instead of or in addition to the `Any` escape hatch?
+**Secondary images vary widely across formats.** Gain maps, depth maps, and alpha planes are all "secondary images" but differ in key properties:
 
-**Timing: gain map trait methods before or after v0.1?** Adding them before v0.1 (as required methods) forces every codec to handle them immediately. Adding them after v0.1 (as default-impl'd methods returning `Ok(None)` or `Err(Unsupported)`) avoids the semver break but hides missing functionality behind defaults. Only JPEG, AVIF, and JXL support gain maps — GIF, PNG, and WebP do not.
+| Property | Gain map | Depth map | Alpha plane |
+|----------|----------|-----------|-------------|
+| Resolution vs base | Different (typically 1/4 per axis) | Different | Must match (AVIF, WebP) |
+| Pixel format | Grayscale | Monochrome | Monochrome |
+| Needs own decode | Yes (separate codec invocation) | Yes | Format-dependent |
+| Spatial relationship | Covers same extent, coarser grid | Same extent, coarser grid | Same pixel grid |
+
+**Extra layers need equal streamability.** A gain map is itself an image — it needs the same decode paths (one-shot, row-level, into-buffer) as the primary image. Strip-based pipelines that apply a gain map need to stream both the base image and the gain map simultaneously. The current API has no mechanism for multi-layer streaming — a future version may add parallel decode paths.
 
 ### Streaming
 
@@ -643,7 +653,9 @@ Open design questions that should be resolved before publishing. Adding required
 
 **~~Loop count not on traits.~~** Resolved: `FrameEncoder::with_loop_count()` and `FrameDecoder::loop_count()` are now on the traits with default no-op implementations. `total_duration_ms()` remains absent — computing it requires decoding all frames (can't know up front).
 
-**Variable frame dimensions.** The API assumes all animation frames share one pixel format. `DecodeFrame` has `frame_rect` for sub-canvas regions, but the trait doesn't negotiate canvas dimensions upfront. For formats like GIF and APNG where frames can have different dimensions than the canvas, the canvas size comes from `ImageInfo` on probe — but `FrameEncoder` has no `with_canvas_size()`.
+**Variable frame dimensions — partially addressed.** `EncodeJob::with_canvas_size()` lets callers set the animation canvas dimensions before creating a `FrameEncoder`. On the decode side, canvas dimensions come from `ImageInfo` (via `probe_header()`), and `DecodeFrame::frame_rect()` reports each frame's sub-canvas region.
+
+Remaining question: should `push_frame()` accept per-frame positioning (offset, blend, disposal) for sub-canvas frames? Currently callers push full-canvas frames and the codec optimizes internally (delta detection, sub-frame extraction). This matches what `image`, `webp-animation`, and `libavif` do. Exposing raw sub-frame input could be added on concrete types if needed. Pixel format is always consistent within a sequence across all formats — no format allows mixing RGB and grayscale frames.
 
 ### Pixel format
 

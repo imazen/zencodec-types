@@ -388,6 +388,21 @@ pub trait EncodeJob<'a>: Sized {
     /// Override resource limits for this operation.
     fn with_limits(self, limits: ResourceLimits) -> Self;
 
+    /// Set the animation canvas dimensions.
+    ///
+    /// For compositing formats (GIF, APNG, WebP, JXL), individual frames
+    /// can be smaller than the canvas. The canvas defines the logical
+    /// screen / output dimensions. Call this before
+    /// [`frame_encoder()`](EncodeJob::frame_encoder).
+    ///
+    /// For full-frame-replace formats (AVIF), this is ignored — the
+    /// canvas matches the frame dimensions.
+    ///
+    /// Default no-op (canvas = first frame's dimensions).
+    fn with_canvas_size(self, _width: u32, _height: u32) -> Self {
+        self
+    }
+
     /// Estimate the resource cost of encoding an image with these dimensions.
     ///
     /// Returns `input_bytes` and `pixel_count` (trivially computed from the

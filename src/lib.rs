@@ -29,6 +29,7 @@ mod buffer;
 mod capabilities;
 mod color;
 mod format;
+mod gainmap;
 mod info;
 mod limits;
 mod orientation;
@@ -43,6 +44,7 @@ pub use buffer::{
 pub use capabilities::{CodecCapabilities, HasUnsupportedOperation, UnsupportedOperation};
 pub use color::{ColorProfileSource, NamedProfile};
 pub use format::ImageFormat;
+pub use gainmap::GainMapMetadata;
 pub use info::{
     Cicp, ContentLightLevel, DecodeCost, EncodeCost, ImageInfo, ImageMetadata, MasteringDisplay,
     OutputInfo,
