@@ -10,3 +10,4 @@
 - User requested deep research on gain maps and secondary/auxiliary images across formats: JPEG UltraHDR (ISO 21496-1), AVIF/HEIF tmap, JXL extra channels/gain maps, depth maps, alpha planes. Concrete API shapes from libheif, libjxl, libultrahdr, libavif.
 - User requested fix of zengif codec to compile against updated zencodec-types API: add format() to EncoderConfig/DecoderConfig impls, replace removed DecodeOutput conversion methods with local helpers.
 - User requested implementation of cross-format image pipeline in zencodecs: Pipeline builder with QualityPreset, MetadataPolicy, layout constraints (fit/within/crop/pad), EXIF auto-orientation, lossless passthrough, zenresize integration. Feature-gated behind `pipeline`.
+- User requested fix of broken trait re-exports so zencodecs compiles: renamed *Encoding/*Decoding to *EncoderConfig/*DecoderConfig, restructured adapter code to use correct trait method hierarchy (config→job→encoder/decoder).
