@@ -178,22 +178,27 @@ impl PixelData {
     /// doesn't implement `rgb::ComponentBytes`, so we can't get a byte
     /// slice without copying).
     pub fn as_pixel_slice(&self) -> Option<crate::buffer::PixelSlice<'_>> {
-        match self {
-            PixelData::Rgb8(img) => Some(img.as_ref().into()),
-            PixelData::Rgba8(img) => Some(img.as_ref().into()),
-            PixelData::Rgb16(img) => Some(img.as_ref().into()),
-            PixelData::Rgba16(img) => Some(img.as_ref().into()),
-            PixelData::RgbF32(img) => Some(img.as_ref().into()),
-            PixelData::RgbaF32(img) => Some(img.as_ref().into()),
-            PixelData::Gray8(img) => Some(img.as_ref().into()),
-            PixelData::Gray16(img) => Some(img.as_ref().into()),
-            PixelData::GrayF32(img) => Some(img.as_ref().into()),
-            PixelData::Bgra8(img) => Some(img.as_ref().into()),
+        // The From<ImgRef> impls use convention-based descriptors (sRGB for u8,
+        // linear for f32). Override with self.descriptor() which preserves the
+        // transfer-agnostic Unknown from decoded pixel data.
+        let desc = self.descriptor();
+        let slice: crate::buffer::PixelSlice<'_> = match self {
+            PixelData::Rgb8(img) => img.as_ref().into(),
+            PixelData::Rgba8(img) => img.as_ref().into(),
+            PixelData::Rgb16(img) => img.as_ref().into(),
+            PixelData::Rgba16(img) => img.as_ref().into(),
+            PixelData::RgbF32(img) => img.as_ref().into(),
+            PixelData::RgbaF32(img) => img.as_ref().into(),
+            PixelData::Gray8(img) => img.as_ref().into(),
+            PixelData::Gray16(img) => img.as_ref().into(),
+            PixelData::GrayF32(img) => img.as_ref().into(),
+            PixelData::Bgra8(img) => img.as_ref().into(),
             // GrayAlpha types don't implement ComponentBytes
             PixelData::GrayAlpha8(_) | PixelData::GrayAlpha16(_) | PixelData::GrayAlphaF32(_) => {
-                None
+                return None;
             }
-        }
+        };
+        Some(slice.with_descriptor(desc))
     }
 
     /// Get the raw pixel data as a byte vector.

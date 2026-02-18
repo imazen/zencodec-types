@@ -515,6 +515,17 @@ impl<'a> PixelSlice<'a> {
         })
     }
 
+    /// Replace the descriptor, preserving all other fields.
+    ///
+    /// Used by `PixelData::as_pixel_slice()` to keep the transfer-agnostic
+    /// descriptor from decoded data instead of the convention-based one
+    /// from the `From<ImgRef>` impl.
+    #[inline]
+    pub(crate) fn with_descriptor(mut self, descriptor: PixelDescriptor) -> Self {
+        self.descriptor = descriptor;
+        self
+    }
+
     /// Image width in pixels.
     #[inline]
     pub fn width(&self) -> u32 {
@@ -1099,16 +1110,18 @@ macro_rules! impl_from_imgref {
     };
 }
 
-impl_from_imgref!(Rgb<u8>, PixelDescriptor::RGB8);
-impl_from_imgref!(Rgba<u8>, PixelDescriptor::RGBA8);
+// u8 types are conventionally sRGB, f32 types are conventionally linear.
+// u16 types have no standard convention so use transfer-agnostic descriptors.
+impl_from_imgref!(Rgb<u8>, PixelDescriptor::RGB8_SRGB);
+impl_from_imgref!(Rgba<u8>, PixelDescriptor::RGBA8_SRGB);
 impl_from_imgref!(Rgb<u16>, PixelDescriptor::RGB16);
 impl_from_imgref!(Rgba<u16>, PixelDescriptor::RGBA16);
-impl_from_imgref!(Rgb<f32>, PixelDescriptor::RGBF32);
-impl_from_imgref!(Rgba<f32>, PixelDescriptor::RGBAF32);
-impl_from_imgref!(Gray<u8>, PixelDescriptor::GRAY8);
+impl_from_imgref!(Rgb<f32>, PixelDescriptor::RGBF32_LINEAR);
+impl_from_imgref!(Rgba<f32>, PixelDescriptor::RGBAF32_LINEAR);
+impl_from_imgref!(Gray<u8>, PixelDescriptor::GRAY8_SRGB);
 impl_from_imgref!(Gray<u16>, PixelDescriptor::GRAY16);
-impl_from_imgref!(Gray<f32>, PixelDescriptor::GRAYF32);
-impl_from_imgref!(BGRA<u8>, PixelDescriptor::BGRA8);
+impl_from_imgref!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
+impl_from_imgref!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
 
 // ---------------------------------------------------------------------------
 // ImgRefMut → PixelSliceMut (zero-copy From impls)
@@ -1136,16 +1149,16 @@ macro_rules! impl_from_imgref_mut {
     };
 }
 
-impl_from_imgref_mut!(Rgb<u8>, PixelDescriptor::RGB8);
-impl_from_imgref_mut!(Rgba<u8>, PixelDescriptor::RGBA8);
+impl_from_imgref_mut!(Rgb<u8>, PixelDescriptor::RGB8_SRGB);
+impl_from_imgref_mut!(Rgba<u8>, PixelDescriptor::RGBA8_SRGB);
 impl_from_imgref_mut!(Rgb<u16>, PixelDescriptor::RGB16);
 impl_from_imgref_mut!(Rgba<u16>, PixelDescriptor::RGBA16);
-impl_from_imgref_mut!(Rgb<f32>, PixelDescriptor::RGBF32);
-impl_from_imgref_mut!(Rgba<f32>, PixelDescriptor::RGBAF32);
-impl_from_imgref_mut!(Gray<u8>, PixelDescriptor::GRAY8);
+impl_from_imgref_mut!(Rgb<f32>, PixelDescriptor::RGBF32_LINEAR);
+impl_from_imgref_mut!(Rgba<f32>, PixelDescriptor::RGBAF32_LINEAR);
+impl_from_imgref_mut!(Gray<u8>, PixelDescriptor::GRAY8_SRGB);
 impl_from_imgref_mut!(Gray<u16>, PixelDescriptor::GRAY16);
-impl_from_imgref_mut!(Gray<f32>, PixelDescriptor::GRAYF32);
-impl_from_imgref_mut!(BGRA<u8>, PixelDescriptor::BGRA8);
+impl_from_imgref_mut!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
+impl_from_imgref_mut!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
 
 // ---------------------------------------------------------------------------
 // PixelData → PixelBuffer (From, always copies)
