@@ -202,7 +202,7 @@ while let Some(info) = dec.next_frame_rows(&mut |row_idx, row| {
 
 `PixelData` is a 13-variant enum — every consumer must match all 13 arms to do anything generic. The `buffer` module provides an alternative: format-erased buffers tagged with a 4-byte `PixelDescriptor`.
 
-**`PixelDescriptor`** packs `ChannelType` (U8/U16/F32), `ChannelLayout` (Gray/GrayAlpha/Rgb/Rgba/Bgra), `AlphaMode` (None/Straight/Premultiplied), and `TransferFunction` (Linear/Srgb/Bt709/Pq/Hlg) into 4 bytes. Named constants like `PixelDescriptor::RGB8_SRGB` cover the 13 standard formats.
+**`PixelDescriptor`** packs `ChannelType` (U8/U16/F32), `ChannelLayout` (Gray/GrayAlpha/Rgb/Rgba/Bgra), `AlphaMode` (None/Straight/Premultiplied), and `TransferFunction` (Linear/Srgb/Bt709/Pq/Hlg/Unknown) into 4 bytes. Two sets of named constants: transfer-agnostic (`RGB8`, `RGBF32`, etc. with `Unknown` transfer) and explicitly-tagged (`RGB8_SRGB`, `RGBF32_LINEAR`, etc.). Use `with_transfer()` to resolve `Unknown` once CICP/ICC is consulted.
 
 **`PixelBuffer`** is an owned `Vec<u8>` with dimensions, stride, and descriptor. Allocate with `new()`, wrap a pool vec with `from_vec()`, recover it with `into_vec()`. Supports row access, sub-row slicing, and zero-copy crop views.
 
@@ -331,7 +331,24 @@ Typical working memory multipliers over buffer size:
 - **u8 / u16**: typically gamma-encoded (sRGB). u16 uses the full 0-65535 range.
 - **f32**: typically linear light, but depends on the codec and source content.
 
-`PixelData` does not track its transfer function — that metadata lives in `ImageInfo::cicp` (or the ICC profile). The actual transfer function depends on how the data was produced (codec-specific). Use `TransferFunction::from_cicp()` to map CICP transfer characteristic codes to the enum.
+`PixelData` does not track its transfer function — `descriptor()` returns `TransferFunction::Unknown`. The actual transfer function lives in `ImageInfo::cicp` (or the ICC profile). Use `ImageInfo::transfer_function()` to derive it from CICP, then `PixelDescriptor::with_transfer()` to tag the descriptor:
+
+```rust
+let output = config.decode(data)?;
+
+// PixelData::descriptor() returns Unknown transfer
+let desc = output.pixels().descriptor();
+assert!(desc.is_unknown_transfer());
+
+// Resolve from CICP metadata
+let resolved = desc.with_transfer(output.info().transfer_function());
+// resolved.transfer is Srgb, Pq, Hlg, etc. (or Unknown if no CICP)
+
+// Or use DecodeOutput::descriptor() which does this automatically
+let desc = output.descriptor(); // transfer resolved from CICP
+```
+
+The `From<ImgRef>` and `From<ImgRefMut>` conversions to `PixelSlice`/`PixelSliceMut` also use `Unknown` transfer — `ImgRef` doesn't carry color metadata, so the transfer function must be set by the caller when known.
 
 `PixelData` does **not** convert between pixel formats. If you need a specific format, use `Decoder::decode_into()` to request it from the codec (the codec applies correct transfer functions internally). For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(pixel_data)` and work with raw byte rows.
 
@@ -625,6 +642,7 @@ If you need a specific pixel format, use `Decoder::decode_into()` to request it 
 25. `with_canvas_size()` on `EncodeJob` — set animation canvas dimensions for compositing formats (GIF, APNG, WebP, JXL)
 26. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
 27. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
+28. Set `ImageInfo::cicp` on decode output when the format provides color description (AVIF, JXL, HEIF). Without CICP, `transfer_function()` returns `Unknown` and callers can't perform correct color-sensitive operations (resize, blend, blur)
 
 ## Pre-v0.1 Concerns
 
