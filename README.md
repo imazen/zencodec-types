@@ -2,7 +2,7 @@
 
 Shared traits and types for the zen\* image codec family.
 
-This crate defines the common interface that all zen\* codecs implement. It contains no codec logic — just traits, types, and pixel format conversions. `no_std` compatible (requires `alloc`), `forbid(unsafe_code)`.
+This crate defines the common interface that all zen\* codecs implement. It contains no codec logic — just traits, types, and pixel format descriptors. `no_std` compatible (requires `alloc`), `forbid(unsafe_code)`.
 
 ## Crates in the zen\* family
 
@@ -32,7 +32,7 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 **Cost estimation** — `DecodeCost`, `EncodeCost`
 
-**Resource management** — `ResourceLimits`, `LimitExceeded`, `ImageFormat` (magic-byte detection), `CodecCapabilities` (20 feature flags)
+**Resource management** — `ResourceLimits`, `LimitExceeded`, `ImageFormat` (magic-byte detection), `CodecCapabilities` (feature flags for capability discovery)
 
 **Re-exports** — `imgref`, `rgb`, `enough` (for `Stop`/`Unstoppable`)
 
@@ -316,10 +316,12 @@ Typical working memory multipliers over buffer size:
 
 ### Transfer function conventions
 
-- **u8 / u16**: gamma-encoded (typically sRGB). u16 uses the full 0-65535 range.
-- **f32**: linear light (gamma = 1.0).
+- **u8 / u16**: typically gamma-encoded (sRGB). u16 uses the full 0-65535 range.
+- **f32**: typically linear light, but depends on the codec and source content.
 
-The actual transfer function is recorded in `PixelDescriptor::transfer` and in `ImageInfo::cicp`. Use `TransferFunction::from_cicp()` to map CICP transfer characteristic codes to the enum.
+`PixelData` does not track its transfer function — that metadata lives in `ImageInfo::cicp` (or the ICC profile). The actual transfer function depends on how the data was produced (codec-specific). Use `TransferFunction::from_cicp()` to map CICP transfer characteristic codes to the enum.
+
+`PixelData` does **not** convert between pixel formats. If you need a specific format, use `Decoder::decode_into()` to request it from the codec (the codec applies correct transfer functions internally). For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(pixel_data)` and work with raw byte rows.
 
 ## Implementor reference
 
@@ -571,11 +573,9 @@ Each trait has an associated `type Error: core::error::Error + Send + Sync + 'st
 - `GrayAlpha8`, `GrayAlpha16`, `GrayAlphaF32` — grayscale + alpha
 - `RgbF32`, `RgbaF32`, `GrayF32` — 32-bit float
 
-Return whichever variant your codec produces natively. Callers use `into_rgb8()`, `into_rgba8()`, `into_gray8()`, etc. for conversion; the conversions handle all variant-to-target paths. The `descriptor()` method returns the matching `PixelDescriptor` for any variant.
+Return whichever variant your codec produces natively. `PixelData` is a pure data container — it holds pixel buffers but does not convert between formats. Use `descriptor()` to get the matching `PixelDescriptor` for any variant, and `as_rgb8()` / `as_rgba8()` etc. to borrow the data if it's already in the right format.
 
-The 16-to-8 bit conversions use `(v * 255 + 32768) >> 16` for proper rounding. All conversions assume sRGB; no linearization is performed.
-
-For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(pixel_data)` and work with raw byte rows instead of matching variants.
+If you need a specific pixel format, use `Decoder::decode_into()` to request it from the codec (correct transfer function handling). For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(pixel_data)` and work with raw byte rows.
 
 ### Checklist for a new codec
 
@@ -585,27 +585,31 @@ For format-erased processing, convert to `PixelBuffer` with `PixelBuffer::from(p
 2. Job types with `'a` lifetime for borrowed data
 3. Executor types (`MyEncoder`, `MyDecoder`, and optionally `MyFrameEncoder`, `MyFrameDecoder`)
 4. `EncoderConfig`/`DecoderConfig` on config types with GATs: `type Job<'a> = MyEncodeJob<'a> where Self: 'a`
-5. `fn capabilities() -> &'static CodecCapabilities` — honest feature flags (including `effort_range`, `quality_range`, `lossless`)
-6. `fn supported_descriptors() -> &'static [PixelDescriptor]` — native pixel formats (hard guarantee: `decode_into`/`encode` must work without conversion for every listed descriptor)
-7. `fn probe_header()` — O(header), never O(pixels)
-8. `EncoderConfig::with_effort()`, `with_calibrated_quality()`, `with_lossless()` — map universal parameters to codec-specific settings (have defaults, override when supported)
-9. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
-10. `DecodeJob::with_stop()`, `with_limits()`
-11. `DecodeJob::output_info()` — return `OutputInfo` reflecting current hints
-12. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
-13. `Decoder::decode()`, `decode_into()`, `decode_rows()`
-14. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
-15. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
+5. `fn format() -> ImageFormat` — the format this codec handles (static, known at the type level)
+6. `fn capabilities() -> &'static CodecCapabilities` — honest feature flags (including `effort_range`, `quality_range`, `lossless`)
+7. `fn supported_descriptors() -> &'static [PixelDescriptor]` — native pixel formats (hard guarantee: `decode_into`/`encode` must work without conversion for every listed descriptor)
+8. `fn probe_header()` — O(header), never O(pixels)
+9. `EncoderConfig::with_effort()`, `with_calibrated_quality()`, `with_lossless()` — map universal parameters to codec-specific settings (have defaults, override when supported)
+10. `EncodeJob::with_stop()`, `with_metadata()`, `with_limits()`
+11. `DecodeJob::with_stop()`, `with_limits()`
+12. `DecodeJob::output_info()` — return `OutputInfo` reflecting current hints
+13. `Encoder::encode()`, `push_rows()`/`finish()`, `encode_from()`
+14. `Decoder::decode()`, `decode_into()`, `decode_rows()`
+15. `FrameEncoder::push_frame()`, `begin_frame()`/`push_rows()`/`end_frame()`, `pull_frame()`, `finish()` — if animation supported
+16. `FrameDecoder::next_frame()`, `next_frame_into()`, `next_frame_rows()` — if animation supported
 
 **Should implement** (have defaults, but override when beneficial):
 
-16. `probe_full()` — override when frame count or complete metadata requires a full parse
-17. `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()` on `DecodeJob` — honor decode hints when the codec can apply spatial transforms cheaply (JPEG MCU-aligned crop, JPEG 1/2/4/8 prescale, etc.)
-18. `estimated_cost()` on `DecodeJob` — override to provide codec-specific `peak_memory` estimates (default derives from `output_info()`)
-19. `estimated_cost()` on `EncodeJob` — override to provide codec-specific `peak_memory` estimates (default computes `input_bytes` from dimensions)
-20. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
-21. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
-22. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
+17. `probe_full()` — override when frame count or complete metadata requires a full parse
+18. `with_crop_hint()`, `with_scale_hint()`, `with_orientation_hint()` on `DecodeJob` — honor decode hints when the codec can apply spatial transforms cheaply (JPEG MCU-aligned crop, JPEG 1/2/4/8 prescale, etc.)
+19. `estimated_cost()` on `DecodeJob` — override to provide codec-specific `peak_memory` estimates (default derives from `output_info()`)
+20. `estimated_cost()` on `EncodeJob` — override to provide codec-specific `peak_memory` estimates (default computes `input_bytes` from dimensions)
+21. `frame_count()` on `FrameDecoder` — return frame count if known from container headers
+22. `loop_count()` on `FrameDecoder` — return animation loop count if known
+23. `with_loop_count()` on `FrameEncoder` — set animation loop count
+24. `with_alpha_quality()` / `alpha_quality()` on `EncoderConfig` — independent alpha plane quality for codecs that support it (AVIF, WebP, JXL)
+25. Populate `DecodeFrame` compositing fields (`with_required_frame()`, `with_blend()`, `with_disposal()`, `with_frame_rect()`) for animated formats with partial-canvas updates (GIF, APNG, WebP)
+26. Honor `prior_frame` hint in `next_frame_into()` for efficient incremental animation compositing
 
 ## Pre-v0.1 Concerns
 
@@ -637,7 +641,7 @@ Open design questions that should be resolved before publishing. Adding required
 
 ### Animation
 
-**Loop count and duration not on traits.** `FrameEncoder` has no `with_loop_count()`. `FrameDecoder` has no `loop_count()` or `total_duration_ms()`. These are currently format-specific methods on concrete types. Should the traits carry them?
+**~~Loop count not on traits.~~** Resolved: `FrameEncoder::with_loop_count()` and `FrameDecoder::loop_count()` are now on the traits with default no-op implementations. `total_duration_ms()` remains absent — computing it requires decoding all frames (can't know up front).
 
 **Variable frame dimensions.** The API assumes all animation frames share one pixel format. `DecodeFrame` has `frame_rect` for sub-canvas regions, but the trait doesn't negotiate canvas dimensions upfront. For formats like GIF and APNG where frames can have different dimensions than the canvas, the canvas size comes from `ImageInfo` on probe — but `FrameEncoder` has no `with_canvas_size()`.
 

@@ -4,11 +4,10 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
-use imgref::{ImgRef, ImgVec};
+use imgref::ImgRef;
 use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
-use crate::pixel::GrayAlpha;
 use crate::{ImageFormat, ImageInfo, ImageMetadata, PixelData};
 
 /// Output from an encode operation.
@@ -102,21 +101,6 @@ impl DecodeOutput {
         self.pixels
     }
 
-    /// Convert to RGB8, consuming this output.
-    pub fn into_rgb8(self) -> ImgVec<Rgb<u8>> {
-        self.pixels.into_rgb8()
-    }
-
-    /// Convert to RGBA8, consuming this output.
-    pub fn into_rgba8(self) -> ImgVec<Rgba<u8>> {
-        self.pixels.into_rgba8()
-    }
-
-    /// Convert to Gray8, consuming this output.
-    pub fn into_gray8(self) -> ImgVec<Gray<u8>> {
-        self.pixels.into_gray8()
-    }
-
     /// Borrow as RGB8 if that's the native format.
     pub fn as_rgb8(&self) -> Option<imgref::ImgRef<'_, Rgb<u8>>> {
         match &self.pixels {
@@ -147,69 +131,6 @@ impl DecodeOutput {
             PixelData::Gray8(img) => Some(img.as_ref()),
             _ => None,
         }
-    }
-
-    /// Convert to BGRA8, consuming this output.
-    pub fn into_bgra8(self) -> ImgVec<BGRA<u8>> {
-        self.pixels.into_bgra8()
-    }
-
-    /// Convert to linear RGB f32, consuming this output.
-    pub fn into_rgb_f32(self) -> ImgVec<Rgb<f32>> {
-        self.pixels.into_rgb_f32()
-    }
-
-    /// Convert to linear RGBA f32, consuming this output.
-    pub fn into_rgba_f32(self) -> ImgVec<Rgba<f32>> {
-        self.pixels.into_rgba_f32()
-    }
-
-    /// Convert to linear grayscale f32, consuming this output.
-    pub fn into_gray_f32(self) -> ImgVec<Gray<f32>> {
-        self.pixels.into_gray_f32()
-    }
-
-    /// Convert to RGB16, consuming this output.
-    pub fn into_rgb16(self) -> ImgVec<Rgb<u16>> {
-        self.pixels.into_rgb16()
-    }
-
-    /// Convert to RGBA16, consuming this output.
-    pub fn into_rgba16(self) -> ImgVec<Rgba<u16>> {
-        self.pixels.into_rgba16()
-    }
-
-    /// Convert to Gray16, consuming this output.
-    pub fn into_gray16(self) -> ImgVec<Gray<u16>> {
-        self.pixels.into_gray16()
-    }
-
-    /// Convert to GrayAlpha8, consuming this output.
-    pub fn into_gray_alpha8(self) -> ImgVec<GrayAlpha<u8>> {
-        self.pixels.into_gray_alpha8()
-    }
-
-    /// Convert to GrayAlpha16, consuming this output.
-    pub fn into_gray_alpha16(self) -> ImgVec<GrayAlpha<u16>> {
-        self.pixels.into_gray_alpha16()
-    }
-
-    /// Convert to linear GrayAlpha f32, consuming this output.
-    pub fn into_gray_alpha_f32(self) -> ImgVec<GrayAlpha<f32>> {
-        self.pixels.into_gray_alpha_f32()
-    }
-
-    /// Convert to the format described by `descriptor`, consuming this output.
-    ///
-    /// Returns `None` if the combination is unsupported (e.g. Bgra16).
-    pub fn convert_to(self, desc: crate::buffer::PixelDescriptor) -> Option<DecodeOutput> {
-        let info = self.info;
-        let extras = self.extras;
-        self.pixels.convert_to(desc).map(|pixels| DecodeOutput {
-            pixels,
-            info,
-            extras,
-        })
     }
 
     /// Image info.
@@ -349,94 +270,6 @@ impl DecodeFrame {
     /// Take the pixel data, consuming this frame.
     pub fn into_pixels(self) -> PixelData {
         self.pixels
-    }
-
-    /// Convert to RGB8, consuming this frame.
-    pub fn into_rgb8(self) -> ImgVec<Rgb<u8>> {
-        self.pixels.into_rgb8()
-    }
-
-    /// Convert to RGBA8, consuming this frame.
-    pub fn into_rgba8(self) -> ImgVec<Rgba<u8>> {
-        self.pixels.into_rgba8()
-    }
-
-    /// Convert to Gray8, consuming this frame.
-    pub fn into_gray8(self) -> ImgVec<Gray<u8>> {
-        self.pixels.into_gray8()
-    }
-
-    /// Convert to BGRA8, consuming this frame.
-    pub fn into_bgra8(self) -> ImgVec<BGRA<u8>> {
-        self.pixels.into_bgra8()
-    }
-
-    /// Convert to linear RGB f32, consuming this frame.
-    pub fn into_rgb_f32(self) -> ImgVec<Rgb<f32>> {
-        self.pixels.into_rgb_f32()
-    }
-
-    /// Convert to linear RGBA f32, consuming this frame.
-    pub fn into_rgba_f32(self) -> ImgVec<Rgba<f32>> {
-        self.pixels.into_rgba_f32()
-    }
-
-    /// Convert to linear grayscale f32, consuming this frame.
-    pub fn into_gray_f32(self) -> ImgVec<Gray<f32>> {
-        self.pixels.into_gray_f32()
-    }
-
-    /// Convert to RGB16, consuming this frame.
-    pub fn into_rgb16(self) -> ImgVec<Rgb<u16>> {
-        self.pixels.into_rgb16()
-    }
-
-    /// Convert to RGBA16, consuming this frame.
-    pub fn into_rgba16(self) -> ImgVec<Rgba<u16>> {
-        self.pixels.into_rgba16()
-    }
-
-    /// Convert to Gray16, consuming this frame.
-    pub fn into_gray16(self) -> ImgVec<Gray<u16>> {
-        self.pixels.into_gray16()
-    }
-
-    /// Convert to GrayAlpha8, consuming this frame.
-    pub fn into_gray_alpha8(self) -> ImgVec<GrayAlpha<u8>> {
-        self.pixels.into_gray_alpha8()
-    }
-
-    /// Convert to GrayAlpha16, consuming this frame.
-    pub fn into_gray_alpha16(self) -> ImgVec<GrayAlpha<u16>> {
-        self.pixels.into_gray_alpha16()
-    }
-
-    /// Convert to linear GrayAlpha f32, consuming this frame.
-    pub fn into_gray_alpha_f32(self) -> ImgVec<GrayAlpha<f32>> {
-        self.pixels.into_gray_alpha_f32()
-    }
-
-    /// Convert to the format described by `descriptor`, consuming this frame.
-    ///
-    /// Returns `None` if the combination is unsupported (e.g. Bgra16).
-    pub fn convert_to(self, desc: crate::buffer::PixelDescriptor) -> Option<DecodeFrame> {
-        let info = self.info;
-        let delay_ms = self.delay_ms;
-        let index = self.index;
-        let required_frame = self.required_frame;
-        let blend = self.blend;
-        let disposal = self.disposal;
-        let frame_rect = self.frame_rect;
-        self.pixels.convert_to(desc).map(|pixels| DecodeFrame {
-            pixels,
-            info,
-            delay_ms,
-            index,
-            required_frame,
-            blend,
-            disposal,
-            frame_rect,
-        })
     }
 
     /// Borrow as RGB8 if that's the native format.
@@ -631,6 +464,7 @@ impl core::fmt::Debug for EncodeFrame<'_> {
 mod tests {
     use super::*;
     use alloc::vec;
+    use imgref::ImgVec;
 
     fn test_info(w: u32, h: u32, fmt: ImageFormat) -> Arc<ImageInfo> {
         Arc::new(ImageInfo::new(w, h, fmt))
@@ -734,31 +568,6 @@ mod tests {
     }
 
     #[test]
-    fn decode_frame_into_gray8() {
-        let img = ImgVec::new(
-            vec![
-                Rgb {
-                    r: 128u8,
-                    g: 128,
-                    b: 128
-                };
-                4
-            ],
-            2,
-            2,
-        );
-        let frame = DecodeFrame::new(
-            PixelData::Rgb8(img),
-            test_info(2, 2, ImageFormat::Png),
-            0,
-            0,
-        );
-        let gray = frame.into_gray8();
-        // BT.601: (77*128 + 150*128 + 29*128) >> 8 = (256*128) >> 8 = 128
-        assert_eq!(gray.buf()[0].value(), 128);
-    }
-
-    #[test]
     fn decode_frame_debug() {
         let img = ImgVec::new(vec![Gray::new(0u8); 4], 2, 2);
         let frame = DecodeFrame::new(
@@ -790,139 +599,6 @@ mod tests {
 
         let c = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Png);
         assert_ne!(a, c);
-    }
-
-    // --- 16-bit conversions on DecodeOutput ---
-
-    #[test]
-    fn decode_output_into_rgb16() {
-        let img = ImgVec::new(
-            vec![
-                Rgb {
-                    r: 255u8,
-                    g: 0,
-                    b: 128
-                };
-                4
-            ],
-            2,
-            2,
-        );
-        let info = ImageInfo::new(2, 2, ImageFormat::Png);
-        let output = DecodeOutput::new(PixelData::Rgb8(img), info);
-        let rgb16 = output.into_rgb16();
-        assert_eq!(rgb16.buf()[0].r, 65535);
-        assert_eq!(rgb16.buf()[0].g, 0);
-    }
-
-    #[test]
-    fn decode_output_into_rgba16() {
-        let img = ImgVec::new(
-            vec![
-                Rgba {
-                    r: 255u8,
-                    g: 0,
-                    b: 0,
-                    a: 128,
-                };
-                1
-            ],
-            1,
-            1,
-        );
-        let info = ImageInfo::new(1, 1, ImageFormat::Png);
-        let output = DecodeOutput::new(PixelData::Rgba8(img), info);
-        let rgba16 = output.into_rgba16();
-        assert_eq!(rgba16.buf()[0].r, 65535);
-        assert_eq!(rgba16.buf()[0].a, 32896);
-    }
-
-    #[test]
-    fn decode_output_into_gray16() {
-        let img = ImgVec::new(vec![Gray::new(128u8); 1], 1, 1);
-        let info = ImageInfo::new(1, 1, ImageFormat::Png);
-        let output = DecodeOutput::new(PixelData::Gray8(img), info);
-        let gray16 = output.into_gray16();
-        assert_eq!(gray16.buf()[0].value(), 32896);
-    }
-
-    #[test]
-    fn decode_output_convert_to() {
-        let img = ImgVec::new(
-            vec![
-                Rgb {
-                    r: 10u8,
-                    g: 20,
-                    b: 30
-                };
-                4
-            ],
-            2,
-            2,
-        );
-        let info = ImageInfo::new(2, 2, ImageFormat::Png);
-        let output = DecodeOutput::new(PixelData::Rgb8(img), info);
-        let result = output.convert_to(crate::buffer::PixelDescriptor::RGBA8_SRGB);
-        assert!(result.is_some());
-        let converted = result.unwrap();
-        assert_eq!(converted.format(), ImageFormat::Png); // info preserved
-        assert!(converted.has_alpha());
-    }
-
-    #[test]
-    fn decode_output_convert_to_unsupported() {
-        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 1], 1, 1);
-        let info = ImageInfo::new(1, 1, ImageFormat::Png);
-        let output = DecodeOutput::new(PixelData::Rgb8(img), info);
-        let desc = crate::buffer::PixelDescriptor {
-            channel_type: crate::buffer::ChannelType::U16,
-            layout: crate::buffer::ChannelLayout::Bgra,
-            alpha: crate::buffer::AlphaMode::Straight,
-            transfer: crate::buffer::TransferFunction::Srgb,
-        };
-        assert!(output.convert_to(desc).is_none());
-    }
-
-    // --- 16-bit conversions on DecodeFrame ---
-
-    #[test]
-    fn decode_frame_into_rgb16() {
-        let img = ImgVec::new(
-            vec![
-                Rgb {
-                    r: 255u8,
-                    g: 0,
-                    b: 0
-                };
-                4
-            ],
-            2,
-            2,
-        );
-        let frame = DecodeFrame::new(
-            PixelData::Rgb8(img),
-            test_info(2, 2, ImageFormat::Png),
-            100,
-            0,
-        );
-        let rgb16 = frame.into_rgb16();
-        assert_eq!(rgb16.buf()[0].r, 65535);
-    }
-
-    #[test]
-    fn decode_frame_convert_to() {
-        let img = ImgVec::new(vec![Gray::new(128u8); 4], 2, 2);
-        let frame = DecodeFrame::new(
-            PixelData::Gray8(img),
-            test_info(2, 2, ImageFormat::Png),
-            50,
-            1,
-        );
-        let result = frame.convert_to(crate::buffer::PixelDescriptor::GRAY16_SRGB);
-        assert!(result.is_some());
-        let converted = result.unwrap();
-        assert_eq!(converted.delay_ms(), 50);
-        assert_eq!(converted.index(), 1);
     }
 
     #[test]
@@ -960,28 +636,5 @@ mod tests {
         let frame = DecodeFrame::new(PixelData::Rgb8(img), Arc::clone(&info), 100, 0);
         let arc2 = frame.info_arc();
         assert!(Arc::ptr_eq(&info, &arc2));
-    }
-
-    #[test]
-    fn decode_frame_convert_to_preserves_info() {
-        let img = ImgVec::new(
-            vec![
-                Rgb {
-                    r: 10u8,
-                    g: 20,
-                    b: 30
-                };
-                4
-            ],
-            2,
-            2,
-        );
-        let info = Arc::new(ImageInfo::new(2, 2, ImageFormat::WebP).with_exif(vec![1, 2, 3]));
-        let frame = DecodeFrame::new(PixelData::Rgb8(img), Arc::clone(&info), 50, 1);
-        let converted = frame
-            .convert_to(crate::buffer::PixelDescriptor::RGBA8_SRGB)
-            .unwrap();
-        assert!(Arc::ptr_eq(&info, &converted.info_arc()));
-        assert_eq!(converted.format(), ImageFormat::WebP);
     }
 }
