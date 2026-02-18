@@ -669,7 +669,7 @@ Open design questions that should be resolved before publishing. Adding required
 
 ### Pixel format
 
-**HDR encode paths.** The trait has `encode_rgb16` / `encode_rgba16` but the f32 → u16 → f32 roundtrip is lossy for HDR content. PQ-encoded u16 has 12-bit effective precision. For HDR workflows that stay in f32 linear light, the f32 encode methods exist — but there's no f32 animation encode convenience (`encode_animation_rgb_f32`). Is that a gap?
+**No f32 animation encode convenience.** The trait has `encode_animation_rgb8` / `encode_animation_rgba8` / `encode_animation_rgb16` / `encode_animation_rgba16` but no f32 variants. This is intentional — the typed convenience methods don't track transfer function, and f32 data can be linear, PQ, HLG, or anything else. Callers needing f32 animation encoding use `FrameEncoder` directly with `PixelSlice::from()`.
 
 ### Naming and packaging
 

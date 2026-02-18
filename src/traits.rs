@@ -18,16 +18,12 @@
 //! concrete types. The traits handle execution, metadata, cancellation,
 //! and resource limits.
 //!
-//! # Transfer function conventions
+//! # Transfer function
 //!
-//! - **u8 / u16 methods**: Values are in the image's native transfer function
-//!   (typically sRGB gamma). u16 uses the full 0–65535 range regardless of
-//!   source bit depth.
-//! - **f32 methods**: Values are in **linear light** (gamma removed).
-//!
-//! The actual transfer function is indicated by the CICP transfer
-//! characteristics in [`ImageInfo`](crate::ImageInfo). See
-//! [`PixelData`](crate::PixelData) for more details.
+//! The convenience methods (e.g. `encode_rgb8`, `decode_into_rgba_f32`)
+//! do **not** perform any transfer function conversion. The pixel data's
+//! transfer function depends on the source — check `ImageInfo::cicp` or
+//! the ICC profile. See [`PixelData`](crate::PixelData) for details.
 
 use alloc::vec::Vec;
 
@@ -210,17 +206,17 @@ pub trait EncoderConfig: Clone + Send + Sync {
         self.job().encoder().encode(PixelSlice::from(img))
     }
 
-    /// Convenience: encode linear RGB f32 with default job settings.
+    /// Convenience: encode RGB f32 with default job settings.
     fn encode_rgb_f32(&self, img: ImgRef<'_, Rgb<f32>>) -> Result<EncodeOutput, Self::Error> {
         self.job().encoder().encode(PixelSlice::from(img))
     }
 
-    /// Convenience: encode linear RGBA f32 with default job settings.
+    /// Convenience: encode RGBA f32 with default job settings.
     fn encode_rgba_f32(&self, img: ImgRef<'_, Rgba<f32>>) -> Result<EncodeOutput, Self::Error> {
         self.job().encoder().encode(PixelSlice::from(img))
     }
 
-    /// Convenience: encode linear grayscale f32 with default job settings.
+    /// Convenience: encode grayscale f32 with default job settings.
     fn encode_gray_f32(&self, img: ImgRef<'_, Gray<f32>>) -> Result<EncodeOutput, Self::Error> {
         self.job().encoder().encode(PixelSlice::from(img))
     }
@@ -266,7 +262,7 @@ pub trait EncoderConfig: Clone + Send + Sync {
         self.encode_pixel_data(&PixelData::GrayAlpha16(owned))
     }
 
-    /// Convenience: encode linear GrayAlpha f32 with default job settings.
+    /// Convenience: encode GrayAlpha f32 with default job settings.
     ///
     /// Routes through [`PixelData`] conversion since `GrayAlpha` lacks
     /// `ComponentBytes` (not zero-copy).
@@ -702,7 +698,7 @@ pub trait DecoderConfig: Clone + Send + Sync {
             .decode_into(data, PixelSliceMut::from(dst))
     }
 
-    /// Convenience: decode into a caller-provided linear RGB f32 buffer.
+    /// Convenience: decode into a caller-provided RGB f32 buffer.
     fn decode_into_rgb_f32(
         &self,
         data: &[u8],
@@ -713,7 +709,7 @@ pub trait DecoderConfig: Clone + Send + Sync {
             .decode_into(data, PixelSliceMut::from(dst))
     }
 
-    /// Convenience: decode into a caller-provided linear RGBA f32 buffer.
+    /// Convenience: decode into a caller-provided RGBA f32 buffer.
     fn decode_into_rgba_f32(
         &self,
         data: &[u8],
@@ -724,7 +720,7 @@ pub trait DecoderConfig: Clone + Send + Sync {
             .decode_into(data, PixelSliceMut::from(dst))
     }
 
-    /// Convenience: decode into a caller-provided linear grayscale f32 buffer.
+    /// Convenience: decode into a caller-provided grayscale f32 buffer.
     fn decode_into_gray_f32(
         &self,
         data: &[u8],
