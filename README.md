@@ -673,7 +673,7 @@ Open design questions that should be resolved before publishing. Adding required
 
 ### Naming and packaging
 
-**Crate name.** Currently `zencodec-types` (repo: `zencodec-types-api`). The api-design.md uses `zencodec`. Options: `zencodec`, `zencodec-types`, `zencodec-api`, `codec-api`. The name signals whether this is zen*-specific or potentially reusable by other codec families.
+**~~Crate name.~~** Resolved: `zencodec-types`.
 
 ## License
 
