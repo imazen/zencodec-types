@@ -175,6 +175,26 @@ impl DecodeOutput {
     pub fn metadata(&self) -> ImageMetadata<'_> {
         self.info.metadata()
     }
+
+    /// Convert to RGB8, consuming this output.
+    pub fn into_rgb8(self) -> imgref::ImgVec<Rgb<u8>> {
+        self.pixels.into_rgb8()
+    }
+
+    /// Convert to RGBA8, consuming this output.
+    pub fn into_rgba8(self) -> imgref::ImgVec<Rgba<u8>> {
+        self.pixels.into_rgba8()
+    }
+
+    /// Convert to Gray8, consuming this output.
+    pub fn into_gray8(self) -> imgref::ImgVec<Gray<u8>> {
+        self.pixels.into_gray8()
+    }
+
+    /// Convert to BGRA8, consuming this output.
+    pub fn into_bgra8(self) -> imgref::ImgVec<BGRA<u8>> {
+        self.pixels.into_bgra8()
+    }
 }
 
 impl core::fmt::Debug for DecodeOutput {
@@ -386,6 +406,26 @@ impl DecodeFrame {
     /// Whether this frame has an alpha channel.
     pub fn has_alpha(&self) -> bool {
         self.pixels.has_alpha()
+    }
+
+    /// Convert to RGB8, consuming this frame.
+    pub fn into_rgb8(self) -> imgref::ImgVec<Rgb<u8>> {
+        self.pixels.into_rgb8()
+    }
+
+    /// Convert to RGBA8, consuming this frame.
+    pub fn into_rgba8(self) -> imgref::ImgVec<Rgba<u8>> {
+        self.pixels.into_rgba8()
+    }
+
+    /// Convert to Gray8, consuming this frame.
+    pub fn into_gray8(self) -> imgref::ImgVec<Gray<u8>> {
+        self.pixels.into_gray8()
+    }
+
+    /// Convert to BGRA8, consuming this frame.
+    pub fn into_bgra8(self) -> imgref::ImgVec<BGRA<u8>> {
+        self.pixels.into_bgra8()
     }
 }
 
