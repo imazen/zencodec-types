@@ -405,58 +405,171 @@ impl core::fmt::Debug for DecodeFrame {
 /// typed convenience methods on [`EncoderConfig`](crate::EncoderConfig).
 #[derive(Clone, Copy)]
 #[non_exhaustive]
+/// A typed frame for animation encoding convenience methods.
+///
+/// Like [`EncodeFrame`] but with a concrete pixel type for use with
+/// the typed convenience methods on [`EncoderConfig`](crate::EncoderConfig)
+/// (e.g. `encode_animation_rgb8`).
 pub struct TypedEncodeFrame<'a, Pixel> {
     /// The pixel data for this frame.
     pub image: ImgRef<'a, Pixel>,
     /// Frame duration in milliseconds.
     pub duration_ms: u32,
+    /// Canvas region `[x, y, w, h]` this frame occupies.
+    ///
+    /// `None` means the frame covers the full canvas.
+    pub frame_rect: Option<[u32; 4]>,
+    /// How to composite this frame onto the canvas.
+    pub blend: FrameBlend,
+    /// What happens to the canvas region after this frame is displayed.
+    pub disposal: FrameDisposal,
 }
 
 impl<'a, Pixel> TypedEncodeFrame<'a, Pixel> {
-    /// Create a new typed encode frame.
+    /// Create a full-canvas typed encode frame with default compositing.
     pub fn new(image: ImgRef<'a, Pixel>, duration_ms: u32) -> Self {
-        Self { image, duration_ms }
+        Self {
+            image,
+            duration_ms,
+            frame_rect: None,
+            blend: FrameBlend::Source,
+            disposal: FrameDisposal::None,
+        }
+    }
+
+    /// Set the canvas region this frame occupies.
+    pub fn with_frame_rect(mut self, rect: [u32; 4]) -> Self {
+        self.frame_rect = Some(rect);
+        self
+    }
+
+    /// Set the blend mode for compositing.
+    pub fn with_blend(mut self, blend: FrameBlend) -> Self {
+        self.blend = blend;
+        self
+    }
+
+    /// Set the disposal method after this frame is displayed.
+    pub fn with_disposal(mut self, disposal: FrameDisposal) -> Self {
+        self.disposal = disposal;
+        self
     }
 }
 
 impl<Pixel> core::fmt::Debug for TypedEncodeFrame<'_, Pixel> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TypedEncodeFrame")
-            .field("width", &self.image.width())
+        let mut s = f.debug_struct("TypedEncodeFrame");
+        s.field("width", &self.image.width())
             .field("height", &self.image.height())
-            .field("duration_ms", &self.duration_ms)
-            .finish()
+            .field("duration_ms", &self.duration_ms);
+        if let Some(rect) = &self.frame_rect {
+            s.field("frame_rect", rect);
+        }
+        if self.blend != FrameBlend::Source {
+            s.field("blend", &self.blend);
+        }
+        if self.disposal != FrameDisposal::None {
+            s.field("disposal", &self.disposal);
+        }
+        s.finish()
     }
 }
 
-/// A format-erased frame for animation encoding.
-///
-/// Pairs a [`PixelSlice`](crate::PixelSlice) with a frame duration. Used by
-/// [`FrameEncoder::push_frame`](crate::FrameEncoder::push_frame).
 #[non_exhaustive]
+/// A single frame for animation encoding.
+///
+/// For full-canvas frames, use [`EncodeFrame::new()`] — `frame_rect`
+/// defaults to `None` (full canvas), blend to [`FrameBlend::Source`],
+/// disposal to [`FrameDisposal::None`].
+///
+/// For sub-canvas frames (GIF, APNG, WebP, JXL), set `frame_rect` to
+/// the region this frame occupies within the canvas, and set `blend`
+/// and `disposal` to control compositing. Use
+/// [`EncodeJob::with_canvas_size()`](crate::EncodeJob::with_canvas_size)
+/// to set the canvas dimensions before pushing sub-canvas frames.
+///
+/// # Example
+///
+/// ```
+/// use zencodec_types::{EncodeFrame, FrameBlend, FrameDisposal, PixelSlice};
+///
+/// # fn example(full_canvas: PixelSlice<'_>, sub_region: PixelSlice<'_>) {
+/// // Full-canvas frame (simple case)
+/// let frame = EncodeFrame::new(full_canvas, 100);
+///
+/// // Sub-canvas frame at (10, 20) with alpha blending
+/// let frame = EncodeFrame::new(sub_region, 100)
+///     .with_frame_rect([10, 20, 64, 48])
+///     .with_blend(FrameBlend::Over)
+///     .with_disposal(FrameDisposal::RestoreBackground);
+/// # }
+/// ```
 pub struct EncodeFrame<'a> {
     /// The pixel data for this frame.
     pub pixels: crate::PixelSlice<'a>,
     /// Frame duration in milliseconds.
     pub duration_ms: u32,
+    /// Canvas region `[x, y, w, h]` this frame occupies.
+    ///
+    /// `None` means the frame covers the full canvas (pixels dimensions
+    /// must match canvas dimensions). When `Some`, the pixels dimensions
+    /// must match `w` and `h`.
+    pub frame_rect: Option<[u32; 4]>,
+    /// How to composite this frame onto the canvas.
+    pub blend: FrameBlend,
+    /// What happens to the canvas region after this frame is displayed.
+    pub disposal: FrameDisposal,
 }
 
 impl<'a> EncodeFrame<'a> {
-    /// Create a new format-erased encode frame.
+    /// Create a full-canvas encode frame with default compositing.
     pub fn new(pixels: crate::PixelSlice<'a>, duration_ms: u32) -> Self {
         Self {
             pixels,
             duration_ms,
+            frame_rect: None,
+            blend: FrameBlend::Source,
+            disposal: FrameDisposal::None,
         }
+    }
+
+    /// Set the canvas region this frame occupies.
+    ///
+    /// `rect` is `[x, y, width, height]` in canvas coordinates.
+    /// The pixel data dimensions must match `width` and `height`.
+    pub fn with_frame_rect(mut self, rect: [u32; 4]) -> Self {
+        self.frame_rect = Some(rect);
+        self
+    }
+
+    /// Set the blend mode for compositing.
+    pub fn with_blend(mut self, blend: FrameBlend) -> Self {
+        self.blend = blend;
+        self
+    }
+
+    /// Set the disposal method after this frame is displayed.
+    pub fn with_disposal(mut self, disposal: FrameDisposal) -> Self {
+        self.disposal = disposal;
+        self
     }
 }
 
 impl core::fmt::Debug for EncodeFrame<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("EncodeFrame")
-            .field("pixels", &self.pixels)
-            .field("duration_ms", &self.duration_ms)
-            .finish()
+        let mut s = f.debug_struct("EncodeFrame");
+        s.field("pixels", &self.pixels)
+            .field("duration_ms", &self.duration_ms);
+        if let Some(rect) = &self.frame_rect {
+            s.field("frame_rect", rect);
+        }
+        if self.blend != FrameBlend::Source {
+            s.field("blend", &self.blend);
+        }
+        if self.disposal != FrameDisposal::None {
+            s.field("disposal", &self.disposal);
+        }
+        s.finish()
     }
 }
 

@@ -36,7 +36,7 @@ use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
 use crate::format::ImageFormat;
-use crate::output::TypedEncodeFrame;
+use crate::output::{EncodeFrame, TypedEncodeFrame};
 use crate::pixel::{GrayAlpha, PixelData};
 use crate::{
     CodecCapabilities, DecodeFrame, DecodeOutput, EncodeOutput, ImageInfo, ImageMetadata,
@@ -280,13 +280,22 @@ pub trait EncoderConfig: Clone + Send + Sync {
     }
 
     /// Convenience: encode RGB8 animation with default job settings.
+    ///
+    /// Compositing fields on each [`TypedEncodeFrame`] (frame_rect, blend,
+    /// disposal) are forwarded to the encoder.
     fn encode_animation_rgb8(
         &self,
         frames: &[TypedEncodeFrame<'_, Rgb<u8>>],
     ) -> Result<EncodeOutput, Self::Error> {
         let mut enc = self.job().frame_encoder()?;
         for frame in frames {
-            enc.push_frame(PixelSlice::from(frame.image), frame.duration_ms)?;
+            enc.push_encode_frame(EncodeFrame {
+                pixels: PixelSlice::from(frame.image),
+                duration_ms: frame.duration_ms,
+                frame_rect: frame.frame_rect,
+                blend: frame.blend,
+                disposal: frame.disposal,
+            })?;
         }
         enc.finish()
     }
@@ -298,7 +307,13 @@ pub trait EncoderConfig: Clone + Send + Sync {
     ) -> Result<EncodeOutput, Self::Error> {
         let mut enc = self.job().frame_encoder()?;
         for frame in frames {
-            enc.push_frame(PixelSlice::from(frame.image), frame.duration_ms)?;
+            enc.push_encode_frame(EncodeFrame {
+                pixels: PixelSlice::from(frame.image),
+                duration_ms: frame.duration_ms,
+                frame_rect: frame.frame_rect,
+                blend: frame.blend,
+                disposal: frame.disposal,
+            })?;
         }
         enc.finish()
     }
@@ -310,7 +325,13 @@ pub trait EncoderConfig: Clone + Send + Sync {
     ) -> Result<EncodeOutput, Self::Error> {
         let mut enc = self.job().frame_encoder()?;
         for frame in frames {
-            enc.push_frame(PixelSlice::from(frame.image), frame.duration_ms)?;
+            enc.push_encode_frame(EncodeFrame {
+                pixels: PixelSlice::from(frame.image),
+                duration_ms: frame.duration_ms,
+                frame_rect: frame.frame_rect,
+                blend: frame.blend,
+                disposal: frame.disposal,
+            })?;
         }
         enc.finish()
     }
@@ -322,7 +343,13 @@ pub trait EncoderConfig: Clone + Send + Sync {
     ) -> Result<EncodeOutput, Self::Error> {
         let mut enc = self.job().frame_encoder()?;
         for frame in frames {
-            enc.push_frame(PixelSlice::from(frame.image), frame.duration_ms)?;
+            enc.push_encode_frame(EncodeFrame {
+                pixels: PixelSlice::from(frame.image),
+                duration_ms: frame.duration_ms,
+                frame_rect: frame.frame_rect,
+                blend: frame.blend,
+                disposal: frame.disposal,
+            })?;
         }
         enc.finish()
     }
@@ -477,17 +504,42 @@ pub trait Encoder: Sized {
 /// pull rows from a source.
 ///
 /// Three mutually exclusive per-frame paths:
-/// - [`push_frame()`](FrameEncoder::push_frame) — complete frame at once
+/// - [`push_frame()`](FrameEncoder::push_frame) /
+///   [`push_encode_frame()`](FrameEncoder::push_encode_frame) — complete frame at once
 /// - [`begin_frame()`](FrameEncoder::begin_frame) +
 ///   [`push_rows()`](FrameEncoder::push_rows) +
 ///   [`end_frame()`](FrameEncoder::end_frame) — caller pushes rows
 /// - [`pull_frame()`](FrameEncoder::pull_frame) — encoder pulls rows from a callback
+///
+/// For sub-canvas frames with positioning and compositing, use
+/// [`push_encode_frame()`](FrameEncoder::push_encode_frame) with an
+/// [`EncodeFrame`] that has `frame_rect`, `blend`, and `disposal` set.
+/// Set the canvas dimensions with
+/// [`EncodeJob::with_canvas_size()`](EncodeJob::with_canvas_size)
+/// before creating the frame encoder.
 pub trait FrameEncoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
-    /// Push a complete frame.
+    /// Push a complete full-canvas frame.
+    ///
+    /// The pixel dimensions must match the canvas dimensions. For
+    /// sub-canvas frames with positioning and compositing control,
+    /// use [`push_encode_frame()`](FrameEncoder::push_encode_frame).
     fn push_frame(&mut self, pixels: PixelSlice<'_>, duration_ms: u32) -> Result<(), Self::Error>;
+
+    /// Push a frame with sub-canvas positioning and compositing.
+    ///
+    /// The [`EncodeFrame`] carries pixel data, duration, an optional
+    /// `frame_rect` for sub-canvas positioning, and blend/disposal
+    /// modes for compositing control.
+    ///
+    /// Default: ignores compositing fields, delegates to
+    /// [`push_frame()`](FrameEncoder::push_frame). Compositing formats
+    /// (GIF, APNG, WebP, JXL) should override this.
+    fn push_encode_frame(&mut self, frame: EncodeFrame<'_>) -> Result<(), Self::Error> {
+        self.push_frame(frame.pixels, frame.duration_ms)
+    }
 
     /// Begin a new frame (for row-level building).
     fn begin_frame(&mut self, duration_ms: u32) -> Result<(), Self::Error>;

@@ -131,6 +131,16 @@ let output = enc.finish()?;
 let mut enc = config.job().frame_encoder()?;
 enc.pull_frame(100, &mut |row_idx, buf| fill_rows(row_idx, buf))?;
 let output = enc.finish()?;
+
+// Animation: sub-canvas frames with compositing
+let mut enc = config.job()
+    .with_canvas_size(320, 240)
+    .frame_encoder()?;
+enc.push_encode_frame(EncodeFrame::new(PixelSlice::from(region), 100)
+    .with_frame_rect([10, 20, 64, 48])
+    .with_blend(FrameBlend::Over)
+    .with_disposal(FrameDisposal::RestoreBackground))?;
+let output = enc.finish()?;
 ```
 
 ### Decode paths
@@ -509,9 +519,11 @@ Codecs that need full-frame data (e.g. AV1) may buffer internally for paths 2 an
 
 The `FrameEncoder` trait provides three mutually exclusive per-frame paths:
 
-1. **`push_frame(&mut self, pixels, duration_ms)`** — complete frame at once
+1. **`push_frame(&mut self, pixels, duration_ms)`** — full-canvas frame at once
 2. **`begin_frame()` + `push_rows()` + `end_frame()`** — build frame row-by-row
 3. **`pull_frame(&mut self, duration_ms, source)`** — encoder pulls rows from callback
+
+For sub-canvas frames with compositing, use **`push_encode_frame(&mut self, EncodeFrame)`** instead of `push_frame`. `EncodeFrame` carries `frame_rect` (canvas position), `blend` mode, and `disposal` method. Set the canvas dimensions with `EncodeJob::with_canvas_size()` before creating the frame encoder.
 
 Call `finish(self)` after all frames are written.
 
@@ -653,9 +665,7 @@ Open design questions that should be resolved before publishing. Adding required
 
 **~~Loop count not on traits.~~** Resolved: `FrameEncoder::with_loop_count()` and `FrameDecoder::loop_count()` are now on the traits with default no-op implementations. `total_duration_ms()` remains absent — computing it requires decoding all frames (can't know up front).
 
-**Variable frame dimensions — partially addressed.** `EncodeJob::with_canvas_size()` lets callers set the animation canvas dimensions before creating a `FrameEncoder`. On the decode side, canvas dimensions come from `ImageInfo` (via `probe_header()`), and `DecodeFrame::frame_rect()` reports each frame's sub-canvas region.
-
-Remaining question: should `push_frame()` accept per-frame positioning (offset, blend, disposal) for sub-canvas frames? Currently callers push full-canvas frames and the codec optimizes internally (delta detection, sub-frame extraction). This matches what `image`, `webp-animation`, and `libavif` do. Exposing raw sub-frame input could be added on concrete types if needed. Pixel format is always consistent within a sequence across all formats — no format allows mixing RGB and grayscale frames.
+**~~Variable frame dimensions.~~** Resolved. `EncodeJob::with_canvas_size()` sets the canvas. `FrameEncoder::push_encode_frame()` accepts an `EncodeFrame` with `frame_rect`, `blend`, and `disposal` for sub-canvas frames. On the decode side, `ImageInfo` provides canvas dimensions and `DecodeFrame::frame_rect()` reports each frame's region. Pixel format is always consistent within a sequence across all formats.
 
 ### Pixel format
 
