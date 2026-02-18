@@ -9,6 +9,8 @@
 //! - [`PixelData`] — typed pixel buffer enum over `imgref::ImgVec`
 //! - [`ImageInfo`] / [`ImageMetadata`] / [`Orientation`] — image metadata
 //! - [`ImageFormat`] — format detection from magic bytes
+//! - [`CodecCapabilities`] — capability flags for feature discovery
+//! - [`UnsupportedOperation`] / [`HasUnsupportedOperation`] — standard unsupported operation reporting
 //! - [`ResourceLimits`] — resource limit configuration
 //! - [`At`] / [`AtTrace`] / [`AtTraceable`] — error location tracking (via [`whereat`])
 //!
@@ -38,7 +40,7 @@ pub use buffer::{
     AlphaMode, BufferError, ChannelLayout, ChannelType, PixelBuffer, PixelDescriptor, PixelSlice,
     PixelSliceMut, TransferFunction,
 };
-pub use capabilities::CodecCapabilities;
+pub use capabilities::{CodecCapabilities, HasUnsupportedOperation, UnsupportedOperation};
 pub use color::{ColorProfileSource, NamedProfile};
 pub use format::ImageFormat;
 pub use info::{

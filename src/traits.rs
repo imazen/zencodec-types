@@ -35,6 +35,7 @@ use imgref::{ImgRef, ImgRefMut, ImgVec};
 use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
+use crate::format::ImageFormat;
 use crate::output::TypedEncodeFrame;
 use crate::pixel::{GrayAlpha, PixelData};
 use crate::{
@@ -66,6 +67,11 @@ use crate::{
 /// The `job()` method creates a per-operation [`EncodeJob`] that can borrow
 /// temporary data (stop tokens, metadata, resource limits).
 pub trait EncoderConfig: Clone + Send + Sync {
+    /// The image format this encoder produces (e.g. JPEG, WebP, AVIF).
+    ///
+    /// Static — the format is known at the type level.
+    fn format() -> ImageFormat;
+
     /// Pixel formats this encoder accepts natively (without internal conversion).
     ///
     /// Every descriptor in this list is a guarantee: calling `encode()` or
@@ -151,6 +157,24 @@ pub trait EncoderConfig: Clone + Send + Sync {
 
     /// Current lossless setting, or `None` if the codec doesn't support lossless.
     fn is_lossless(&self) -> Option<bool> {
+        None
+    }
+
+    /// Set independent alpha channel quality on a calibrated 0.0–100.0 scale.
+    ///
+    /// Useful for codecs like AVIF, WebP, and JXL where the alpha plane
+    /// can be encoded at a different quality than the color planes.
+    /// Values are clamped to \[0.0, 100.0\].
+    ///
+    /// Default no-op. Check [`alpha_quality()`](EncoderConfig::alpha_quality)
+    /// to see the current value.
+    fn with_alpha_quality(self, _quality: f32) -> Self {
+        self
+    }
+
+    /// Current alpha quality value, or `None` if the codec doesn't
+    /// support independent alpha quality.
+    fn alpha_quality(&self) -> Option<f32> {
         None
     }
 
@@ -470,6 +494,15 @@ pub trait FrameEncoder: Sized {
         source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
     ) -> Result<(), Self::Error>;
 
+    /// Set animation loop count.
+    ///
+    /// - `Some(0)` = loop forever
+    /// - `Some(n)` = loop `n` times
+    /// - `None` = format default (typically loop forever)
+    ///
+    /// Default no-op.
+    fn with_loop_count(&mut self, _count: Option<u32>) {}
+
     /// Finalize animation. Returns encoded output.
     fn finish(self) -> Result<EncodeOutput, Self::Error>;
 }
@@ -486,6 +519,11 @@ pub trait FrameEncoder: Sized {
 /// Format-specific decode settings live on the concrete config type.
 /// The trait handles job creation, probing, and typed convenience methods.
 pub trait DecoderConfig: Clone + Send + Sync {
+    /// The image format this decoder handles (e.g. JPEG, WebP, AVIF).
+    ///
+    /// Static — the format is known at the type level.
+    fn format() -> ImageFormat;
+
     /// Pixel formats this decoder can produce natively (without internal conversion).
     ///
     /// Every descriptor in this list is a guarantee: calling `decode_into()`
@@ -820,6 +858,15 @@ pub trait FrameDecoder: Sized {
     /// Some formats (GIF, APNG) require a full parse to count frames.
     /// Returns `None` if unknown or if counting requires decoding.
     fn frame_count(&self) -> Option<u32> {
+        None
+    }
+
+    /// Animation loop count from the container.
+    ///
+    /// - `Some(0)` = loop forever
+    /// - `Some(n)` = loop `n` times
+    /// - `None` = unknown or not specified
+    fn loop_count(&self) -> Option<u32> {
         None
     }
 

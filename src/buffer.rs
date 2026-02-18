@@ -263,6 +263,18 @@ impl PixelDescriptor {
         transfer: TransferFunction::Srgb,
     };
 
+    /// 8-bit sRGB BGRX (opaque BGRA, padding byte ignored).
+    ///
+    /// Same memory layout as BGRA8 but the fourth byte is padding
+    /// (`AlphaMode::None`). Useful for Windows surfaces and DirectX
+    /// where the alpha byte is present but meaningless.
+    pub const BGRX8_SRGB: Self = Self {
+        channel_type: ChannelType::U8,
+        layout: ChannelLayout::Bgra,
+        alpha: AlphaMode::None,
+        transfer: TransferFunction::Srgb,
+    };
+
     // Methods -----------------------------------------------------------------
 
     /// Check if this descriptor matches the layout and type of another,
@@ -1266,6 +1278,7 @@ mod tests {
         assert_eq!(PixelDescriptor::GRAYF32_LINEAR.bytes_per_pixel(), 4);
         assert_eq!(PixelDescriptor::GRAYA8_SRGB.bytes_per_pixel(), 2);
         assert_eq!(PixelDescriptor::BGRA8_SRGB.bytes_per_pixel(), 4);
+        assert_eq!(PixelDescriptor::BGRX8_SRGB.bytes_per_pixel(), 4);
     }
 
     #[test]
@@ -1294,6 +1307,10 @@ mod tests {
         assert_eq!(PixelDescriptor::RGBA8_SRGB.channels(), 4);
         assert!(PixelDescriptor::RGBA8_SRGB.has_alpha());
         assert!(PixelDescriptor::BGRA8_SRGB.has_alpha());
+        // BGRX8 has Bgra layout (4 channels) but AlphaMode::None
+        assert_eq!(PixelDescriptor::BGRX8_SRGB.channels(), 4);
+        assert!(PixelDescriptor::BGRX8_SRGB.layout.has_alpha()); // layout says yes
+        assert_eq!(PixelDescriptor::BGRX8_SRGB.alpha, AlphaMode::None); // but alpha is None
     }
 
     #[test]
@@ -1770,6 +1787,19 @@ mod tests {
     }
 
     // --- Edge cases ---
+
+    #[test]
+    fn bgrx8_srgb_properties() {
+        let d = PixelDescriptor::BGRX8_SRGB;
+        assert_eq!(d.channel_type, ChannelType::U8);
+        assert_eq!(d.layout, ChannelLayout::Bgra);
+        assert_eq!(d.alpha, AlphaMode::None);
+        assert_eq!(d.transfer, TransferFunction::Srgb);
+        assert_eq!(d.bytes_per_pixel(), 4);
+        assert_eq!(d.min_alignment(), 1);
+        // Layout-compatible with BGRA8
+        assert!(d.layout_compatible(&PixelDescriptor::BGRA8_SRGB));
+    }
 
     #[test]
     fn zero_size_buffer() {

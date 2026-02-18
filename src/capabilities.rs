@@ -3,6 +3,120 @@
 //! Each codec returns a static [`CodecCapabilities`] describing what it
 //! supports. This lets callers discover behavior before calling methods
 //! that might be no-ops or expensive.
+//!
+//! [`UnsupportedOperation`] provides a standard enum for codecs to report
+//! which operations they don't support. [`HasUnsupportedOperation`] lets
+//! generic callers check for unsupported operations without downcasting
+//! codec-specific error types.
+
+use core::fmt;
+
+/// Identifies an operation that a codec does not support.
+///
+/// Codecs include this in their error types (e.g. as a variant payload)
+/// so callers can generically detect "this codec doesn't support this
+/// operation" without downcasting. See [`HasUnsupportedOperation`].
+///
+/// # Example
+///
+/// ```
+/// use zencodec_types::UnsupportedOperation;
+///
+/// let op = UnsupportedOperation::DecodeInto;
+/// assert_eq!(format!("{op}"), "unsupported operation: decode_into");
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum UnsupportedOperation {
+    /// `Encoder::push_rows()` + `finish()` (row-level encode).
+    RowLevelEncode,
+    /// `Encoder::encode_from()` (pull-from-source encode).
+    PullEncode,
+    /// All `FrameEncoder` methods (animation encoding).
+    AnimationEncode,
+    /// `FrameEncoder::begin_frame` / `push_rows` / `end_frame` (row-level frame encode).
+    RowLevelFrameEncode,
+    /// `FrameEncoder::pull_frame()` (pull-from-source frame encode).
+    PullFrameEncode,
+    /// `Decoder::decode_into()` (decode into caller buffer).
+    DecodeInto,
+    /// `Decoder::decode_rows()` (row-level decode).
+    RowLevelDecode,
+    /// All `FrameDecoder` methods (animation decoding).
+    AnimationDecode,
+    /// `FrameDecoder::next_frame_into()` (frame decode into caller buffer).
+    FrameDecodeInto,
+    /// `FrameDecoder::next_frame_rows()` (row-level frame decode).
+    RowLevelFrameDecode,
+    /// A specific pixel format is not supported.
+    PixelFormat,
+}
+
+impl UnsupportedOperation {
+    /// Short name for the operation (suitable for error messages).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::RowLevelEncode => "row_level_encode",
+            Self::PullEncode => "pull_encode",
+            Self::AnimationEncode => "animation_encode",
+            Self::RowLevelFrameEncode => "row_level_frame_encode",
+            Self::PullFrameEncode => "pull_frame_encode",
+            Self::DecodeInto => "decode_into",
+            Self::RowLevelDecode => "row_level_decode",
+            Self::AnimationDecode => "animation_decode",
+            Self::FrameDecodeInto => "frame_decode_into",
+            Self::RowLevelFrameDecode => "row_level_frame_decode",
+            Self::PixelFormat => "pixel_format",
+        }
+    }
+}
+
+impl fmt::Display for UnsupportedOperation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unsupported operation: {}", self.name())
+    }
+}
+
+impl core::error::Error for UnsupportedOperation {}
+
+/// Trait for codec errors that can report unsupported operations.
+///
+/// Implement this on your codec's error type so generic callers can
+/// check `err.unsupported_operation()` without downcasting.
+///
+/// This is opt-in — not a trait bound on the associated `Error` type.
+///
+/// # Example
+///
+/// ```
+/// use zencodec_types::{HasUnsupportedOperation, UnsupportedOperation};
+///
+/// #[derive(Debug)]
+/// enum MyCodecError {
+///     Unsupported(UnsupportedOperation),
+///     Other,
+/// }
+///
+/// impl HasUnsupportedOperation for MyCodecError {
+///     fn unsupported_operation(&self) -> Option<UnsupportedOperation> {
+///         match self {
+///             MyCodecError::Unsupported(op) => Some(*op),
+///             _ => None,
+///         }
+///     }
+/// }
+///
+/// let err = MyCodecError::Unsupported(UnsupportedOperation::DecodeInto);
+/// assert_eq!(err.unsupported_operation(), Some(UnsupportedOperation::DecodeInto));
+///
+/// let err2 = MyCodecError::Other;
+/// assert_eq!(err2.unsupported_operation(), None);
+/// ```
+pub trait HasUnsupportedOperation {
+    /// Returns the [`UnsupportedOperation`] if this error represents one,
+    /// or `None` for other error kinds.
+    fn unsupported_operation(&self) -> Option<UnsupportedOperation>;
+}
 
 /// Describes what a codec supports.
 ///
@@ -50,6 +164,17 @@ pub struct CodecCapabilities {
     enforces_max_pixels: bool,
     enforces_max_memory: bool,
     enforces_max_file_size: bool,
+    lossy: bool,
+    native_f32: bool,
+    native_alpha: bool,
+    decode_into: bool,
+    row_level_encode: bool,
+    pull_encode: bool,
+    row_level_decode: bool,
+    row_level_frame_encode: bool,
+    pull_frame_encode: bool,
+    frame_decode_into: bool,
+    row_level_frame_decode: bool,
     /// Meaningful effort range `[min, max]`. `None` = no effort tuning.
     effort_range: Option<[i32; 2]>,
     /// Meaningful quality range `[min, max]` on the calibrated 0–100 scale.
@@ -87,6 +212,17 @@ impl CodecCapabilities {
             enforces_max_pixels: false,
             enforces_max_memory: false,
             enforces_max_file_size: false,
+            lossy: false,
+            native_f32: false,
+            native_alpha: false,
+            decode_into: false,
+            row_level_encode: false,
+            pull_encode: false,
+            row_level_decode: false,
+            row_level_frame_encode: false,
+            pull_frame_encode: false,
+            frame_decode_into: false,
+            row_level_frame_decode: false,
             effort_range: None,
             quality_range: None,
         }
@@ -209,6 +345,68 @@ impl CodecCapabilities {
     /// Most lossy codecs return `Some([0.0, 100.0])`.
     pub const fn quality_range(&self) -> Option<[f32; 2]> {
         self.quality_range
+    }
+
+    /// Whether the codec supports lossy encoding.
+    ///
+    /// Complement to [`lossless()`](CodecCapabilities::lossless) — a codec
+    /// can support both (e.g. WebP, JXL).
+    pub const fn lossy(&self) -> bool {
+        self.lossy
+    }
+
+    /// Whether the codec handles f32 pixel data natively (without
+    /// converting to u8/u16 internally).
+    pub const fn native_f32(&self) -> bool {
+        self.native_f32
+    }
+
+    /// Whether the codec handles alpha channel natively (not JPEG).
+    pub const fn native_alpha(&self) -> bool {
+        self.native_alpha
+    }
+
+    /// Whether [`Decoder::decode_into()`](crate::Decoder::decode_into) is
+    /// implemented (not just a stub that returns an error).
+    pub const fn decode_into(&self) -> bool {
+        self.decode_into
+    }
+
+    /// Whether [`Encoder::push_rows()`](crate::Encoder::push_rows) /
+    /// [`Encoder::finish()`](crate::Encoder::finish) actually work.
+    pub const fn row_level_encode(&self) -> bool {
+        self.row_level_encode
+    }
+
+    /// Whether [`Encoder::encode_from()`](crate::Encoder::encode_from) works.
+    pub const fn pull_encode(&self) -> bool {
+        self.pull_encode
+    }
+
+    /// Whether [`Decoder::decode_rows()`](crate::Decoder::decode_rows)
+    /// pushes real streaming rows (not a single full-frame callback).
+    pub const fn row_level_decode(&self) -> bool {
+        self.row_level_decode
+    }
+
+    /// Whether `FrameEncoder::begin_frame` / `push_rows` / `end_frame` work.
+    pub const fn row_level_frame_encode(&self) -> bool {
+        self.row_level_frame_encode
+    }
+
+    /// Whether [`FrameEncoder::pull_frame()`](crate::FrameEncoder::pull_frame) works.
+    pub const fn pull_frame_encode(&self) -> bool {
+        self.pull_frame_encode
+    }
+
+    /// Whether [`FrameDecoder::next_frame_into()`](crate::FrameDecoder::next_frame_into) works.
+    pub const fn frame_decode_into(&self) -> bool {
+        self.frame_decode_into
+    }
+
+    /// Whether [`FrameDecoder::next_frame_rows()`](crate::FrameDecoder::next_frame_rows) works.
+    pub const fn row_level_frame_decode(&self) -> bool {
+        self.row_level_frame_decode
     }
 
     // --- const builder methods for static construction ---
@@ -349,6 +547,72 @@ impl CodecCapabilities {
         self.quality_range = Some([min, max]);
         self
     }
+
+    /// Set lossy encoding support.
+    pub const fn with_lossy(mut self, v: bool) -> Self {
+        self.lossy = v;
+        self
+    }
+
+    /// Set native f32 pixel data support.
+    pub const fn with_native_f32(mut self, v: bool) -> Self {
+        self.native_f32 = v;
+        self
+    }
+
+    /// Set native alpha channel support.
+    pub const fn with_native_alpha(mut self, v: bool) -> Self {
+        self.native_alpha = v;
+        self
+    }
+
+    /// Set `decode_into()` support.
+    pub const fn with_decode_into(mut self, v: bool) -> Self {
+        self.decode_into = v;
+        self
+    }
+
+    /// Set row-level encode support (`push_rows()` / `finish()`).
+    pub const fn with_row_level_encode(mut self, v: bool) -> Self {
+        self.row_level_encode = v;
+        self
+    }
+
+    /// Set pull encode support (`encode_from()`).
+    pub const fn with_pull_encode(mut self, v: bool) -> Self {
+        self.pull_encode = v;
+        self
+    }
+
+    /// Set row-level decode support.
+    pub const fn with_row_level_decode(mut self, v: bool) -> Self {
+        self.row_level_decode = v;
+        self
+    }
+
+    /// Set row-level frame encode support.
+    pub const fn with_row_level_frame_encode(mut self, v: bool) -> Self {
+        self.row_level_frame_encode = v;
+        self
+    }
+
+    /// Set pull frame encode support.
+    pub const fn with_pull_frame_encode(mut self, v: bool) -> Self {
+        self.pull_frame_encode = v;
+        self
+    }
+
+    /// Set frame decode-into support.
+    pub const fn with_frame_decode_into(mut self, v: bool) -> Self {
+        self.frame_decode_into = v;
+        self
+    }
+
+    /// Set row-level frame decode support.
+    pub const fn with_row_level_frame_decode(mut self, v: bool) -> Self {
+        self.row_level_frame_decode = v;
+        self
+    }
 }
 
 impl core::fmt::Debug for CodecCapabilities {
@@ -368,7 +632,18 @@ impl core::fmt::Debug for CodecCapabilities {
             .field("decode_animation", &self.decode_animation)
             .field("native_16bit", &self.native_16bit)
             .field("lossless", &self.lossless)
+            .field("lossy", &self.lossy)
             .field("hdr", &self.hdr)
+            .field("native_f32", &self.native_f32)
+            .field("native_alpha", &self.native_alpha)
+            .field("decode_into", &self.decode_into)
+            .field("row_level_encode", &self.row_level_encode)
+            .field("pull_encode", &self.pull_encode)
+            .field("row_level_decode", &self.row_level_decode)
+            .field("row_level_frame_encode", &self.row_level_frame_encode)
+            .field("pull_frame_encode", &self.pull_frame_encode)
+            .field("frame_decode_into", &self.frame_decode_into)
+            .field("row_level_frame_decode", &self.row_level_frame_decode)
             .field("encode_cicp", &self.encode_cicp)
             .field("decode_cicp", &self.decode_cicp)
             .field("enforces_max_pixels", &self.enforces_max_pixels)
@@ -405,7 +680,18 @@ mod tests {
         assert!(!caps.decode_animation());
         assert!(!caps.native_16bit());
         assert!(!caps.lossless());
+        assert!(!caps.lossy());
         assert!(!caps.hdr());
+        assert!(!caps.native_f32());
+        assert!(!caps.native_alpha());
+        assert!(!caps.decode_into());
+        assert!(!caps.row_level_encode());
+        assert!(!caps.pull_encode());
+        assert!(!caps.row_level_decode());
+        assert!(!caps.row_level_frame_encode());
+        assert!(!caps.pull_frame_encode());
+        assert!(!caps.frame_decode_into());
+        assert!(!caps.row_level_frame_decode());
         assert!(!caps.encode_cicp());
         assert!(!caps.decode_cicp());
         assert!(!caps.enforces_max_pixels());
@@ -512,5 +798,149 @@ mod tests {
         assert!(caps.lossless());
         assert_eq!(caps.effort_range(), Some([1, 9]));
         assert!(caps.quality_range().is_none()); // lossless-only → no quality range
+    }
+
+    #[test]
+    fn new_capability_flags() {
+        let caps = CodecCapabilities::new()
+            .with_lossy(true)
+            .with_native_f32(true)
+            .with_native_alpha(true)
+            .with_decode_into(true)
+            .with_row_level_encode(true)
+            .with_pull_encode(true)
+            .with_row_level_decode(true)
+            .with_row_level_frame_encode(true)
+            .with_pull_frame_encode(true)
+            .with_frame_decode_into(true)
+            .with_row_level_frame_decode(true);
+        assert!(caps.lossy());
+        assert!(caps.native_f32());
+        assert!(caps.native_alpha());
+        assert!(caps.decode_into());
+        assert!(caps.row_level_encode());
+        assert!(caps.pull_encode());
+        assert!(caps.row_level_decode());
+        assert!(caps.row_level_frame_encode());
+        assert!(caps.pull_frame_encode());
+        assert!(caps.frame_decode_into());
+        assert!(caps.row_level_frame_decode());
+    }
+
+    #[test]
+    fn new_capability_flags_static() {
+        static CAPS: CodecCapabilities = CodecCapabilities::new()
+            .with_lossy(true)
+            .with_lossless(true)
+            .with_native_f32(true)
+            .with_native_alpha(true)
+            .with_decode_into(true)
+            .with_row_level_encode(true);
+        assert!(CAPS.lossy());
+        assert!(CAPS.lossless());
+        assert!(CAPS.native_f32());
+        assert!(CAPS.native_alpha());
+        assert!(CAPS.decode_into());
+        assert!(CAPS.row_level_encode());
+        assert!(!CAPS.pull_encode());
+        assert!(!CAPS.row_level_decode());
+    }
+
+    #[test]
+    fn unsupported_operation_display() {
+        assert_eq!(
+            alloc::format!("{}", UnsupportedOperation::RowLevelEncode),
+            "unsupported operation: row_level_encode"
+        );
+        assert_eq!(
+            alloc::format!("{}", UnsupportedOperation::DecodeInto),
+            "unsupported operation: decode_into"
+        );
+        assert_eq!(
+            alloc::format!("{}", UnsupportedOperation::PixelFormat),
+            "unsupported operation: pixel_format"
+        );
+    }
+
+    #[test]
+    fn unsupported_operation_name() {
+        assert_eq!(UnsupportedOperation::PullEncode.name(), "pull_encode");
+        assert_eq!(
+            UnsupportedOperation::AnimationEncode.name(),
+            "animation_encode"
+        );
+        assert_eq!(
+            UnsupportedOperation::RowLevelFrameEncode.name(),
+            "row_level_frame_encode"
+        );
+        assert_eq!(
+            UnsupportedOperation::PullFrameEncode.name(),
+            "pull_frame_encode"
+        );
+        assert_eq!(
+            UnsupportedOperation::RowLevelDecode.name(),
+            "row_level_decode"
+        );
+        assert_eq!(
+            UnsupportedOperation::AnimationDecode.name(),
+            "animation_decode"
+        );
+        assert_eq!(
+            UnsupportedOperation::FrameDecodeInto.name(),
+            "frame_decode_into"
+        );
+        assert_eq!(
+            UnsupportedOperation::RowLevelFrameDecode.name(),
+            "row_level_frame_decode"
+        );
+    }
+
+    #[test]
+    fn unsupported_operation_is_error() {
+        // Verify it implements core::error::Error
+        let op = UnsupportedOperation::DecodeInto;
+        let err: &dyn core::error::Error = &op;
+        assert!(err.source().is_none());
+    }
+
+    #[test]
+    fn unsupported_operation_eq_hash() {
+        use alloc::collections::BTreeSet;
+        let mut set = BTreeSet::new();
+        // Use Debug ordering via string comparison as a proxy
+        assert_eq!(
+            UnsupportedOperation::DecodeInto,
+            UnsupportedOperation::DecodeInto
+        );
+        assert_ne!(
+            UnsupportedOperation::DecodeInto,
+            UnsupportedOperation::PullEncode
+        );
+        // Hash: just verify it compiles with a set-like usage
+        let _ = set.insert(alloc::format!("{:?}", UnsupportedOperation::DecodeInto));
+    }
+
+    #[test]
+    fn has_unsupported_operation_trait() {
+        #[derive(Debug)]
+        enum TestError {
+            Unsupported(UnsupportedOperation),
+            Other,
+        }
+        impl HasUnsupportedOperation for TestError {
+            fn unsupported_operation(&self) -> Option<UnsupportedOperation> {
+                match self {
+                    TestError::Unsupported(op) => Some(*op),
+                    TestError::Other => None,
+                }
+            }
+        }
+        let err = TestError::Unsupported(UnsupportedOperation::AnimationEncode);
+        assert_eq!(
+            err.unsupported_operation(),
+            Some(UnsupportedOperation::AnimationEncode)
+        );
+        let err2 = TestError::Other;
+        assert_eq!(err2.unsupported_operation(), None);
     }
 }
