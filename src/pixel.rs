@@ -89,25 +89,34 @@ impl PixelData {
     /// Pixel format descriptor for this variant.
     ///
     /// Returns a descriptor based on the channel type and layout. The transfer
-    /// function is a **default assumption** (`Srgb` for u8/u16, `Linear` for
-    /// f32) — the actual transfer function depends on the source. Check CICP
-    /// metadata when accuracy matters.
+    /// function is [`Unknown`](crate::TransferFunction::Unknown) because
+    /// `PixelData` does not track its transfer function — that metadata lives
+    /// in [`ImageInfo::cicp`](crate::ImageInfo) or the ICC profile.
+    ///
+    /// To get a descriptor with the correct transfer function, resolve it
+    /// from CICP metadata:
+    ///
+    /// ```ignore
+    /// let desc = pixels.descriptor();
+    /// let tf = info.transfer_function(); // derives from CICP
+    /// let resolved = desc.with_transfer(tf);
+    /// ```
     pub fn descriptor(&self) -> crate::buffer::PixelDescriptor {
         use crate::buffer::PixelDescriptor;
         match self {
-            PixelData::Rgb8(_) => PixelDescriptor::RGB8_SRGB,
-            PixelData::Rgba8(_) => PixelDescriptor::RGBA8_SRGB,
-            PixelData::Rgb16(_) => PixelDescriptor::RGB16_SRGB,
-            PixelData::Rgba16(_) => PixelDescriptor::RGBA16_SRGB,
-            PixelData::RgbF32(_) => PixelDescriptor::RGBF32_LINEAR,
-            PixelData::RgbaF32(_) => PixelDescriptor::RGBAF32_LINEAR,
-            PixelData::Gray8(_) => PixelDescriptor::GRAY8_SRGB,
-            PixelData::Gray16(_) => PixelDescriptor::GRAY16_SRGB,
-            PixelData::GrayF32(_) => PixelDescriptor::GRAYF32_LINEAR,
-            PixelData::Bgra8(_) => PixelDescriptor::BGRA8_SRGB,
-            PixelData::GrayAlpha8(_) => PixelDescriptor::GRAYA8_SRGB,
-            PixelData::GrayAlpha16(_) => PixelDescriptor::GRAYA16_SRGB,
-            PixelData::GrayAlphaF32(_) => PixelDescriptor::GRAYAF32_LINEAR,
+            PixelData::Rgb8(_) => PixelDescriptor::RGB8,
+            PixelData::Rgba8(_) => PixelDescriptor::RGBA8,
+            PixelData::Rgb16(_) => PixelDescriptor::RGB16,
+            PixelData::Rgba16(_) => PixelDescriptor::RGBA16,
+            PixelData::RgbF32(_) => PixelDescriptor::RGBF32,
+            PixelData::RgbaF32(_) => PixelDescriptor::RGBAF32,
+            PixelData::Gray8(_) => PixelDescriptor::GRAY8,
+            PixelData::Gray16(_) => PixelDescriptor::GRAY16,
+            PixelData::GrayF32(_) => PixelDescriptor::GRAYF32,
+            PixelData::Bgra8(_) => PixelDescriptor::BGRA8,
+            PixelData::GrayAlpha8(_) => PixelDescriptor::GRAYA8,
+            PixelData::GrayAlpha16(_) => PixelDescriptor::GRAYA16,
+            PixelData::GrayAlphaF32(_) => PixelDescriptor::GRAYAF32,
         }
     }
 
@@ -417,10 +426,7 @@ mod tests {
         let slice = data.as_pixel_slice().unwrap();
         assert_eq!(slice.width(), 2);
         assert_eq!(slice.rows(), 1);
-        assert_eq!(
-            slice.descriptor(),
-            crate::buffer::PixelDescriptor::RGB8_SRGB
-        );
+        assert_eq!(slice.descriptor(), crate::buffer::PixelDescriptor::RGB8);
         assert_eq!(slice.row(0), &[10, 20, 30, 40, 50, 60]);
     }
 

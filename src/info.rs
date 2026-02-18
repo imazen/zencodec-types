@@ -345,6 +345,24 @@ impl ImageInfo {
         }
     }
 
+    /// Derive the transfer function from CICP metadata.
+    ///
+    /// Returns the [`TransferFunction`](crate::TransferFunction) corresponding
+    /// to the CICP `transfer_characteristics` code, or
+    /// [`Unknown`](crate::TransferFunction::Unknown) if CICP is absent or
+    /// the code is not recognized.
+    ///
+    /// Use this to resolve a [`PixelDescriptor`]'s unknown transfer function:
+    ///
+    /// ```ignore
+    /// let desc = pixels.descriptor().with_transfer(info.transfer_function());
+    /// ```
+    pub fn transfer_function(&self) -> crate::TransferFunction {
+        self.cicp
+            .and_then(|c| crate::TransferFunction::from_cicp(c.transfer_characteristics))
+            .unwrap_or(crate::TransferFunction::Unknown)
+    }
+
     /// Get the source color profile for CMS integration.
     ///
     /// Returns CICP if present (takes precedence per AVIF/HEIF specs),
@@ -463,6 +481,18 @@ impl<'a> ImageMetadata<'a> {
     pub fn with_orientation(mut self, orientation: Orientation) -> Self {
         self.orientation = orientation;
         self
+    }
+
+    /// Derive the transfer function from CICP metadata.
+    ///
+    /// Returns the [`TransferFunction`](crate::TransferFunction) corresponding
+    /// to the CICP `transfer_characteristics` code, or
+    /// [`Unknown`](crate::TransferFunction::Unknown) if CICP is absent or
+    /// the code is not recognized.
+    pub fn transfer_function(&self) -> crate::TransferFunction {
+        self.cicp
+            .and_then(|c| crate::TransferFunction::from_cicp(c.transfer_characteristics))
+            .unwrap_or(crate::TransferFunction::Unknown)
     }
 
     /// Get the source color profile for CMS integration.
@@ -925,5 +955,47 @@ mod tests {
     fn metadata_normal_orientation_is_empty() {
         let meta = ImageMetadata::none().with_orientation(Orientation::Normal);
         assert!(meta.is_empty());
+    }
+
+    #[test]
+    fn transfer_function_from_cicp() {
+        use crate::TransferFunction;
+
+        let info = ImageInfo::new(100, 100, ImageFormat::Avif).with_cicp(Cicp::SRGB);
+        assert_eq!(info.transfer_function(), TransferFunction::Srgb);
+
+        let info = ImageInfo::new(100, 100, ImageFormat::Avif).with_cicp(Cicp::BT2100_PQ);
+        assert_eq!(info.transfer_function(), TransferFunction::Pq);
+
+        let info = ImageInfo::new(100, 100, ImageFormat::Avif).with_cicp(Cicp::BT2100_HLG);
+        assert_eq!(info.transfer_function(), TransferFunction::Hlg);
+    }
+
+    #[test]
+    fn transfer_function_without_cicp() {
+        use crate::TransferFunction;
+
+        let info = ImageInfo::new(100, 100, ImageFormat::Jpeg);
+        assert_eq!(info.transfer_function(), TransferFunction::Unknown);
+    }
+
+    #[test]
+    fn transfer_function_unrecognized_cicp() {
+        use crate::TransferFunction;
+
+        // CICP with unrecognized transfer characteristics code
+        let info = ImageInfo::new(100, 100, ImageFormat::Avif).with_cicp(Cicp::new(1, 99, 0, true));
+        assert_eq!(info.transfer_function(), TransferFunction::Unknown);
+    }
+
+    #[test]
+    fn metadata_transfer_function() {
+        use crate::TransferFunction;
+
+        let meta = ImageMetadata::none().with_cicp(Cicp::SRGB);
+        assert_eq!(meta.transfer_function(), TransferFunction::Srgb);
+
+        let meta = ImageMetadata::none();
+        assert_eq!(meta.transfer_function(), TransferFunction::Unknown);
     }
 }

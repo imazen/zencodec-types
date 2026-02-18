@@ -88,6 +88,12 @@ pub enum AlphaMode {
 }
 
 /// Electro-optical transfer function.
+///
+/// When a pixel buffer's transfer function is not known (e.g. raw decoded data
+/// without CICP metadata), use [`Unknown`](Self::Unknown). Consumers that need
+/// color-correct operations (resize, blend, blur) must check for `Unknown` and
+/// resolve it from [`ImageInfo::cicp`](crate::ImageInfo) or an ICC profile
+/// before processing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 #[repr(u8)]
@@ -102,6 +108,13 @@ pub enum TransferFunction {
     Pq = 3,
     /// Hybrid Log-Gamma (ARIB STD-B67, HLG).
     Hlg = 4,
+    /// Transfer function is not known.
+    ///
+    /// This is the default for pixel data where the source transfer function
+    /// has not been established. Check CICP metadata or the ICC profile to
+    /// determine the actual transfer function before performing color-sensitive
+    /// operations.
+    Unknown = 255,
 }
 
 impl TransferFunction {
@@ -275,7 +288,75 @@ impl PixelDescriptor {
         transfer: TransferFunction::Srgb,
     };
 
+    // Transfer-agnostic constants -----------------------------------------------
+    //
+    // Same channel type and layout as the explicitly-tagged constants above, but
+    // with `TransferFunction::Unknown`. Use these when the transfer function is
+    // not yet known (e.g. raw decoded data before CICP is consulted).
+
+    /// 8-bit RGB, transfer function unknown.
+    pub const RGB8: Self = Self::RGB8_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// 8-bit RGBA with straight alpha, transfer function unknown.
+    pub const RGBA8: Self = Self::RGBA8_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// 16-bit RGB, transfer function unknown.
+    pub const RGB16: Self = Self::RGB16_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// 16-bit RGBA with straight alpha, transfer function unknown.
+    pub const RGBA16: Self = Self::RGBA16_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// f32 RGB, transfer function unknown.
+    pub const RGBF32: Self = Self::RGBF32_LINEAR.with_transfer(TransferFunction::Unknown);
+
+    /// f32 RGBA with straight alpha, transfer function unknown.
+    pub const RGBAF32: Self = Self::RGBAF32_LINEAR.with_transfer(TransferFunction::Unknown);
+
+    /// 8-bit grayscale, transfer function unknown.
+    pub const GRAY8: Self = Self::GRAY8_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// 16-bit grayscale, transfer function unknown.
+    pub const GRAY16: Self = Self::GRAY16_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// f32 grayscale, transfer function unknown.
+    pub const GRAYF32: Self = Self::GRAYF32_LINEAR.with_transfer(TransferFunction::Unknown);
+
+    /// 8-bit grayscale with straight alpha, transfer function unknown.
+    pub const GRAYA8: Self = Self::GRAYA8_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// 16-bit grayscale with straight alpha, transfer function unknown.
+    pub const GRAYA16: Self = Self::GRAYA16_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// f32 grayscale with straight alpha, transfer function unknown.
+    pub const GRAYAF32: Self = Self::GRAYAF32_LINEAR.with_transfer(TransferFunction::Unknown);
+
+    /// 8-bit BGRA with straight alpha, transfer function unknown.
+    pub const BGRA8: Self = Self::BGRA8_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// 8-bit BGRX (opaque BGRA, padding byte ignored), transfer function unknown.
+    pub const BGRX8: Self = Self::BGRX8_SRGB.with_transfer(TransferFunction::Unknown);
+
     // Methods -----------------------------------------------------------------
+
+    /// Return a copy of this descriptor with a different transfer function.
+    ///
+    /// Useful for resolving `Unknown` once CICP/ICC metadata is available:
+    ///
+    /// ```
+    /// # use zencodec_types::{PixelDescriptor, TransferFunction};
+    /// let desc = PixelDescriptor::RGB8; // Unknown transfer
+    /// let resolved = desc.with_transfer(TransferFunction::Srgb);
+    /// assert_eq!(resolved, PixelDescriptor::RGB8_SRGB);
+    /// ```
+    #[inline]
+    pub const fn with_transfer(self, transfer: TransferFunction) -> Self {
+        Self {
+            channel_type: self.channel_type,
+            layout: self.layout,
+            alpha: self.alpha,
+            transfer,
+        }
+    }
 
     /// Check if this descriptor matches the layout and type of another,
     /// ignoring transfer function and alpha mode.
@@ -313,10 +394,24 @@ impl PixelDescriptor {
         self.layout.has_alpha()
     }
 
-    /// Whether the transfer function is linear.
+    /// Whether the transfer function is [`Linear`](TransferFunction::Linear).
+    ///
+    /// Returns `false` for [`Unknown`](TransferFunction::Unknown) — callers
+    /// must resolve the transfer function before assuming linearity.
     #[inline]
     pub const fn is_linear(self) -> bool {
         matches!(self.transfer, TransferFunction::Linear)
+    }
+
+    /// Whether the transfer function is [`Unknown`](TransferFunction::Unknown).
+    ///
+    /// When true, the caller must consult CICP/ICC metadata to determine
+    /// the actual transfer function before performing color-sensitive
+    /// operations. Use [`with_transfer()`](Self::with_transfer) to set
+    /// the correct value once known.
+    #[inline]
+    pub const fn is_unknown_transfer(self) -> bool {
+        matches!(self.transfer, TransferFunction::Unknown)
     }
 
     /// Compute the byte stride for a given width, aligned to channel type.
@@ -1004,16 +1099,16 @@ macro_rules! impl_from_imgref {
     };
 }
 
-impl_from_imgref!(Rgb<u8>, PixelDescriptor::RGB8_SRGB);
-impl_from_imgref!(Rgba<u8>, PixelDescriptor::RGBA8_SRGB);
-impl_from_imgref!(Rgb<u16>, PixelDescriptor::RGB16_SRGB);
-impl_from_imgref!(Rgba<u16>, PixelDescriptor::RGBA16_SRGB);
-impl_from_imgref!(Rgb<f32>, PixelDescriptor::RGBF32_LINEAR);
-impl_from_imgref!(Rgba<f32>, PixelDescriptor::RGBAF32_LINEAR);
-impl_from_imgref!(Gray<u8>, PixelDescriptor::GRAY8_SRGB);
-impl_from_imgref!(Gray<u16>, PixelDescriptor::GRAY16_SRGB);
-impl_from_imgref!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
-impl_from_imgref!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
+impl_from_imgref!(Rgb<u8>, PixelDescriptor::RGB8);
+impl_from_imgref!(Rgba<u8>, PixelDescriptor::RGBA8);
+impl_from_imgref!(Rgb<u16>, PixelDescriptor::RGB16);
+impl_from_imgref!(Rgba<u16>, PixelDescriptor::RGBA16);
+impl_from_imgref!(Rgb<f32>, PixelDescriptor::RGBF32);
+impl_from_imgref!(Rgba<f32>, PixelDescriptor::RGBAF32);
+impl_from_imgref!(Gray<u8>, PixelDescriptor::GRAY8);
+impl_from_imgref!(Gray<u16>, PixelDescriptor::GRAY16);
+impl_from_imgref!(Gray<f32>, PixelDescriptor::GRAYF32);
+impl_from_imgref!(BGRA<u8>, PixelDescriptor::BGRA8);
 
 // ---------------------------------------------------------------------------
 // ImgRefMut → PixelSliceMut (zero-copy From impls)
@@ -1041,16 +1136,16 @@ macro_rules! impl_from_imgref_mut {
     };
 }
 
-impl_from_imgref_mut!(Rgb<u8>, PixelDescriptor::RGB8_SRGB);
-impl_from_imgref_mut!(Rgba<u8>, PixelDescriptor::RGBA8_SRGB);
-impl_from_imgref_mut!(Rgb<u16>, PixelDescriptor::RGB16_SRGB);
-impl_from_imgref_mut!(Rgba<u16>, PixelDescriptor::RGBA16_SRGB);
-impl_from_imgref_mut!(Rgb<f32>, PixelDescriptor::RGBF32_LINEAR);
-impl_from_imgref_mut!(Rgba<f32>, PixelDescriptor::RGBAF32_LINEAR);
-impl_from_imgref_mut!(Gray<u8>, PixelDescriptor::GRAY8_SRGB);
-impl_from_imgref_mut!(Gray<u16>, PixelDescriptor::GRAY16_SRGB);
-impl_from_imgref_mut!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
-impl_from_imgref_mut!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
+impl_from_imgref_mut!(Rgb<u8>, PixelDescriptor::RGB8);
+impl_from_imgref_mut!(Rgba<u8>, PixelDescriptor::RGBA8);
+impl_from_imgref_mut!(Rgb<u16>, PixelDescriptor::RGB16);
+impl_from_imgref_mut!(Rgba<u16>, PixelDescriptor::RGBA16);
+impl_from_imgref_mut!(Rgb<f32>, PixelDescriptor::RGBF32);
+impl_from_imgref_mut!(Rgba<f32>, PixelDescriptor::RGBAF32);
+impl_from_imgref_mut!(Gray<u8>, PixelDescriptor::GRAY8);
+impl_from_imgref_mut!(Gray<u16>, PixelDescriptor::GRAY16);
+impl_from_imgref_mut!(Gray<f32>, PixelDescriptor::GRAYF32);
+impl_from_imgref_mut!(BGRA<u8>, PixelDescriptor::BGRA8);
 
 // ---------------------------------------------------------------------------
 // PixelData → PixelBuffer (From, always copies)
@@ -1317,6 +1412,42 @@ mod tests {
     fn descriptor_is_linear() {
         assert!(!PixelDescriptor::RGB8_SRGB.is_linear());
         assert!(PixelDescriptor::RGBF32_LINEAR.is_linear());
+        assert!(!PixelDescriptor::RGB8.is_linear()); // Unknown is not linear
+    }
+
+    #[test]
+    fn descriptor_is_unknown_transfer() {
+        assert!(PixelDescriptor::RGB8.is_unknown_transfer());
+        assert!(PixelDescriptor::RGBF32.is_unknown_transfer());
+        assert!(!PixelDescriptor::RGB8_SRGB.is_unknown_transfer());
+        assert!(!PixelDescriptor::RGBF32_LINEAR.is_unknown_transfer());
+    }
+
+    #[test]
+    fn descriptor_with_transfer() {
+        // Resolve Unknown → Srgb
+        let desc = PixelDescriptor::RGB8;
+        assert!(desc.is_unknown_transfer());
+        let resolved = desc.with_transfer(TransferFunction::Srgb);
+        assert_eq!(resolved, PixelDescriptor::RGB8_SRGB);
+        assert!(!resolved.is_unknown_transfer());
+
+        // Resolve Unknown → Linear
+        let desc = PixelDescriptor::RGBF32;
+        let resolved = desc.with_transfer(TransferFunction::Linear);
+        assert_eq!(resolved, PixelDescriptor::RGBF32_LINEAR);
+        assert!(resolved.is_linear());
+
+        // Unknown constants are layout-compatible with explicit ones
+        assert!(PixelDescriptor::RGB8.layout_compatible(&PixelDescriptor::RGB8_SRGB));
+        assert!(PixelDescriptor::RGBF32.layout_compatible(&PixelDescriptor::RGBF32_LINEAR));
+    }
+
+    #[test]
+    fn transfer_unknown_variant() {
+        assert_eq!(TransferFunction::Unknown as u8, 255);
+        assert_ne!(TransferFunction::Unknown, TransferFunction::Srgb);
+        assert_ne!(TransferFunction::Unknown, TransferFunction::Linear);
     }
 
     #[test]
@@ -1482,10 +1613,12 @@ mod tests {
     fn pixel_data_descriptor_matches() {
         use imgref::ImgVec;
 
+        // PixelData::descriptor() returns Unknown transfer — the actual TF
+        // is only known from CICP/ICC metadata, not from the pixel type.
         let cases: Vec<(PixelData, PixelDescriptor)> = vec![
             (
                 PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 0, g: 0, b: 0 }], 1, 1)),
-                PixelDescriptor::RGB8_SRGB,
+                PixelDescriptor::RGB8,
             ),
             (
                 PixelData::Rgba8(ImgVec::new(
@@ -1498,11 +1631,11 @@ mod tests {
                     1,
                     1,
                 )),
-                PixelDescriptor::RGBA8_SRGB,
+                PixelDescriptor::RGBA8,
             ),
             (
                 PixelData::Rgb16(ImgVec::new(vec![Rgb { r: 0, g: 0, b: 0 }], 1, 1)),
-                PixelDescriptor::RGB16_SRGB,
+                PixelDescriptor::RGB16,
             ),
             (
                 PixelData::Rgba16(ImgVec::new(
@@ -1515,7 +1648,7 @@ mod tests {
                     1,
                     1,
                 )),
-                PixelDescriptor::RGBA16_SRGB,
+                PixelDescriptor::RGBA16,
             ),
             (
                 PixelData::RgbF32(ImgVec::new(
@@ -1527,7 +1660,7 @@ mod tests {
                     1,
                     1,
                 )),
-                PixelDescriptor::RGBF32_LINEAR,
+                PixelDescriptor::RGBF32,
             ),
             (
                 PixelData::RgbaF32(ImgVec::new(
@@ -1540,19 +1673,19 @@ mod tests {
                     1,
                     1,
                 )),
-                PixelDescriptor::RGBAF32_LINEAR,
+                PixelDescriptor::RGBAF32,
             ),
             (
                 PixelData::Gray8(ImgVec::new(vec![Gray::new(0u8)], 1, 1)),
-                PixelDescriptor::GRAY8_SRGB,
+                PixelDescriptor::GRAY8,
             ),
             (
                 PixelData::Gray16(ImgVec::new(vec![Gray::new(0u16)], 1, 1)),
-                PixelDescriptor::GRAY16_SRGB,
+                PixelDescriptor::GRAY16,
             ),
             (
                 PixelData::GrayF32(ImgVec::new(vec![Gray::new(0.0f32)], 1, 1)),
-                PixelDescriptor::GRAYF32_LINEAR,
+                PixelDescriptor::GRAYF32,
             ),
             (
                 PixelData::Bgra8(ImgVec::new(
@@ -1565,19 +1698,19 @@ mod tests {
                     1,
                     1,
                 )),
-                PixelDescriptor::BGRA8_SRGB,
+                PixelDescriptor::BGRA8,
             ),
             (
                 PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha::new(0u8, 0)], 1, 1)),
-                PixelDescriptor::GRAYA8_SRGB,
+                PixelDescriptor::GRAYA8,
             ),
             (
                 PixelData::GrayAlpha16(ImgVec::new(vec![GrayAlpha::new(0u16, 0)], 1, 1)),
-                PixelDescriptor::GRAYA16_SRGB,
+                PixelDescriptor::GRAYA16,
             ),
             (
                 PixelData::GrayAlphaF32(ImgVec::new(vec![GrayAlpha::new(0.0f32, 0.0)], 1, 1)),
-                PixelDescriptor::GRAYAF32_LINEAR,
+                PixelDescriptor::GRAYAF32,
             ),
         ];
 
@@ -1632,7 +1765,7 @@ mod tests {
         let slice: PixelSlice<'_> = img.into();
         assert_eq!(slice.width(), 2);
         assert_eq!(slice.rows(), 1);
-        assert_eq!(slice.descriptor(), PixelDescriptor::GRAY16_SRGB);
+        assert_eq!(slice.descriptor(), PixelDescriptor::GRAY16);
         // Bytes should be native-endian u16
         let row = slice.row(0);
         assert_eq!(row.len(), 4);

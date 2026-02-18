@@ -153,6 +153,19 @@ impl DecodeOutput {
         self.pixels.has_alpha()
     }
 
+    /// Pixel format descriptor with the transfer function resolved from CICP.
+    ///
+    /// Unlike [`PixelData::descriptor()`] which returns
+    /// [`Unknown`](crate::TransferFunction::Unknown), this method uses the
+    /// CICP metadata from [`ImageInfo`] to set the correct transfer function.
+    /// If CICP is absent or the transfer characteristics code is not
+    /// recognized, the transfer function remains `Unknown`.
+    pub fn descriptor(&self) -> crate::PixelDescriptor {
+        self.pixels
+            .descriptor()
+            .with_transfer(self.info.transfer_function())
+    }
+
     /// Detected format.
     pub fn format(&self) -> ImageFormat {
         self.info.format
