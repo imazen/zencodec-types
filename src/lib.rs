@@ -35,6 +35,7 @@ mod limits;
 mod orientation;
 mod output;
 mod pixel;
+mod streaming;
 mod traits;
 
 pub use buffer::{
@@ -56,6 +57,9 @@ pub use output::{
     TypedEncodeFrame,
 };
 pub use pixel::{GrayAlpha, PixelData};
+pub use streaming::{
+    ScanlineDecodeJob, ScanlineDecoder, ScanlineEncodeJob, ScanlineEncoder,
+};
 pub use traits::{
     DecodeJob, Decoder, DecoderConfig, EncodeJob, Encoder, EncoderConfig, FrameDecoder,
     FrameEncoder,
