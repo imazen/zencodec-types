@@ -81,6 +81,85 @@ impl Cicp {
         matrix_coefficients: 0,
         full_range: true,
     };
+
+    /// Human-readable name for the color primaries code (ITU-T H.273 Table 2).
+    pub fn color_primaries_name(code: u8) -> &'static str {
+        match code {
+            0 => "Reserved",
+            1 => "BT.709/sRGB",
+            2 => "Unspecified",
+            4 => "BT.470M",
+            5 => "BT.601 (625)",
+            6 => "BT.601 (525)",
+            7 => "SMPTE 240M",
+            8 => "Generic Film",
+            9 => "BT.2020",
+            10 => "XYZ",
+            11 => "SMPTE 431 (DCI-P3)",
+            12 => "Display P3",
+            22 => "EBU Tech 3213",
+            _ => "Unknown",
+        }
+    }
+
+    /// Human-readable name for the transfer characteristics code (ITU-T H.273 Table 3).
+    pub fn transfer_characteristics_name(code: u8) -> &'static str {
+        match code {
+            0 => "Reserved",
+            1 => "BT.709",
+            2 => "Unspecified",
+            4 => "BT.470M (Gamma 2.2)",
+            5 => "BT.470BG (Gamma 2.8)",
+            6 => "BT.601",
+            7 => "SMPTE 240M",
+            8 => "Linear",
+            9 => "Log 100:1",
+            10 => "Log 316:1",
+            11 => "IEC 61966-2-4",
+            12 => "BT.1361",
+            13 => "sRGB",
+            14 => "BT.2020 (10-bit)",
+            15 => "BT.2020 (12-bit)",
+            16 => "PQ (HDR)",
+            17 => "SMPTE 428",
+            18 => "HLG (HDR)",
+            _ => "Unknown",
+        }
+    }
+
+    /// Human-readable name for the matrix coefficients code (ITU-T H.273 Table 4).
+    pub fn matrix_coefficients_name(code: u8) -> &'static str {
+        match code {
+            0 => "Identity/RGB",
+            1 => "BT.709",
+            2 => "Unspecified",
+            4 => "FCC",
+            5 => "BT.470BG",
+            6 => "BT.601",
+            7 => "SMPTE 240M",
+            8 => "YCgCo",
+            9 => "BT.2020 NCL",
+            10 => "BT.2020 CL",
+            11 => "SMPTE 2085",
+            12 => "Chroma NCL",
+            13 => "Chroma CL",
+            14 => "ICtCp",
+            _ => "Unknown",
+        }
+    }
+}
+
+impl core::fmt::Display for Cicp {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{} / {} / {} ({})",
+            Self::color_primaries_name(self.color_primaries),
+            Self::transfer_characteristics_name(self.transfer_characteristics),
+            Self::matrix_coefficients_name(self.matrix_coefficients),
+            if self.full_range { "full range" } else { "limited range" },
+        )
+    }
 }
 
 /// Content Light Level Info (CEA-861.3).
@@ -1026,5 +1105,39 @@ mod tests {
 
         let meta = ImageMetadata::none();
         assert_eq!(meta.transfer_function(), TransferFunction::Unknown);
+    }
+
+    #[test]
+    fn cicp_display_srgb() {
+        let s = alloc::format!("{}", Cicp::SRGB);
+        assert_eq!(s, "BT.709/sRGB / sRGB / BT.601 (full range)");
+    }
+
+    #[test]
+    fn cicp_display_bt2100_pq() {
+        let s = alloc::format!("{}", Cicp::BT2100_PQ);
+        assert_eq!(s, "BT.2020 / PQ (HDR) / BT.2020 NCL (full range)");
+    }
+
+    #[test]
+    fn cicp_display_limited_range() {
+        let cicp = Cicp::new(1, 1, 1, false);
+        let s = alloc::format!("{}", cicp);
+        assert_eq!(s, "BT.709/sRGB / BT.709 / BT.709 (limited range)");
+    }
+
+    #[test]
+    fn cicp_name_helpers() {
+        assert_eq!(Cicp::color_primaries_name(1), "BT.709/sRGB");
+        assert_eq!(Cicp::color_primaries_name(12), "Display P3");
+        assert_eq!(Cicp::color_primaries_name(255), "Unknown");
+
+        assert_eq!(Cicp::transfer_characteristics_name(13), "sRGB");
+        assert_eq!(Cicp::transfer_characteristics_name(16), "PQ (HDR)");
+        assert_eq!(Cicp::transfer_characteristics_name(18), "HLG (HDR)");
+
+        assert_eq!(Cicp::matrix_coefficients_name(0), "Identity/RGB");
+        assert_eq!(Cicp::matrix_coefficients_name(6), "BT.601");
+        assert_eq!(Cicp::matrix_coefficients_name(9), "BT.2020 NCL");
     }
 }
