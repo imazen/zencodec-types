@@ -4,8 +4,7 @@
 //!
 //! - [`EncoderConfig`] / [`EncodeJob`] / [`Encoder`] / [`FrameEncoder`] — encode traits
 //! - [`DecoderConfig`] / [`DecodeJob`] / [`Decoder`] / [`FrameDecoder`] — decode traits
-//! - [`ScanlineDecoder`] / [`ScanlineEncoder`] — scanline-level streaming traits
-//! - [`ScanlineDecodeJob`] / [`ScanlineEncodeJob`] — streaming factory extensions
+//! - [`ScanlineDecoder`] — pull-based scanline decode trait
 //! - [`EncodeOutput`] / [`DecodeOutput`] — unified output types
 //! - [`PixelSlice`] / [`PixelSliceMut`] / [`PixelBuffer`] — format-erased pixel buffers
 //! - [`PixelData`] — typed pixel buffer enum over `imgref::ImgVec`
@@ -59,9 +58,7 @@ pub use output::{
     TypedEncodeFrame,
 };
 pub use pixel::{GrayAlpha, PixelData};
-pub use streaming::{
-    ScanlineDecodeJob, ScanlineDecoder, ScanlineEncodeJob, ScanlineEncoder,
-};
+pub use streaming::{NeverScanlineDecoder, ScanlineDecoder};
 pub use traits::{
     DecodeJob, Decoder, DecoderConfig, EncodeJob, Encoder, EncoderConfig, FrameDecoder,
     FrameEncoder,

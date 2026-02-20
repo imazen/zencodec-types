@@ -470,6 +470,17 @@ pub trait Encoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
+    /// Suggested strip height for optimal row-level encoding.
+    ///
+    /// For JPEG, typically the MCU height (8 or 16 rows).
+    /// For PNG, typically 1 (row-at-a-time filtering).
+    ///
+    /// Returns 0 if the codec has no preference or doesn't support
+    /// row-level encoding. This is advisory — callers may use any height.
+    fn preferred_strip_height(&self) -> u32 {
+        0
+    }
+
     /// Encode a complete image at once (consumes self).
     fn encode(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
 
@@ -796,6 +807,12 @@ pub trait DecodeJob<'a>: Sized {
     /// Animation decoder type.
     type FrameDecoder: FrameDecoder<Error = Self::Error>;
 
+    /// Pull-based scanline decoder type.
+    ///
+    /// Use [`NeverScanlineDecoder<Self::Error>`](crate::NeverScanlineDecoder)
+    /// for codecs that don't support pull-based scanline decode.
+    type ScanlineDecoder: crate::ScanlineDecoder<Error = Self::Error>;
+
     /// Set cooperative cancellation token.
     ///
     /// No-op if the codec doesn't support decode cancellation
@@ -883,6 +900,18 @@ pub trait DecodeJob<'a>: Sized {
     /// Returns an error if the codec does not support animation decoding
     /// or if the container parse fails.
     fn frame_decoder(self, data: &[u8]) -> Result<Self::FrameDecoder, Self::Error>;
+
+    /// Create a pull-based scanline decoder.
+    ///
+    /// Parses headers upfront, then the caller pulls decoded rows on demand
+    /// via [`ScanlineDecoder::read_rows()`](crate::ScanlineDecoder::read_rows).
+    ///
+    /// Returns an error if the codec does not support scanline decoding.
+    /// Codecs that don't support this should use
+    /// [`NeverScanlineDecoder`](crate::NeverScanlineDecoder) as their
+    /// `ScanlineDecoder` type and always return
+    /// `Err(UnsupportedOperation::ScanlineDecode)`.
+    fn scanline_decoder(self, data: &[u8]) -> Result<Self::ScanlineDecoder, Self::Error>;
 }
 
 /// One-shot decode: all pixels at once, into a caller buffer, or row-level callback.
