@@ -222,6 +222,12 @@ pub struct ImageInfo {
     /// [`display_height()`](ImageInfo::display_height) to get effective
     /// display dimensions regardless.
     pub orientation: Orientation,
+    /// Non-fatal diagnostic messages from probing or decoding.
+    ///
+    /// Populated when the operation succeeded but encountered unusual
+    /// conditions (e.g., metadata located beyond the fast-path probe cap,
+    /// permissive parsing recovered from structural issues).
+    pub warnings: Vec<alloc::string::String>,
 }
 
 impl ImageInfo {
@@ -246,6 +252,7 @@ impl ImageInfo {
             exif: None,
             xmp: None,
             orientation: Orientation::Normal,
+            warnings: Vec::new(),
         }
     }
 
@@ -319,6 +326,28 @@ impl ImageInfo {
     pub fn with_orientation(mut self, orientation: Orientation) -> Self {
         self.orientation = orientation;
         self
+    }
+
+    /// Add a single warning message.
+    pub fn with_warning(mut self, msg: alloc::string::String) -> Self {
+        self.warnings.push(msg);
+        self
+    }
+
+    /// Replace warnings with the given list.
+    pub fn with_warnings(mut self, msgs: Vec<alloc::string::String>) -> Self {
+        self.warnings = msgs;
+        self
+    }
+
+    /// Non-fatal diagnostic messages.
+    pub fn warnings(&self) -> &[alloc::string::String] {
+        &self.warnings
+    }
+
+    /// Whether any warnings were recorded.
+    pub fn has_warnings(&self) -> bool {
+        !self.warnings.is_empty()
     }
 
     /// Display width after applying EXIF orientation.
