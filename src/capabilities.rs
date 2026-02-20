@@ -48,8 +48,6 @@ pub enum UnsupportedOperation {
     FrameDecodeInto,
     /// `FrameDecoder::next_frame_rows()` (row-level frame decode).
     RowLevelFrameDecode,
-    /// `ScanlineDecoder` (pull-based scanline decode).
-    ScanlineDecode,
     /// A specific pixel format is not supported.
     PixelFormat,
 }
@@ -64,7 +62,6 @@ impl UnsupportedOperation {
             Self::RowLevelFrameEncode => "row_level_frame_encode",
             Self::PullFrameEncode => "pull_frame_encode",
             Self::DecodeInto => "decode_into",
-            Self::ScanlineDecode => "scanline_decode",
             Self::RowLevelDecode => "row_level_decode",
             Self::AnimationDecode => "animation_decode",
             Self::FrameDecodeInto => "frame_decode_into",
@@ -178,7 +175,6 @@ pub struct CodecCapabilities {
     pull_frame_encode: bool,
     frame_decode_into: bool,
     row_level_frame_decode: bool,
-    scanline_decode: bool,
     /// Meaningful effort range `[min, max]`. `None` = no effort tuning.
     effort_range: Option<[i32; 2]>,
     /// Meaningful quality range `[min, max]` on the calibrated 0–100 scale.
@@ -227,7 +223,6 @@ impl CodecCapabilities {
             pull_frame_encode: false,
             frame_decode_into: false,
             row_level_frame_decode: false,
-            scanline_decode: false,
             effort_range: None,
             quality_range: None,
         }
@@ -413,13 +408,6 @@ impl CodecCapabilities {
     pub const fn row_level_frame_decode(&self) -> bool {
         self.row_level_frame_decode
     }
-
-    /// Whether the codec supports [`ScanlineDecoder`](crate::ScanlineDecoder)
-    /// (pull-based scanline decode via [`DecodeJob::scanline_decoder()`](crate::DecodeJob::scanline_decoder)).
-    pub const fn scanline_decode(&self) -> bool {
-        self.scanline_decode
-    }
-
 
     // --- const builder methods for static construction ---
 
@@ -626,12 +614,6 @@ impl CodecCapabilities {
         self
     }
 
-    /// Set scanline decode support ([`DecodeJob::scanline_decoder()`](crate::DecodeJob::scanline_decoder)).
-    pub const fn with_scanline_decode(mut self, v: bool) -> Self {
-        self.scanline_decode = v;
-        self
-    }
-
 }
 
 impl core::fmt::Debug for CodecCapabilities {
@@ -663,7 +645,6 @@ impl core::fmt::Debug for CodecCapabilities {
             .field("pull_frame_encode", &self.pull_frame_encode)
             .field("frame_decode_into", &self.frame_decode_into)
             .field("row_level_frame_decode", &self.row_level_frame_decode)
-            .field("scanline_decode", &self.scanline_decode)
             .field("encode_cicp", &self.encode_cicp)
             .field("decode_cicp", &self.decode_cicp)
             .field("enforces_max_pixels", &self.enforces_max_pixels)
@@ -712,7 +693,6 @@ mod tests {
         assert!(!caps.pull_frame_encode());
         assert!(!caps.frame_decode_into());
         assert!(!caps.row_level_frame_decode());
-        assert!(!caps.scanline_decode());
         assert!(!caps.encode_cicp());
         assert!(!caps.decode_cicp());
         assert!(!caps.enforces_max_pixels());
@@ -897,10 +877,6 @@ mod tests {
         assert_eq!(
             UnsupportedOperation::PullFrameEncode.name(),
             "pull_frame_encode"
-        );
-        assert_eq!(
-            UnsupportedOperation::ScanlineDecode.name(),
-            "scanline_decode"
         );
         assert_eq!(
             UnsupportedOperation::RowLevelDecode.name(),

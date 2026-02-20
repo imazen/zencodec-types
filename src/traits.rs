@@ -807,12 +807,6 @@ pub trait DecodeJob<'a>: Sized {
     /// Animation decoder type.
     type FrameDecoder: FrameDecoder<Error = Self::Error>;
 
-    /// Pull-based scanline decoder type.
-    ///
-    /// Use [`NeverScanlineDecoder<Self::Error>`](crate::NeverScanlineDecoder)
-    /// for codecs that don't support pull-based scanline decode.
-    type ScanlineDecoder: crate::ScanlineDecoder<Error = Self::Error>;
-
     /// Set cooperative cancellation token.
     ///
     /// No-op if the codec doesn't support decode cancellation
@@ -901,17 +895,6 @@ pub trait DecodeJob<'a>: Sized {
     /// or if the container parse fails.
     fn frame_decoder(self, data: &[u8]) -> Result<Self::FrameDecoder, Self::Error>;
 
-    /// Create a pull-based scanline decoder.
-    ///
-    /// Parses headers upfront, then the caller pulls decoded rows on demand
-    /// via [`ScanlineDecoder::read_rows()`](crate::ScanlineDecoder::read_rows).
-    ///
-    /// Returns an error if the codec does not support scanline decoding.
-    /// Codecs that don't support this should use
-    /// [`NeverScanlineDecoder`](crate::NeverScanlineDecoder) as their
-    /// `ScanlineDecoder` type and always return
-    /// `Err(UnsupportedOperation::ScanlineDecode)`.
-    fn scanline_decoder(self, data: &[u8]) -> Result<Self::ScanlineDecoder, Self::Error>;
 }
 
 /// One-shot decode: all pixels at once, into a caller buffer, or row-level callback.

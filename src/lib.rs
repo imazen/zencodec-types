@@ -4,7 +4,6 @@
 //!
 //! - [`EncoderConfig`] / [`EncodeJob`] / [`Encoder`] / [`FrameEncoder`] — encode traits
 //! - [`DecoderConfig`] / [`DecodeJob`] / [`Decoder`] / [`FrameDecoder`] — decode traits
-//! - [`ScanlineDecoder`] — pull-based scanline decode trait
 //! - [`EncodeOutput`] / [`DecodeOutput`] — unified output types
 //! - [`PixelSlice`] / [`PixelSliceMut`] / [`PixelBuffer`] — format-erased pixel buffers
 //! - [`PixelData`] — typed pixel buffer enum over `imgref::ImgVec`
@@ -36,7 +35,6 @@ mod limits;
 mod orientation;
 mod output;
 mod pixel;
-mod streaming;
 mod traits;
 
 pub use buffer::{
@@ -58,7 +56,6 @@ pub use output::{
     TypedEncodeFrame,
 };
 pub use pixel::{GrayAlpha, PixelData};
-pub use streaming::{NeverScanlineDecoder, ScanlineDecoder};
 pub use traits::{
     DecodeJob, Decoder, DecoderConfig, EncodeJob, Encoder, EncoderConfig, FrameDecoder,
     FrameEncoder,
