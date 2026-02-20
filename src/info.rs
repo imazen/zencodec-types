@@ -301,6 +301,13 @@ pub struct ImageInfo {
     /// [`display_height()`](ImageInfo::display_height) to get effective
     /// display dimensions regardless.
     pub orientation: Orientation,
+    /// Whether the image contains an HDR gain map (ISO 21496-1).
+    ///
+    /// When `true`, the image carries a secondary gain map image that
+    /// enables continuous adaptation between SDR and HDR rendering.
+    /// Detected via UltraHDR XMP metadata (JPEG), `tmap` box (AVIF/HEIF),
+    /// or gain map bundle (JPEG XL).
+    pub has_gain_map: bool,
     /// Non-fatal diagnostic messages from probing or decoding.
     ///
     /// Populated when the operation succeeded but encountered unusual
@@ -331,6 +338,7 @@ impl ImageInfo {
             exif: None,
             xmp: None,
             orientation: Orientation::Normal,
+            has_gain_map: false,
             warnings: Vec::new(),
         }
     }
@@ -404,6 +412,12 @@ impl ImageInfo {
     /// Set the EXIF orientation.
     pub fn with_orientation(mut self, orientation: Orientation) -> Self {
         self.orientation = orientation;
+        self
+    }
+
+    /// Set whether the image contains an HDR gain map.
+    pub fn with_gain_map(mut self, has: bool) -> Self {
+        self.has_gain_map = has;
         self
     }
 
