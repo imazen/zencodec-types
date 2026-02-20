@@ -4,6 +4,8 @@
 //!
 //! - [`EncoderConfig`] / [`EncodeJob`] / [`Encoder`] / [`FrameEncoder`] — encode traits
 //! - [`DecoderConfig`] / [`DecodeJob`] / [`Decoder`] / [`FrameDecoder`] — decode traits
+//! - [`ScanlineDecoder`] / [`ScanlineEncoder`] — scanline-level streaming traits
+//! - [`ScanlineDecodeJob`] / [`ScanlineEncodeJob`] — streaming factory extensions
 //! - [`EncodeOutput`] / [`DecodeOutput`] — unified output types
 //! - [`PixelSlice`] / [`PixelSliceMut`] / [`PixelBuffer`] — format-erased pixel buffers
 //! - [`PixelData`] — typed pixel buffer enum over `imgref::ImgVec`
