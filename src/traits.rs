@@ -912,14 +912,23 @@ pub trait Decoder: Sized {
     /// one of [`DecoderConfig::supported_descriptors()`].
     fn decode_into(self, data: &[u8], dst: PixelSliceMut<'_>) -> Result<ImageInfo, Self::Error>;
 
-    /// Decode with row-level callback. Codec pushes rows as they become
-    /// available.
+    /// Decode with row-level streaming into a caller-owned buffer.
     ///
-    /// For codecs that need full-frame decode (AV1), all rows arrive at once.
+    /// The codec calls [`DecodeRowSink::demand()`](crate::DecodeRowSink::demand)
+    /// for each strip and writes decoded pixels directly into the returned
+    /// buffer — no intermediate allocation or copy.
+    ///
+    /// For streaming codecs (JPEG baseline, PNG), rows are produced
+    /// incrementally. For full-frame codecs (WebP, AVIF, GIF), the codec
+    /// decodes internally then writes strips to the sink.
+    ///
+    /// Pixels are written in the format from
+    /// [`DecodeJob::output_info()`](crate::DecodeJob::output_info), tightly
+    /// packed (stride = width × bytes_per_pixel).
     fn decode_rows(
         self,
         data: &[u8],
-        sink: &mut dyn FnMut(u32, PixelSlice<'_>),
+        sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<ImageInfo, Self::Error>;
 }
 
@@ -961,13 +970,12 @@ pub trait FrameDecoder: Sized {
         prior_frame: Option<u32>,
     ) -> Result<Option<ImageInfo>, Self::Error>;
 
-    /// Decode next frame, pushing rows to a callback as they become available.
+    /// Decode next frame with row-level streaming into a caller-owned buffer.
     /// Returns `None` when there are no more frames.
     ///
-    /// For codecs that need full-frame decode (AV1), all rows arrive at once.
-    /// For streaming codecs (JPEG, PNG), rows arrive incrementally.
+    /// See [`Decoder::decode_rows()`] for the sink contract.
     fn next_frame_rows(
         &mut self,
-        sink: &mut dyn FnMut(u32, PixelSlice<'_>),
+        sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<ImageInfo>, Self::Error>;
 }
