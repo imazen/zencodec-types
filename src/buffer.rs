@@ -594,7 +594,7 @@ impl<'a> PixelSlice<'a> {
     /// Use this to avoid `collect_contiguous_bytes()` copies when passing
     /// pixel data to FFI or other APIs that need a flat buffer.
     #[inline]
-    pub fn as_contiguous_bytes(&self) -> Option<&[u8]> {
+    pub fn as_contiguous_bytes(&self) -> Option<&'a [u8]> {
         if self.is_contiguous() {
             let total = self.rows as usize * self.stride;
             Some(&self.data[..total])
@@ -607,7 +607,7 @@ impl<'a> PixelSlice<'a> {
     ///
     /// Returns `Cow::Borrowed` when rows are contiguous (zero-copy),
     /// `Cow::Owned` when stride padding must be stripped.
-    pub fn contiguous_bytes(&self) -> alloc::borrow::Cow<'_, [u8]> {
+    pub fn contiguous_bytes(&self) -> alloc::borrow::Cow<'a, [u8]> {
         if let Some(bytes) = self.as_contiguous_bytes() {
             alloc::borrow::Cow::Borrowed(bytes)
         } else {
