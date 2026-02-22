@@ -915,16 +915,17 @@ pub trait Decoder: Sized {
     /// Decode with row-level streaming into a caller-owned buffer.
     ///
     /// The codec calls [`DecodeRowSink::demand()`](crate::DecodeRowSink::demand)
-    /// for each strip and writes decoded pixels directly into the returned
-    /// buffer — no intermediate allocation or copy.
+    /// for each strip. The sink returns `(buffer, stride)` and the codec
+    /// writes `width × bpp` pixel bytes per row at stride offsets — no
+    /// intermediate allocation or copy.
     ///
     /// For streaming codecs (JPEG baseline, PNG), rows are produced
     /// incrementally. For full-frame codecs (WebP, AVIF, GIF), the codec
     /// decodes internally then writes strips to the sink.
     ///
     /// Pixels are written in the format from
-    /// [`DecodeJob::output_info()`](crate::DecodeJob::output_info), tightly
-    /// packed (stride = width × bytes_per_pixel).
+    /// [`DecodeJob::output_info()`](crate::DecodeJob::output_info).
+    /// The sink controls row stride (may be padded for SIMD alignment).
     fn decode_rows(
         self,
         data: &[u8],
