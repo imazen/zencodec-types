@@ -926,11 +926,42 @@ pub trait Decoder: Sized {
     /// Pixels are written in the format from
     /// [`DecodeJob::output_info()`](crate::DecodeJob::output_info).
     /// The sink controls row stride (may be padded for SIMD alignment).
+    ///
+    /// # Default implementation
+    ///
+    /// Calls [`decode()`](Decoder::decode), then copies rows to the sink.
+    /// Codecs with true streaming decode (JPEG baseline) should override
+    /// for zero-copy performance.
     fn decode_rows(
         self,
         data: &[u8],
         sink: &mut dyn crate::DecodeRowSink,
-    ) -> Result<ImageInfo, Self::Error>;
+    ) -> Result<ImageInfo, Self::Error> {
+        let output = self.decode(data)?;
+        let desc = output.descriptor();
+        let bpp = desc.bytes_per_pixel();
+        let w = output.width();
+        let h = output.height();
+        let row_bytes = w as usize * bpp;
+
+        // Try zero-copy path (works for all formats except GrayAlpha)
+        if let Some(slice) = output.pixels().as_pixel_slice() {
+            for y in 0..h {
+                let (buf, _stride) = sink.demand(y, 1, w, bpp);
+                buf[..row_bytes].copy_from_slice(slice.row(y));
+            }
+        } else {
+            // Fallback for GrayAlpha: to_bytes() always works
+            let bytes = output.pixels().to_bytes();
+            for y in 0..h {
+                let (buf, _stride) = sink.demand(y, 1, w, bpp);
+                let src_start = y as usize * row_bytes;
+                buf[..row_bytes].copy_from_slice(&bytes[src_start..src_start + row_bytes]);
+            }
+        }
+
+        Ok(output.info().clone())
+    }
 }
 
 /// Streaming animation decode: pull frames or push rows via callback.
@@ -971,12 +1002,4 @@ pub trait FrameDecoder: Sized {
         prior_frame: Option<u32>,
     ) -> Result<Option<ImageInfo>, Self::Error>;
 
-    /// Decode next frame with row-level streaming into a caller-owned buffer.
-    /// Returns `None` when there are no more frames.
-    ///
-    /// See [`Decoder::decode_rows()`] for the sink contract.
-    fn next_frame_rows(
-        &mut self,
-        sink: &mut dyn crate::DecodeRowSink,
-    ) -> Result<Option<ImageInfo>, Self::Error>;
 }
