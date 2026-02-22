@@ -11,6 +11,8 @@ pub enum ImageFormat {
     Avif,
     Jxl,
     Pnm,
+    Bmp,
+    Farbfeld,
 }
 
 impl ImageFormat {
@@ -63,6 +65,16 @@ impl ImageFormat {
             return Some(ImageFormat::Jxl);
         }
 
+        // BMP: "BM"
+        if data.len() >= 2 && data[0] == b'B' && data[1] == b'M' {
+            return Some(ImageFormat::Bmp);
+        }
+
+        // farbfeld: "farbfeld"
+        if data.len() >= 8 && data[..8] == *b"farbfeld" {
+            return Some(ImageFormat::Farbfeld);
+        }
+
         // PNM family: P1-P7, Pf (grayscale PFM), PF (color PFM)
         if data.len() >= 2 && data[0] == b'P' {
             match data[1] {
@@ -95,6 +107,8 @@ impl ImageFormat {
             b"avif" => Some(ImageFormat::Avif),
             b"jxl" => Some(ImageFormat::Jxl),
             b"pnm" | b"ppm" | b"pgm" | b"pbm" | b"pam" | b"pfm" => Some(ImageFormat::Pnm),
+            b"bmp" => Some(ImageFormat::Bmp),
+            b"ff" => Some(ImageFormat::Farbfeld),
             _ => None,
         }
     }
@@ -109,6 +123,8 @@ impl ImageFormat {
             ImageFormat::Avif => "image/avif",
             ImageFormat::Jxl => "image/jxl",
             ImageFormat::Pnm => "image/x-portable-anymap",
+            ImageFormat::Bmp => "image/bmp",
+            ImageFormat::Farbfeld => "image/x-farbfeld",
         }
     }
 
@@ -122,6 +138,8 @@ impl ImageFormat {
             ImageFormat::Avif => &["avif"],
             ImageFormat::Jxl => &["jxl"],
             ImageFormat::Pnm => &["pnm", "ppm", "pgm", "pbm", "pam", "pfm"],
+            ImageFormat::Bmp => &["bmp"],
+            ImageFormat::Farbfeld => &["ff"],
         }
     }
 
@@ -143,6 +161,8 @@ impl ImageFormat {
                 | ImageFormat::Avif
                 | ImageFormat::Jxl
                 | ImageFormat::Pnm
+                | ImageFormat::Bmp
+                | ImageFormat::Farbfeld
         )
     }
 
@@ -166,13 +186,15 @@ impl ImageFormat {
     /// missing from the probe result.
     pub fn min_probe_bytes(self) -> usize {
         match self {
-            ImageFormat::Png => 33,    // 8 sig + 25 IHDR
-            ImageFormat::Gif => 13,    // 6 header + 7 LSD
-            ImageFormat::WebP => 30,   // RIFF(12) + chunk header + VP8X dims
-            ImageFormat::Jpeg => 2048, // SOF can follow large EXIF/APP segments
-            ImageFormat::Avif => 512,  // ISOBMFF box traversal (ftyp + meta)
-            ImageFormat::Jxl => 256,   // codestream header or container + jxlc
-            ImageFormat::Pnm => 20,    // magic + ASCII dimensions
+            ImageFormat::Png => 33,      // 8 sig + 25 IHDR
+            ImageFormat::Gif => 13,      // 6 header + 7 LSD
+            ImageFormat::WebP => 30,     // RIFF(12) + chunk header + VP8X dims
+            ImageFormat::Jpeg => 2048,   // SOF can follow large EXIF/APP segments
+            ImageFormat::Avif => 512,    // ISOBMFF box traversal (ftyp + meta)
+            ImageFormat::Jxl => 256,     // codestream header or container + jxlc
+            ImageFormat::Pnm => 20,      // magic + ASCII dimensions
+            ImageFormat::Bmp => 54,      // 14 file header + 40 info header
+            ImageFormat::Farbfeld => 16, // 8 magic + 4 width + 4 height
         }
     }
 
@@ -192,6 +214,8 @@ impl core::fmt::Display for ImageFormat {
             ImageFormat::Avif => "AVIF",
             ImageFormat::Jxl => "JPEG XL",
             ImageFormat::Pnm => "PNM",
+            ImageFormat::Bmp => "BMP",
+            ImageFormat::Farbfeld => "farbfeld",
         })
     }
 }
@@ -307,7 +331,6 @@ mod tests {
     #[test]
     fn from_extension_edge_cases() {
         assert_eq!(ImageFormat::from_extension(""), None);
-        assert_eq!(ImageFormat::from_extension("bmp"), None);
         assert_eq!(ImageFormat::from_extension("tiff"), None);
         // Too long for buffer
         assert_eq!(ImageFormat::from_extension("very_long_extension"), None);
@@ -428,5 +451,78 @@ mod tests {
     #[test]
     fn pnm_min_probe_bytes() {
         assert_eq!(ImageFormat::Pnm.min_probe_bytes(), 20);
+    }
+
+    #[test]
+    fn detect_bmp() {
+        assert_eq!(ImageFormat::detect(b"BM\x00\x00"), Some(ImageFormat::Bmp));
+    }
+
+    #[test]
+    fn detect_farbfeld() {
+        assert_eq!(
+            ImageFormat::detect(b"farbfeld\x00\x00\x00\x01\x00\x00\x00\x01"),
+            Some(ImageFormat::Farbfeld)
+        );
+    }
+
+    #[test]
+    fn from_extension_bmp() {
+        assert_eq!(ImageFormat::from_extension("bmp"), Some(ImageFormat::Bmp));
+        assert_eq!(ImageFormat::from_extension("BMP"), Some(ImageFormat::Bmp));
+    }
+
+    #[test]
+    fn from_extension_farbfeld() {
+        assert_eq!(
+            ImageFormat::from_extension("ff"),
+            Some(ImageFormat::Farbfeld)
+        );
+    }
+
+    #[test]
+    fn bmp_capabilities() {
+        assert!(!ImageFormat::Bmp.supports_lossy());
+        assert!(ImageFormat::Bmp.supports_lossless());
+        assert!(!ImageFormat::Bmp.supports_animation());
+        assert!(ImageFormat::Bmp.supports_alpha());
+    }
+
+    #[test]
+    fn farbfeld_capabilities() {
+        assert!(!ImageFormat::Farbfeld.supports_lossy());
+        assert!(ImageFormat::Farbfeld.supports_lossless());
+        assert!(!ImageFormat::Farbfeld.supports_animation());
+        assert!(ImageFormat::Farbfeld.supports_alpha());
+    }
+
+    #[test]
+    fn bmp_display() {
+        assert_eq!(alloc::format!("{}", ImageFormat::Bmp), "BMP");
+    }
+
+    #[test]
+    fn farbfeld_display() {
+        assert_eq!(alloc::format!("{}", ImageFormat::Farbfeld), "farbfeld");
+    }
+
+    #[test]
+    fn bmp_mime_type() {
+        assert_eq!(ImageFormat::Bmp.mime_type(), "image/bmp");
+    }
+
+    #[test]
+    fn farbfeld_mime_type() {
+        assert_eq!(ImageFormat::Farbfeld.mime_type(), "image/x-farbfeld");
+    }
+
+    #[test]
+    fn bmp_extensions() {
+        assert_eq!(ImageFormat::Bmp.extensions(), &["bmp"]);
+    }
+
+    #[test]
+    fn farbfeld_extensions() {
+        assert_eq!(ImageFormat::Farbfeld.extensions(), &["ff"]);
     }
 }
