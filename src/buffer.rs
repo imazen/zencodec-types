@@ -577,6 +577,50 @@ impl<'a> PixelSlice<'a> {
         self.descriptor
     }
 
+    /// Whether rows are tightly packed (no stride padding).
+    ///
+    /// When true, the entire pixel data is contiguous in memory and
+    /// [`as_contiguous_bytes()`](Self::as_contiguous_bytes) returns `Some`.
+    #[inline]
+    pub fn is_contiguous(&self) -> bool {
+        self.stride == self.width as usize * self.descriptor.bytes_per_pixel()
+    }
+
+    /// Zero-copy access to the raw pixel bytes when rows are tightly packed.
+    ///
+    /// Returns `Some(&[u8])` if `stride == width * bpp` (no padding),
+    /// `None` if rows have stride padding.
+    ///
+    /// Use this to avoid `collect_contiguous_bytes()` copies when passing
+    /// pixel data to FFI or other APIs that need a flat buffer.
+    #[inline]
+    pub fn as_contiguous_bytes(&self) -> Option<&[u8]> {
+        if self.is_contiguous() {
+            let total = self.rows as usize * self.stride;
+            Some(&self.data[..total])
+        } else {
+            None
+        }
+    }
+
+    /// Get the raw pixel bytes, copying only if stride padding exists.
+    ///
+    /// Returns `Cow::Borrowed` when rows are contiguous (zero-copy),
+    /// `Cow::Owned` when stride padding must be stripped.
+    pub fn contiguous_bytes(&self) -> alloc::borrow::Cow<'_, [u8]> {
+        if let Some(bytes) = self.as_contiguous_bytes() {
+            alloc::borrow::Cow::Borrowed(bytes)
+        } else {
+            let bpp = self.descriptor.bytes_per_pixel();
+            let row_bytes = self.width as usize * bpp;
+            let mut buf = Vec::with_capacity(row_bytes * self.rows as usize);
+            for y in 0..self.rows {
+                buf.extend_from_slice(self.row(y));
+            }
+            alloc::borrow::Cow::Owned(buf)
+        }
+    }
+
     /// Pixel bytes for row `y` (no padding, exactly `width * bpp` bytes).
     ///
     /// # Panics
