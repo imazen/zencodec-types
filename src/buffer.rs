@@ -414,11 +414,27 @@ impl PixelDescriptor {
         matches!(self.transfer, TransferFunction::Unknown)
     }
 
-    /// Compute the byte stride for a given width, aligned to channel type.
+    /// Compute the tightly-packed byte stride for a given width.
+    ///
+    /// The returned stride equals `width * bytes_per_pixel()` and is
+    /// guaranteed to be a multiple of `bytes_per_pixel()`.
     #[inline]
     pub const fn aligned_stride(self, width: u32) -> usize {
-        let raw = width as usize * self.bytes_per_pixel();
-        align_up(raw, self.min_alignment())
+        width as usize * self.bytes_per_pixel()
+    }
+
+    /// Compute a SIMD-friendly byte stride for a given width.
+    ///
+    /// The stride is a multiple of `lcm(bytes_per_pixel, simd_align)`,
+    /// ensuring every row start is both pixel-aligned and SIMD-aligned.
+    ///
+    /// `simd_align` must be a power of 2 (e.g. 16, 32, 64).
+    #[inline]
+    pub const fn simd_aligned_stride(self, width: u32, simd_align: usize) -> usize {
+        let bpp = self.bytes_per_pixel();
+        let raw = width as usize * bpp;
+        let align = lcm(bpp, simd_align);
+        align_up_general(raw, align)
     }
 }
 
@@ -436,6 +452,11 @@ pub enum BufferError {
     InsufficientData,
     /// Stride is smaller than `width * bytes_per_pixel`.
     StrideTooSmall,
+    /// Stride is not a multiple of `bytes_per_pixel`.
+    ///
+    /// Every row must start on a pixel boundary. If stride is not a
+    /// multiple of bpp, rows after the first will be misaligned.
+    StrideNotPixelAligned,
     /// Width or height is zero or causes overflow.
     InvalidDimensions,
     /// Descriptor does not match any [`PixelData`] variant.
@@ -450,6 +471,9 @@ impl fmt::Display for BufferError {
                 write!(f, "data slice is too small for the given dimensions")
             }
             Self::StrideTooSmall => write!(f, "stride is smaller than width * bytes_per_pixel"),
+            Self::StrideNotPixelAligned => {
+                write!(f, "stride is not a multiple of bytes_per_pixel")
+            }
             Self::InvalidDimensions => write!(f, "width or height is zero or causes overflow"),
             Self::FormatMismatch => write!(f, "pixel format has no matching PixelData variant"),
         }
@@ -495,6 +519,9 @@ impl<'a> PixelSlice<'a> {
             .ok_or(BufferError::InvalidDimensions)?;
         if stride < min_stride {
             return Err(BufferError::StrideTooSmall);
+        }
+        if bpp > 0 && !stride.is_multiple_of(bpp) {
+            return Err(BufferError::StrideNotPixelAligned);
         }
         if rows > 0 {
             let required = required_bytes(rows, stride, min_stride)?;
@@ -703,6 +730,9 @@ impl<'a> PixelSliceMut<'a> {
         if stride < min_stride {
             return Err(BufferError::StrideTooSmall);
         }
+        if bpp > 0 && !stride.is_multiple_of(bpp) {
+            return Err(BufferError::StrideNotPixelAligned);
+        }
         if rows > 0 {
             let required = required_bytes(rows, stride, min_stride)?;
             if data.len() < required {
@@ -853,6 +883,34 @@ impl PixelBuffer {
         let alloc_size = total + align - 1;
         let data = vec![0u8; alloc_size];
         let offset = align_offset(data.as_ptr(), align);
+        Self {
+            data,
+            offset,
+            width,
+            height,
+            stride,
+            descriptor,
+        }
+    }
+
+    /// Allocate a SIMD-aligned buffer for the given dimensions and format.
+    ///
+    /// Row stride is a multiple of `lcm(bpp, simd_align)`, ensuring every
+    /// row start is both pixel-aligned and SIMD-aligned when the buffer
+    /// itself starts at a SIMD-aligned address.
+    ///
+    /// `simd_align` must be a power of 2 (e.g. 16, 32, 64).
+    pub fn new_simd_aligned(
+        width: u32,
+        height: u32,
+        descriptor: PixelDescriptor,
+        simd_align: usize,
+    ) -> Self {
+        let stride = descriptor.simd_aligned_stride(width, simd_align);
+        let total = stride * height as usize;
+        let alloc_size = total + simd_align - 1;
+        let data = vec![0u8; alloc_size];
+        let offset = align_offset(data.as_ptr(), simd_align);
         Self {
             data,
             offset,
@@ -1297,6 +1355,31 @@ const fn align_up(val: usize, align: usize) -> usize {
     (val + align - 1) & !(align - 1)
 }
 
+/// Round `val` up to the next multiple of `align` (any positive integer).
+const fn align_up_general(val: usize, align: usize) -> usize {
+    let rem = val % align;
+    if rem == 0 {
+        val
+    } else {
+        val + (align - rem)
+    }
+}
+
+/// Greatest common divisor (Euclidean algorithm).
+const fn gcd(mut a: usize, mut b: usize) -> usize {
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    a
+}
+
+/// Least common multiple.
+const fn lcm(a: usize, b: usize) -> usize {
+    a / gcd(a, b) * b
+}
+
 /// Compute the byte offset needed to align `ptr` to `align`.
 fn align_offset(ptr: *const u8, align: usize) -> usize {
     let addr = ptr as usize;
@@ -1398,14 +1481,76 @@ mod tests {
 
     #[test]
     fn descriptor_aligned_stride() {
-        // RGB8: width=10, bpp=3 → stride=30, align=1 → 30
+        // RGB8: width=10, bpp=3 → stride=30
         assert_eq!(PixelDescriptor::RGB8_SRGB.aligned_stride(10), 30);
-        // RGB16: width=10, bpp=6 → stride=60, align=2 → 60
+        // RGB16: width=10, bpp=6 → stride=60
         assert_eq!(PixelDescriptor::RGB16_SRGB.aligned_stride(10), 60);
-        // RGBF32: width=10, bpp=12 → stride=120, align=4 → 120
+        // RGBF32: width=10, bpp=12 → stride=120
         assert_eq!(PixelDescriptor::RGBF32_LINEAR.aligned_stride(10), 120);
         // Gray8: width=1, bpp=1 → stride=1
         assert_eq!(PixelDescriptor::GRAY8_SRGB.aligned_stride(1), 1);
+    }
+
+    #[test]
+    fn descriptor_simd_aligned_stride() {
+        // RGB8 bpp=3 with simd=64 → lcm(3,64)=192 → next multiple of 192
+        // width=10, raw=30 → align_up_general(30, 192) = 192
+        assert_eq!(PixelDescriptor::RGB8_SRGB.simd_aligned_stride(10, 64), 192);
+        // RGBA8 bpp=4 with simd=64 → lcm(4,64)=64
+        // width=10, raw=40 → align_up_general(40, 64) = 64
+        assert_eq!(PixelDescriptor::RGBA8_SRGB.simd_aligned_stride(10, 64), 64);
+        // RGBF32 bpp=12 with simd=64 → lcm(12,64)=192
+        // width=10, raw=120 → align_up_general(120, 192) = 192
+        assert_eq!(
+            PixelDescriptor::RGBF32_LINEAR.simd_aligned_stride(10, 64),
+            192
+        );
+        // RGBAF32 bpp=16 with simd=64 → lcm(16,64)=64
+        // width=10, raw=160 → align_up_general(160, 64) = 192
+        assert_eq!(
+            PixelDescriptor::RGBAF32_LINEAR.simd_aligned_stride(10, 64),
+            192
+        );
+        // Gray8 bpp=1 with simd=64 → lcm(1,64)=64
+        // width=100, raw=100 → 128
+        assert_eq!(
+            PixelDescriptor::GRAY8_SRGB.simd_aligned_stride(100, 64),
+            128
+        );
+    }
+
+    #[test]
+    fn stride_not_pixel_aligned_rejected() {
+        // RGB8 bpp=3, stride=32 is not a multiple of 3
+        let data = [0u8; 128];
+        let err = PixelSlice::new(&data, 10, 1, 32, PixelDescriptor::RGB8_SRGB);
+        assert_eq!(err.unwrap_err(), BufferError::StrideNotPixelAligned);
+
+        // stride=33 IS a multiple of 3 → accepted
+        let ok = PixelSlice::new(&data, 10, 1, 33, PixelDescriptor::RGB8_SRGB);
+        assert!(ok.is_ok());
+    }
+
+    #[test]
+    fn stride_pixel_aligned_accepted() {
+        // RGBA8 bpp=4, stride=48 is a multiple of 4
+        let data = [0u8; 256];
+        let ok = PixelSlice::new(&data, 10, 2, 48, PixelDescriptor::RGBA8_SRGB);
+        assert!(ok.is_ok());
+        let s = ok.unwrap();
+        assert_eq!(s.stride(), 48);
+    }
+
+    #[test]
+    fn pixel_buffer_simd_aligned() {
+        let buf = PixelBuffer::new_simd_aligned(10, 5, PixelDescriptor::RGBA8_SRGB, 64);
+        assert_eq!(buf.width(), 10);
+        assert_eq!(buf.height(), 5);
+        // RGBA8 bpp=4, lcm(4,64)=64, raw=40 → stride=64
+        assert_eq!(buf.stride(), 64);
+        // First row should be 64-byte aligned
+        let slice = buf.as_slice();
+        assert_eq!(slice.data.as_ptr() as usize % 64, 0);
     }
 
     #[test]
