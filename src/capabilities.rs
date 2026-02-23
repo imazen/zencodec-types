@@ -613,7 +613,6 @@ impl CodecCapabilities {
         self.row_level_frame_decode = v;
         self
     }
-
 }
 
 impl core::fmt::Debug for CodecCapabilities {

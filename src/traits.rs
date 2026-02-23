@@ -894,7 +894,6 @@ pub trait DecodeJob<'a>: Sized {
     /// Returns an error if the codec does not support animation decoding
     /// or if the container parse fails.
     fn frame_decoder(self, data: &[u8]) -> Result<Self::FrameDecoder, Self::Error>;
-
 }
 
 /// One-shot decode: all pixels at once, into a caller buffer, or row-level callback.
@@ -1001,5 +1000,4 @@ pub trait FrameDecoder: Sized {
         dst: PixelSliceMut<'_>,
         prior_frame: Option<u32>,
     ) -> Result<Option<ImageInfo>, Self::Error>;
-
 }

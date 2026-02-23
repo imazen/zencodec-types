@@ -1538,11 +1538,7 @@ const fn align_up(val: usize, align: usize) -> usize {
 /// Round `val` up to the next multiple of `align` (any positive integer).
 const fn align_up_general(val: usize, align: usize) -> usize {
     let rem = val % align;
-    if rem == 0 {
-        val
-    } else {
-        val + (align - rem)
-    }
+    if rem == 0 { val } else { val + (align - rem) }
 }
 
 /// Greatest common divisor (Euclidean algorithm).

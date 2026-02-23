@@ -8,8 +8,8 @@
 //! [`WorkingColorSpace`] tracks which color space pixels are currently
 //! in, so the planner knows what transforms have been applied.
 
-use alloc::sync::Arc;
 use crate::Cicp;
+use alloc::sync::Arc;
 
 /// A source color profile — either ICC bytes or CICP parameters.
 ///
