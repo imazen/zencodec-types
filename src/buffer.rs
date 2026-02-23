@@ -405,6 +405,18 @@ impl PixelDescriptor {
         !matches!(self.alpha, AlphaMode::None)
     }
 
+    /// Whether this format is grayscale (Gray or GrayAlpha layout).
+    #[inline]
+    pub const fn is_grayscale(self) -> bool {
+        matches!(self.layout, ChannelLayout::Gray | ChannelLayout::GrayAlpha)
+    }
+
+    /// Whether this format uses BGR/BGRA channel order.
+    #[inline]
+    pub const fn is_bgr(self) -> bool {
+        matches!(self.layout, ChannelLayout::Bgra)
+    }
+
     /// Whether the transfer function is [`Linear`](TransferFunction::Linear).
     ///
     /// Returns `false` for [`Unknown`](TransferFunction::Unknown) — callers
@@ -1812,6 +1824,28 @@ mod tests {
         // Unknown constants are layout-compatible with explicit ones
         assert!(PixelDescriptor::RGB8.layout_compatible(&PixelDescriptor::RGB8_SRGB));
         assert!(PixelDescriptor::RGBF32.layout_compatible(&PixelDescriptor::RGBF32_LINEAR));
+    }
+
+    #[test]
+    fn descriptor_is_grayscale() {
+        assert!(PixelDescriptor::GRAY8_SRGB.is_grayscale());
+        assert!(PixelDescriptor::GRAY16_SRGB.is_grayscale());
+        assert!(PixelDescriptor::GRAYF32_LINEAR.is_grayscale());
+        assert!(PixelDescriptor::GRAYA8_SRGB.is_grayscale());
+        assert!(PixelDescriptor::GRAYA16_SRGB.is_grayscale());
+        assert!(PixelDescriptor::GRAYAF32_LINEAR.is_grayscale());
+        assert!(!PixelDescriptor::RGB8_SRGB.is_grayscale());
+        assert!(!PixelDescriptor::RGBA8_SRGB.is_grayscale());
+        assert!(!PixelDescriptor::BGRA8_SRGB.is_grayscale());
+    }
+
+    #[test]
+    fn descriptor_is_bgr() {
+        assert!(PixelDescriptor::BGRA8_SRGB.is_bgr());
+        assert!(PixelDescriptor::BGRX8_SRGB.is_bgr());
+        assert!(!PixelDescriptor::RGB8_SRGB.is_bgr());
+        assert!(!PixelDescriptor::RGBA8_SRGB.is_bgr());
+        assert!(!PixelDescriptor::GRAY8_SRGB.is_bgr());
     }
 
     #[test]
