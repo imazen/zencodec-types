@@ -1,9 +1,10 @@
 //! Image metadata types.
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use crate::buffer::PixelDescriptor;
-use crate::color::ColorProfileSource;
+use crate::color::{ColorContext, ColorProfileSource};
 use crate::{ImageFormat, Orientation};
 
 /// CICP color description (ITU-T H.273).
@@ -157,7 +158,11 @@ impl core::fmt::Display for Cicp {
             Self::color_primaries_name(self.color_primaries),
             Self::transfer_characteristics_name(self.transfer_characteristics),
             Self::matrix_coefficients_name(self.matrix_coefficients),
-            if self.full_range { "full range" } else { "limited range" },
+            if self.full_range {
+                "full range"
+            } else {
+                "limited range"
+            },
         )
     }
 }
@@ -284,7 +289,10 @@ pub struct ImageInfo {
     /// Mastering Display Color Volume (SMPTE ST 2086) for HDR content.
     pub mastering_display: Option<MasteringDisplay>,
     /// Embedded ICC color profile.
-    pub icc_profile: Option<Vec<u8>>,
+    ///
+    /// Stored as `Arc<[u8]>` for cheap sharing across pipeline stages
+    /// and pixel slices. Accepts `Vec<u8>` via [`with_icc_profile()`](Self::with_icc_profile).
+    pub icc_profile: Option<Arc<[u8]>>,
     /// Embedded EXIF metadata.
     pub exif: Option<Vec<u8>>,
     /// Embedded XMP metadata.
@@ -392,8 +400,10 @@ impl ImageInfo {
     }
 
     /// Set the ICC color profile.
-    pub fn with_icc_profile(mut self, icc: Vec<u8>) -> Self {
-        self.icc_profile = Some(icc);
+    ///
+    /// Accepts `Vec<u8>`, `&[u8]`, or `Arc<[u8]>`.
+    pub fn with_icc_profile(mut self, icc: impl Into<Arc<[u8]>>) -> Self {
+        self.icc_profile = Some(icc.into());
         self
     }
 
@@ -495,6 +505,22 @@ impl ImageInfo {
             Some(ColorProfileSource::Cicp(cicp))
         } else {
             self.icc_profile.as_deref().map(ColorProfileSource::Icc)
+        }
+    }
+
+    /// Build a [`ColorContext`] from the embedded ICC and CICP metadata.
+    ///
+    /// Returns `None` if neither ICC nor CICP is present.
+    /// The returned `Arc<ColorContext>` is suitable for attaching to
+    /// [`PixelSlice`](crate::PixelSlice) and pipeline sources.
+    pub fn color_context(&self) -> Option<Arc<ColorContext>> {
+        if self.icc_profile.is_some() || self.cicp.is_some() {
+            Some(Arc::new(ColorContext {
+                icc: self.icc_profile.clone(),
+                cicp: self.cicp,
+            }))
+        } else {
+            None
         }
     }
 

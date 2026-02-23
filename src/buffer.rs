@@ -3,6 +3,7 @@
 //! Provides format-aware pixel storage that carries its own metadata,
 //! eliminating the need to match on 13 [`PixelData`](crate::PixelData) variants.
 
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
@@ -11,6 +12,7 @@ use imgref::ImgRef;
 use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
+use crate::color::{ColorContext, WorkingColorSpace};
 use crate::pixel::{GrayAlpha, PixelData};
 
 // ---------------------------------------------------------------------------
@@ -490,6 +492,10 @@ impl core::error::Error for BufferError {}
 ///
 /// Represents a contiguous region of pixel rows, possibly a sub-region
 /// of a larger buffer. All rows share the same stride.
+///
+/// Optionally carries [`ColorContext`] and [`WorkingColorSpace`] to
+/// track source color metadata and current color space through the
+/// processing pipeline.
 #[non_exhaustive]
 pub struct PixelSlice<'a> {
     data: &'a [u8],
@@ -497,6 +503,8 @@ pub struct PixelSlice<'a> {
     rows: u32,
     stride: usize,
     descriptor: PixelDescriptor,
+    working_space: WorkingColorSpace,
+    color: Option<Arc<ColorContext>>,
 }
 
 impl<'a> PixelSlice<'a> {
@@ -539,6 +547,8 @@ impl<'a> PixelSlice<'a> {
             rows,
             stride,
             descriptor,
+            working_space: WorkingColorSpace::Native,
+            color: None,
         })
     }
 
@@ -575,6 +585,32 @@ impl<'a> PixelSlice<'a> {
     #[inline]
     pub fn descriptor(&self) -> PixelDescriptor {
         self.descriptor
+    }
+
+    /// Source color context (ICC/CICP metadata), if set.
+    #[inline]
+    pub fn color_context(&self) -> Option<&Arc<ColorContext>> {
+        self.color.as_ref()
+    }
+
+    /// Return a copy of this slice with a color context attached.
+    #[inline]
+    pub fn with_color_context(mut self, ctx: Arc<ColorContext>) -> Self {
+        self.color = Some(ctx);
+        self
+    }
+
+    /// Current working color space.
+    #[inline]
+    pub fn working_space(&self) -> WorkingColorSpace {
+        self.working_space
+    }
+
+    /// Return a copy of this slice with a different working color space.
+    #[inline]
+    pub fn with_working_space(mut self, ws: WorkingColorSpace) -> Self {
+        self.working_space = ws;
+        self
     }
 
     /// Whether rows are tightly packed (no stride padding).
@@ -674,6 +710,8 @@ impl<'a> PixelSlice<'a> {
                 rows: 0,
                 stride: self.stride,
                 descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color.clone(),
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -685,6 +723,8 @@ impl<'a> PixelSlice<'a> {
             rows: count,
             stride: self.stride,
             descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
         }
     }
 
@@ -712,6 +752,8 @@ impl<'a> PixelSlice<'a> {
                 rows: h,
                 stride: self.stride,
                 descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color.clone(),
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -723,6 +765,8 @@ impl<'a> PixelSlice<'a> {
             rows: h,
             stride: self.stride,
             descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
         }
     }
 }
@@ -751,6 +795,8 @@ pub struct PixelSliceMut<'a> {
     rows: u32,
     stride: usize,
     descriptor: PixelDescriptor,
+    working_space: WorkingColorSpace,
+    color: Option<Arc<ColorContext>>,
 }
 
 impl<'a> PixelSliceMut<'a> {
@@ -793,6 +839,8 @@ impl<'a> PixelSliceMut<'a> {
             rows,
             stride,
             descriptor,
+            working_space: WorkingColorSpace::Native,
+            color: None,
         })
     }
 
@@ -818,6 +866,32 @@ impl<'a> PixelSliceMut<'a> {
     #[inline]
     pub fn descriptor(&self) -> PixelDescriptor {
         self.descriptor
+    }
+
+    /// Source color context (ICC/CICP metadata), if set.
+    #[inline]
+    pub fn color_context(&self) -> Option<&Arc<ColorContext>> {
+        self.color.as_ref()
+    }
+
+    /// Return a copy of this slice with a color context attached.
+    #[inline]
+    pub fn with_color_context(mut self, ctx: Arc<ColorContext>) -> Self {
+        self.color = Some(ctx);
+        self
+    }
+
+    /// Current working color space.
+    #[inline]
+    pub fn working_space(&self) -> WorkingColorSpace {
+        self.working_space
+    }
+
+    /// Return a copy of this slice with a different working color space.
+    #[inline]
+    pub fn with_working_space(mut self, ws: WorkingColorSpace) -> Self {
+        self.working_space = ws;
+        self
     }
 
     /// Pixel bytes for row `y` (immutable, no padding).
@@ -872,6 +946,8 @@ impl<'a> PixelSliceMut<'a> {
                 rows: 0,
                 stride: self.stride,
                 descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color.clone(),
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -883,6 +959,8 @@ impl<'a> PixelSliceMut<'a> {
             rows: count,
             stride: self.stride,
             descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
         }
     }
 }
@@ -916,6 +994,8 @@ pub struct PixelBuffer {
     height: u32,
     stride: usize,
     descriptor: PixelDescriptor,
+    working_space: WorkingColorSpace,
+    color: Option<Arc<ColorContext>>,
 }
 
 impl PixelBuffer {
@@ -934,6 +1014,8 @@ impl PixelBuffer {
             height,
             stride,
             descriptor,
+            working_space: WorkingColorSpace::Native,
+            color: None,
         }
     }
 
@@ -962,6 +1044,8 @@ impl PixelBuffer {
             height,
             stride,
             descriptor,
+            working_space: WorkingColorSpace::Native,
+            color: None,
         }
     }
 
@@ -996,6 +1080,8 @@ impl PixelBuffer {
             height,
             stride,
             descriptor,
+            working_space: WorkingColorSpace::Native,
+            color: None,
         })
     }
 
@@ -1028,6 +1114,32 @@ impl PixelBuffer {
         self.descriptor
     }
 
+    /// Source color context (ICC/CICP metadata), if set.
+    #[inline]
+    pub fn color_context(&self) -> Option<&Arc<ColorContext>> {
+        self.color.as_ref()
+    }
+
+    /// Set the color context on this buffer.
+    #[inline]
+    pub fn with_color_context(mut self, ctx: Arc<ColorContext>) -> Self {
+        self.color = Some(ctx);
+        self
+    }
+
+    /// Current working color space.
+    #[inline]
+    pub fn working_space(&self) -> WorkingColorSpace {
+        self.working_space
+    }
+
+    /// Set the working color space.
+    #[inline]
+    pub fn with_working_space(mut self, ws: WorkingColorSpace) -> Self {
+        self.working_space = ws;
+        self
+    }
+
     /// Borrow the full buffer as an immutable [`PixelSlice`].
     pub fn as_slice(&self) -> PixelSlice<'_> {
         let total = self.stride * self.height as usize;
@@ -1037,6 +1149,8 @@ impl PixelBuffer {
             rows: self.height,
             stride: self.stride,
             descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
         }
     }
 
@@ -1050,6 +1164,8 @@ impl PixelBuffer {
             rows: self.height,
             stride: self.stride,
             descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
         }
     }
 
@@ -1071,6 +1187,8 @@ impl PixelBuffer {
                 rows: 0,
                 stride: self.stride,
                 descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color.clone(),
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -1084,6 +1202,8 @@ impl PixelBuffer {
             rows: count,
             stride: self.stride,
             descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
         }
     }
 
@@ -1105,6 +1225,8 @@ impl PixelBuffer {
                 rows: 0,
                 stride: self.stride,
                 descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color.clone(),
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -1118,6 +1240,8 @@ impl PixelBuffer {
             rows: count,
             stride: self.stride,
             descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
         }
     }
 
@@ -1144,6 +1268,8 @@ impl PixelBuffer {
                 rows: h,
                 stride: self.stride,
                 descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color.clone(),
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -1157,6 +1283,8 @@ impl PixelBuffer {
             rows: h,
             stride: self.stride,
             descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
         }
     }
 
@@ -1168,6 +1296,8 @@ impl PixelBuffer {
     pub fn crop_copy(&self, x: u32, y: u32, w: u32, h: u32) -> PixelBuffer {
         let src = self.crop_view(x, y, w, h);
         let mut dst = PixelBuffer::new(w, h, self.descriptor);
+        dst.working_space = self.working_space;
+        dst.color = self.color.clone();
         let bpp = self.descriptor.bytes_per_pixel();
         let row_bytes = w as usize * bpp;
         for row_y in 0..h {
@@ -1206,6 +1336,8 @@ macro_rules! impl_from_imgref {
                     rows: img.height() as u32,
                     stride: byte_stride,
                     descriptor: $descriptor,
+                    working_space: WorkingColorSpace::Native,
+                    color: None,
                 }
             }
         }
@@ -1245,6 +1377,8 @@ macro_rules! impl_from_imgref_mut {
                     rows,
                     stride: byte_stride,
                     descriptor: $descriptor,
+                    working_space: WorkingColorSpace::Native,
+                    color: None,
                 }
             }
         }
@@ -1280,6 +1414,8 @@ impl From<PixelData> for PixelBuffer {
             height,
             stride,
             descriptor,
+            working_space: WorkingColorSpace::Native,
+            color: None,
         }
     }
 }

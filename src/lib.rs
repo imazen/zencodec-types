@@ -44,7 +44,7 @@ pub use buffer::{
     PixelSliceMut, TransferFunction,
 };
 pub use capabilities::{CodecCapabilities, HasUnsupportedOperation, UnsupportedOperation};
-pub use color::{ColorProfileSource, NamedProfile};
+pub use color::{ColorContext, ColorProfileSource, NamedProfile, WorkingColorSpace};
 pub use format::ImageFormat;
 pub use gainmap::GainMapMetadata;
 pub use info::{
