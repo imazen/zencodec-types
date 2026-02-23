@@ -468,7 +468,10 @@ pub trait EncodeJob<'a>: Sized {
 /// when rows are pushed or pulled incrementally.
 pub trait Encoder: Sized {
     /// The codec-specific error type.
-    type Error: core::error::Error + Send + Sync + 'static;
+    ///
+    /// Must implement `From<UnsupportedOperation>` so default method
+    /// implementations can return proper errors for unimplemented paths.
+    type Error: core::error::Error + Send + Sync + 'static + From<crate::UnsupportedOperation>;
 
     /// Suggested strip height for optimal row-level encoding.
     ///
@@ -488,16 +491,22 @@ pub trait Encoder: Sized {
     ///
     /// Codec may buffer internally if it needs full-frame data (e.g. AV1).
     ///
-    /// Default: panics. Override if the codec supports row-level encoding.
+    /// # Errors
+    ///
+    /// Default returns [`UnsupportedOperation::RowLevelEncode`](crate::UnsupportedOperation::RowLevelEncode).
+    /// Override if the codec supports row-level encoding.
     fn push_rows(&mut self, _rows: PixelSlice<'_>) -> Result<(), Self::Error> {
-        unimplemented!("this codec does not support row-level encoding; use encode() instead")
+        Err(crate::UnsupportedOperation::RowLevelEncode.into())
     }
 
     /// Finalize after push_rows. Returns encoded output.
     ///
-    /// Default: panics. Override if the codec supports row-level encoding.
+    /// # Errors
+    ///
+    /// Default returns [`UnsupportedOperation::RowLevelEncode`](crate::UnsupportedOperation::RowLevelEncode).
+    /// Override if the codec supports row-level encoding.
     fn finish(self) -> Result<EncodeOutput, Self::Error> {
-        unimplemented!("this codec does not support row-level encoding; use encode() instead")
+        Err(crate::UnsupportedOperation::RowLevelEncode.into())
     }
 
     /// Encode by pulling rows from a source callback.
@@ -510,12 +519,15 @@ pub trait Encoder: Sized {
     /// This is useful when pixel data is generated on-the-fly or comes
     /// from a source that produces rows in order (e.g., a render pipeline).
     ///
-    /// Default: panics. Override if the codec supports pull encoding.
+    /// # Errors
+    ///
+    /// Default returns [`UnsupportedOperation::PullEncode`](crate::UnsupportedOperation::PullEncode).
+    /// Override if the codec supports pull encoding.
     fn encode_from(
         self,
         _source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
     ) -> Result<EncodeOutput, Self::Error> {
-        unimplemented!("this codec does not support pull encoding; use encode() instead")
+        Err(crate::UnsupportedOperation::PullEncode.into())
     }
 }
 
@@ -538,7 +550,10 @@ pub trait Encoder: Sized {
 /// before creating the frame encoder.
 pub trait FrameEncoder: Sized {
     /// The codec-specific error type.
-    type Error: core::error::Error + Send + Sync + 'static;
+    ///
+    /// Must implement `From<UnsupportedOperation>` so default method
+    /// implementations can return proper errors for unimplemented paths.
+    type Error: core::error::Error + Send + Sync + 'static + From<crate::UnsupportedOperation>;
 
     /// Push a complete full-canvas frame.
     ///
@@ -562,29 +577,32 @@ pub trait FrameEncoder: Sized {
 
     /// Begin a new frame (for row-level building).
     ///
-    /// Default: panics. Override if the codec supports row-level frame building.
+    /// # Errors
+    ///
+    /// Default returns [`UnsupportedOperation::RowLevelFrameEncode`](crate::UnsupportedOperation::RowLevelFrameEncode).
+    /// Override if the codec supports row-level frame building.
     fn begin_frame(&mut self, _duration_ms: u32) -> Result<(), Self::Error> {
-        unimplemented!(
-            "this codec does not support row-level frame building; use push_frame() instead"
-        )
+        Err(crate::UnsupportedOperation::RowLevelFrameEncode.into())
     }
 
     /// Push rows into the current frame (after begin_frame).
     ///
-    /// Default: panics. Override if the codec supports row-level frame building.
+    /// # Errors
+    ///
+    /// Default returns [`UnsupportedOperation::RowLevelFrameEncode`](crate::UnsupportedOperation::RowLevelFrameEncode).
+    /// Override if the codec supports row-level frame building.
     fn push_rows(&mut self, _rows: PixelSlice<'_>) -> Result<(), Self::Error> {
-        unimplemented!(
-            "this codec does not support row-level frame building; use push_frame() instead"
-        )
+        Err(crate::UnsupportedOperation::RowLevelFrameEncode.into())
     }
 
     /// End the current frame (after pushing all rows).
     ///
-    /// Default: panics. Override if the codec supports row-level frame building.
+    /// # Errors
+    ///
+    /// Default returns [`UnsupportedOperation::RowLevelFrameEncode`](crate::UnsupportedOperation::RowLevelFrameEncode).
+    /// Override if the codec supports row-level frame building.
     fn end_frame(&mut self) -> Result<(), Self::Error> {
-        unimplemented!(
-            "this codec does not support row-level frame building; use push_frame() instead"
-        )
+        Err(crate::UnsupportedOperation::RowLevelFrameEncode.into())
     }
 
     /// Encode a frame by pulling rows from a source callback.
@@ -593,15 +611,16 @@ pub trait FrameEncoder: Sized {
     /// mutable buffer slice. The callback fills the buffer and returns the
     /// number of rows written. Returns `0` to signal end of frame.
     ///
-    /// Default: panics. Override if the codec supports pull frame building.
+    /// # Errors
+    ///
+    /// Default returns [`UnsupportedOperation::PullFrameEncode`](crate::UnsupportedOperation::PullFrameEncode).
+    /// Override if the codec supports pull frame building.
     fn pull_frame(
         &mut self,
         _duration_ms: u32,
         _source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
     ) -> Result<(), Self::Error> {
-        unimplemented!(
-            "this codec does not support pull frame building; use push_frame() instead"
-        )
+        Err(crate::UnsupportedOperation::PullFrameEncode.into())
     }
 
     /// Set animation loop count.
