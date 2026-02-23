@@ -64,6 +64,31 @@ pub use traits::{
     FrameEncoder,
 };
 
+/// Clamp calibrated quality to the valid 0.0–100.0 range.
+///
+/// Use this in codec [`EncoderConfig::with_calibrated_quality()`] and
+/// [`EncoderConfig::with_alpha_quality()`] implementations to validate
+/// and clamp the input value. Fires a `debug_assert` on out-of-range
+/// values so callers discover mistakes during development.
+///
+/// # Example
+///
+/// ```
+/// use zencodec_types::clamp_quality;
+///
+/// assert_eq!(clamp_quality(85.0), 85.0);
+/// assert_eq!(clamp_quality(0.0), 0.0);
+/// assert_eq!(clamp_quality(100.0), 100.0);
+/// ```
+#[inline]
+pub fn clamp_quality(q: f32) -> f32 {
+    debug_assert!(
+        (0.0..=100.0).contains(&q),
+        "calibrated quality {q} outside 0.0–100.0 range"
+    );
+    q.clamp(0.0, 100.0)
+}
+
 // Re-exports for codec implementors and users.
 pub use enough::{Stop, Unstoppable};
 pub use imgref::{Img, ImgRef, ImgRefMut, ImgVec};
