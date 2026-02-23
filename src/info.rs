@@ -605,6 +605,133 @@ impl Default for MetadataView<'_> {
 #[deprecated(since = "0.2.0", note = "renamed to MetadataView")]
 pub type ImageMetadata<'a> = MetadataView<'a>;
 
+/// Owned image metadata for cross-boundary transfer.
+///
+/// Like [`MetadataView`] but owns its byte buffers. Use when metadata
+/// must outlive the source (pipelines, caches, async boundaries).
+///
+/// Convert from borrowed views via `From<MetadataView<'_>>`, or extract
+/// from decoded info via `From<&ImageInfo>`.
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub struct Metadata {
+    /// ICC color profile.
+    pub icc_profile: Option<Vec<u8>>,
+    /// EXIF metadata.
+    pub exif: Option<Vec<u8>>,
+    /// XMP metadata.
+    pub xmp: Option<Vec<u8>>,
+    /// CICP color description.
+    pub cicp: Option<Cicp>,
+    /// Content Light Level Info for HDR content.
+    pub content_light_level: Option<ContentLightLevel>,
+    /// Mastering Display Color Volume for HDR content.
+    pub mastering_display: Option<MasteringDisplay>,
+    /// EXIF orientation.
+    pub orientation: Orientation,
+}
+
+impl Metadata {
+    /// Create empty metadata.
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// Set the ICC color profile.
+    pub fn with_icc(mut self, icc: Vec<u8>) -> Self {
+        self.icc_profile = Some(icc);
+        self
+    }
+
+    /// Set the EXIF metadata.
+    pub fn with_exif(mut self, exif: Vec<u8>) -> Self {
+        self.exif = Some(exif);
+        self
+    }
+
+    /// Set the XMP metadata.
+    pub fn with_xmp(mut self, xmp: Vec<u8>) -> Self {
+        self.xmp = Some(xmp);
+        self
+    }
+
+    /// Set the CICP color description.
+    pub fn with_cicp(mut self, cicp: Cicp) -> Self {
+        self.cicp = Some(cicp);
+        self
+    }
+
+    /// Set the Content Light Level Info.
+    pub fn with_content_light_level(mut self, clli: ContentLightLevel) -> Self {
+        self.content_light_level = Some(clli);
+        self
+    }
+
+    /// Set the Mastering Display Color Volume.
+    pub fn with_mastering_display(mut self, mdcv: MasteringDisplay) -> Self {
+        self.mastering_display = Some(mdcv);
+        self
+    }
+
+    /// Set the EXIF orientation.
+    pub fn with_orientation(mut self, orientation: Orientation) -> Self {
+        self.orientation = orientation;
+        self
+    }
+
+    /// Borrow as a [`MetadataView`].
+    pub fn as_view(&self) -> MetadataView<'_> {
+        MetadataView {
+            icc_profile: self.icc_profile.as_deref(),
+            exif: self.exif.as_deref(),
+            xmp: self.xmp.as_deref(),
+            cicp: self.cicp,
+            content_light_level: self.content_light_level,
+            mastering_display: self.mastering_display,
+            orientation: self.orientation,
+        }
+    }
+
+    /// Whether any metadata is present.
+    pub fn is_empty(&self) -> bool {
+        self.icc_profile.is_none()
+            && self.exif.is_none()
+            && self.xmp.is_none()
+            && self.cicp.is_none()
+            && self.content_light_level.is_none()
+            && self.mastering_display.is_none()
+            && self.orientation == Orientation::Normal
+    }
+}
+
+impl From<MetadataView<'_>> for Metadata {
+    fn from(view: MetadataView<'_>) -> Self {
+        Self {
+            icc_profile: view.icc_profile.map(|s| s.to_vec()),
+            exif: view.exif.map(|s| s.to_vec()),
+            xmp: view.xmp.map(|s| s.to_vec()),
+            cicp: view.cicp,
+            content_light_level: view.content_light_level,
+            mastering_display: view.mastering_display,
+            orientation: view.orientation,
+        }
+    }
+}
+
+impl From<&ImageInfo> for Metadata {
+    fn from(info: &ImageInfo) -> Self {
+        Self {
+            icc_profile: info.icc_profile.as_deref().map(|s| s.to_vec()),
+            exif: info.exif.clone(),
+            xmp: info.xmp.clone(),
+            cicp: info.cicp,
+            content_light_level: info.content_light_level,
+            mastering_display: info.mastering_display,
+            orientation: info.orientation,
+        }
+    }
+}
+
 impl<'a> MetadataView<'a> {
     /// Create empty metadata.
     pub fn none() -> Self {
@@ -1201,6 +1328,71 @@ mod tests {
         let gm = info.gain_map_metadata.unwrap();
         assert_eq!(gm.gain_map_max, [2.0, 2.0, 2.0]);
         assert_eq!(gm.hdr_capacity_max, 2.0);
+    }
+
+    #[test]
+    fn owned_metadata_none() {
+        let meta = Metadata::none();
+        assert!(meta.is_empty());
+    }
+
+    #[test]
+    fn owned_metadata_builder() {
+        let meta = Metadata::none()
+            .with_icc(alloc::vec![1, 2, 3])
+            .with_exif(alloc::vec![4, 5])
+            .with_cicp(Cicp::SRGB)
+            .with_orientation(Orientation::Rotate90);
+        assert!(!meta.is_empty());
+        assert_eq!(meta.icc_profile.as_deref(), Some([1, 2, 3].as_slice()));
+        assert_eq!(meta.exif.as_deref(), Some([4, 5].as_slice()));
+        assert!(meta.xmp.is_none());
+        assert_eq!(meta.cicp, Some(Cicp::SRGB));
+        assert_eq!(meta.orientation, Orientation::Rotate90);
+    }
+
+    #[test]
+    fn owned_metadata_as_view_roundtrip() {
+        let meta = Metadata::none()
+            .with_icc(alloc::vec![10, 20])
+            .with_cicp(Cicp::BT2100_PQ)
+            .with_content_light_level(ContentLightLevel::new(4000, 1000));
+        let view = meta.as_view();
+        assert_eq!(view.icc_profile, Some([10, 20].as_slice()));
+        assert_eq!(view.cicp, Some(Cicp::BT2100_PQ));
+        assert_eq!(
+            view.content_light_level.unwrap().max_content_light_level,
+            4000
+        );
+    }
+
+    #[test]
+    fn owned_metadata_from_view() {
+        let view = MetadataView::none()
+            .with_icc(&[1, 2, 3])
+            .with_exif(&[4, 5])
+            .with_cicp(Cicp::SRGB);
+        let owned = Metadata::from(view.clone());
+        assert_eq!(owned.icc_profile.as_deref(), Some([1, 2, 3].as_slice()));
+        assert_eq!(owned.exif.as_deref(), Some([4, 5].as_slice()));
+        assert_eq!(owned.cicp, Some(Cicp::SRGB));
+        // Round-trip back to view
+        let view2 = owned.as_view();
+        assert_eq!(view, view2);
+    }
+
+    #[test]
+    fn owned_metadata_from_image_info() {
+        let info = ImageInfo::new(100, 200, ImageFormat::Jpeg)
+            .with_icc_profile(alloc::vec![10, 20, 30])
+            .with_exif(alloc::vec![4, 5])
+            .with_cicp(Cicp::SRGB)
+            .with_orientation(Orientation::Rotate270);
+        let owned = Metadata::from(&info);
+        assert_eq!(owned.icc_profile.as_deref(), Some([10, 20, 30].as_slice()));
+        assert_eq!(owned.exif.as_deref(), Some([4, 5].as_slice()));
+        assert_eq!(owned.cicp, Some(Cicp::SRGB));
+        assert_eq!(owned.orientation, Orientation::Rotate270);
     }
 
     #[test]
