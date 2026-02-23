@@ -1,14 +1,27 @@
 //! Encode and decode output types.
 
-use alloc::boxed::Box;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
+
+use crate::ImageFormat;
+
+#[cfg(feature = "codec")]
+use alloc::sync::Arc;
+#[cfg(feature = "codec")]
+use crate::{ImageInfo, MetadataView};
+
+#[cfg(feature = "codec")]
+use alloc::boxed::Box;
+#[cfg(feature = "codec")]
 use core::any::Any;
+#[cfg(feature = "codec")]
 use imgref::ImgRef;
+#[cfg(feature = "codec")]
 use rgb::alt::BGRA;
+#[cfg(feature = "codec")]
 use rgb::{Gray, Rgb, Rgba};
 
-use crate::{ImageFormat, ImageInfo, MetadataView, PixelData};
+#[cfg(feature = "codec")]
+use crate::PixelData;
 
 /// Output from an encode operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +69,7 @@ impl AsRef<[u8]> for EncodeOutput {
     }
 }
 
+#[cfg(feature = "codec")]
 /// Output from a decode operation.
 #[non_exhaustive]
 pub struct DecodeOutput {
@@ -64,6 +78,7 @@ pub struct DecodeOutput {
     extras: Option<Box<dyn Any + Send>>,
 }
 
+#[cfg(feature = "codec")]
 impl DecodeOutput {
     /// Create a new decode output.
     pub fn new(pixels: PixelData, info: ImageInfo) -> Self {
@@ -204,6 +219,7 @@ impl DecodeOutput {
     }
 }
 
+#[cfg(feature = "codec")]
 impl core::fmt::Debug for DecodeOutput {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("DecodeOutput")
@@ -237,6 +253,7 @@ pub enum FrameDisposal {
     RestorePrevious,
 }
 
+#[cfg(feature = "codec")]
 /// A single frame from animation decoding.
 ///
 /// Carries container-level metadata via `Arc<ImageInfo>` so each frame
@@ -259,6 +276,7 @@ pub struct DecodeFrame {
     frame_rect: Option<[u32; 4]>,
 }
 
+#[cfg(feature = "codec")]
 impl DecodeFrame {
     /// Create a new decode frame with default compositing (keyframe, source blend, no disposal).
     ///
@@ -436,6 +454,7 @@ impl DecodeFrame {
     }
 }
 
+#[cfg(feature = "codec")]
 impl core::fmt::Debug for DecodeFrame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut s = f.debug_struct("DecodeFrame");
@@ -459,6 +478,7 @@ impl core::fmt::Debug for DecodeFrame {
     }
 }
 
+#[cfg(feature = "codec")]
 /// A single typed frame for animation encoding.
 ///
 /// Pairs typed pixel data with a frame duration. Used by
@@ -485,6 +505,7 @@ pub struct TypedEncodeFrame<'a, Pixel> {
     pub disposal: FrameDisposal,
 }
 
+#[cfg(feature = "codec")]
 impl<'a, Pixel> TypedEncodeFrame<'a, Pixel> {
     /// Create a full-canvas typed encode frame with default compositing.
     pub fn new(image: ImgRef<'a, Pixel>, duration_ms: u32) -> Self {
@@ -516,6 +537,7 @@ impl<'a, Pixel> TypedEncodeFrame<'a, Pixel> {
     }
 }
 
+#[cfg(feature = "codec")]
 impl<Pixel> core::fmt::Debug for TypedEncodeFrame<'_, Pixel> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut s = f.debug_struct("TypedEncodeFrame");
@@ -637,11 +659,6 @@ impl core::fmt::Debug for EncodeFrame<'_> {
 mod tests {
     use super::*;
     use alloc::vec;
-    use imgref::ImgVec;
-
-    fn test_info(w: u32, h: u32, fmt: ImageFormat) -> Arc<ImageInfo> {
-        Arc::new(ImageInfo::new(w, h, fmt))
-    }
 
     #[test]
     fn encode_output() {
@@ -651,6 +668,27 @@ mod tests {
         assert_eq!(output.bytes(), &[1, 2, 3]);
         assert!(!output.is_empty());
         assert_eq!(output.into_vec(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn encode_output_eq() {
+        let a = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
+        let b = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
+        assert_eq!(a, b);
+
+        let c = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Png);
+        assert_ne!(a, c);
+    }
+}
+
+#[cfg(all(test, feature = "codec"))]
+mod codec_tests {
+    use super::*;
+    use alloc::vec;
+    use imgref::ImgVec;
+
+    fn test_info(w: u32, h: u32, fmt: ImageFormat) -> Arc<ImageInfo> {
+        Arc::new(ImageInfo::new(w, h, fmt))
     }
 
     #[test]
@@ -762,16 +800,6 @@ mod tests {
         let output = DecodeOutput::new(PixelData::Gray8(img), info);
         assert!(output.as_gray8().is_some());
         assert!(output.as_rgb8().is_none());
-    }
-
-    #[test]
-    fn encode_output_eq() {
-        let a = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
-        let b = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
-        assert_eq!(a, b);
-
-        let c = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Png);
-        assert_ne!(a, c);
     }
 
     #[test]

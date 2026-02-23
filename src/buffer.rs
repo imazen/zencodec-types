@@ -8,11 +8,15 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
+#[cfg(feature = "codec")]
 use imgref::ImgRef;
+#[cfg(feature = "codec")]
 use rgb::alt::BGRA;
+#[cfg(feature = "codec")]
 use rgb::{Gray, Rgb, Rgba};
 
 use crate::color::{ColorContext, WorkingColorSpace};
+#[cfg(feature = "codec")]
 use crate::pixel::{GrayAlpha, PixelData};
 
 // ---------------------------------------------------------------------------
@@ -562,6 +566,7 @@ impl<'a> PixelSlice<'a> {
     /// Used by `PixelData::as_pixel_slice()` to keep the transfer-agnostic
     /// descriptor from decoded data instead of the convention-based one
     /// from the `From<ImgRef>` impl.
+    #[cfg(feature = "codec")]
     #[inline]
     pub(crate) fn with_descriptor(mut self, descriptor: PixelDescriptor) -> Self {
         self.descriptor = descriptor;
@@ -1325,9 +1330,10 @@ impl fmt::Debug for PixelBuffer {
 }
 
 // ---------------------------------------------------------------------------
-// ImgRef → PixelSlice (zero-copy From impls)
+// ImgRef → PixelSlice (zero-copy From impls) — codec feature only
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "codec")]
 macro_rules! impl_from_imgref {
     ($pixel:ty, $descriptor:expr) => {
         impl<'a> From<ImgRef<'a, $pixel>> for PixelSlice<'a> {
@@ -1351,21 +1357,32 @@ macro_rules! impl_from_imgref {
 
 // u8 types are conventionally sRGB, f32 types are conventionally linear.
 // u16 types have no standard convention so use transfer-agnostic descriptors.
+#[cfg(feature = "codec")]
 impl_from_imgref!(Rgb<u8>, PixelDescriptor::RGB8_SRGB);
+#[cfg(feature = "codec")]
 impl_from_imgref!(Rgba<u8>, PixelDescriptor::RGBA8_SRGB);
+#[cfg(feature = "codec")]
 impl_from_imgref!(Rgb<u16>, PixelDescriptor::RGB16);
+#[cfg(feature = "codec")]
 impl_from_imgref!(Rgba<u16>, PixelDescriptor::RGBA16);
+#[cfg(feature = "codec")]
 impl_from_imgref!(Rgb<f32>, PixelDescriptor::RGBF32_LINEAR);
+#[cfg(feature = "codec")]
 impl_from_imgref!(Rgba<f32>, PixelDescriptor::RGBAF32_LINEAR);
+#[cfg(feature = "codec")]
 impl_from_imgref!(Gray<u8>, PixelDescriptor::GRAY8_SRGB);
+#[cfg(feature = "codec")]
 impl_from_imgref!(Gray<u16>, PixelDescriptor::GRAY16);
+#[cfg(feature = "codec")]
 impl_from_imgref!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
+#[cfg(feature = "codec")]
 impl_from_imgref!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
 
 // ---------------------------------------------------------------------------
-// ImgRefMut → PixelSliceMut (zero-copy From impls)
+// ImgRefMut → PixelSliceMut (zero-copy From impls) — codec feature only
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "codec")]
 macro_rules! impl_from_imgref_mut {
     ($pixel:ty, $descriptor:expr) => {
         impl<'a> From<imgref::ImgRefMut<'a, $pixel>> for PixelSliceMut<'a> {
@@ -1390,21 +1407,32 @@ macro_rules! impl_from_imgref_mut {
     };
 }
 
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Rgb<u8>, PixelDescriptor::RGB8_SRGB);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Rgba<u8>, PixelDescriptor::RGBA8_SRGB);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Rgb<u16>, PixelDescriptor::RGB16);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Rgba<u16>, PixelDescriptor::RGBA16);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Rgb<f32>, PixelDescriptor::RGBF32_LINEAR);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Rgba<f32>, PixelDescriptor::RGBAF32_LINEAR);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Gray<u8>, PixelDescriptor::GRAY8_SRGB);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Gray<u16>, PixelDescriptor::GRAY16);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
+#[cfg(feature = "codec")]
 impl_from_imgref_mut!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
 
 // ---------------------------------------------------------------------------
-// PixelData → PixelBuffer (From, always copies)
+// PixelData → PixelBuffer (From, always copies) — codec feature only
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "codec")]
 impl From<PixelData> for PixelBuffer {
     fn from(pixels: PixelData) -> Self {
         let width = pixels.width();
@@ -1426,9 +1454,10 @@ impl From<PixelData> for PixelBuffer {
 }
 
 // ---------------------------------------------------------------------------
-// PixelBuffer → PixelData (TryFrom, always copies)
+// PixelBuffer → PixelData (TryFrom, always copies) — codec feature only
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "codec")]
 impl TryFrom<PixelBuffer> for PixelData {
     type Error = BufferError;
 
@@ -1577,6 +1606,7 @@ fn required_bytes(rows: u32, stride: usize, min_stride: usize) -> Result<usize, 
         .ok_or(BufferError::InvalidDimensions)
 }
 
+#[cfg(feature = "codec")]
 /// Collect typed pixels from a PixelSlice by parsing each pixel's bytes.
 fn collect_rows<T>(slice: &PixelSlice<'_>, width: usize, parse: impl Fn(&[u8]) -> T) -> Vec<T> {
     let bpp = slice.descriptor.bytes_per_pixel();
@@ -1590,11 +1620,13 @@ fn collect_rows<T>(slice: &PixelSlice<'_>, width: usize, parse: impl Fn(&[u8]) -
     pixels
 }
 
+#[cfg(feature = "codec")]
 #[inline]
 fn parse_u16(bytes: &[u8]) -> u16 {
     u16::from_ne_bytes([bytes[0], bytes[1]])
 }
 
+#[cfg(feature = "codec")]
 #[inline]
 fn parse_f32(bytes: &[u8]) -> f32 {
     f32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
@@ -1946,6 +1978,85 @@ mod tests {
         assert_eq!(slice.rows(), 0);
     }
 
+    // --- Debug formatting ---
+
+    #[test]
+    fn debug_formats() {
+        let buf = PixelBuffer::new(10, 5, PixelDescriptor::RGB8_SRGB);
+        assert_eq!(format!("{buf:?}"), "PixelBuffer(10x5, Rgb U8)");
+
+        let slice = buf.as_slice();
+        assert_eq!(format!("{slice:?}"), "PixelSlice(10x5, Rgb U8)");
+
+        let mut buf = PixelBuffer::new(3, 3, PixelDescriptor::RGBA16_SRGB);
+        let slice_mut = buf.as_slice_mut();
+        assert_eq!(format!("{slice_mut:?}"), "PixelSliceMut(3x3, Rgba U16)");
+    }
+
+    // --- BufferError Display ---
+
+    #[test]
+    fn buffer_error_display() {
+        let msg = format!("{}", BufferError::StrideTooSmall);
+        assert!(msg.contains("stride"));
+    }
+
+    // --- Edge cases ---
+
+    #[test]
+    fn bgrx8_srgb_properties() {
+        let d = PixelDescriptor::BGRX8_SRGB;
+        assert_eq!(d.channel_type, ChannelType::U8);
+        assert_eq!(d.layout, ChannelLayout::Bgra);
+        assert_eq!(d.alpha, AlphaMode::None);
+        assert_eq!(d.transfer, TransferFunction::Srgb);
+        assert_eq!(d.bytes_per_pixel(), 4);
+        assert_eq!(d.min_alignment(), 1);
+        // Layout-compatible with BGRA8
+        assert!(d.layout_compatible(&PixelDescriptor::BGRA8_SRGB));
+        // BGRX has no meaningful alpha — the fourth byte is padding
+        assert!(!d.has_alpha());
+        // BGRA does have meaningful alpha
+        assert!(PixelDescriptor::BGRA8_SRGB.has_alpha());
+        // The layout itself reports an alpha-position channel
+        assert!(d.layout.has_alpha());
+    }
+
+    #[test]
+    fn zero_size_buffer() {
+        let buf = PixelBuffer::new(0, 0, PixelDescriptor::RGB8_SRGB);
+        assert_eq!(buf.width(), 0);
+        assert_eq!(buf.height(), 0);
+        let slice = buf.as_slice();
+        assert_eq!(slice.rows(), 0);
+    }
+
+    #[test]
+    fn crop_empty() {
+        let buf = PixelBuffer::new(4, 4, PixelDescriptor::RGB8_SRGB);
+        let crop = buf.crop_view(0, 0, 0, 0);
+        assert_eq!(crop.width(), 0);
+        assert_eq!(crop.rows(), 0);
+    }
+
+    #[test]
+    fn sub_rows_empty() {
+        let buf = PixelBuffer::new(4, 4, PixelDescriptor::RGB8_SRGB);
+        let sub = buf.rows(2, 0);
+        assert_eq!(sub.rows(), 0);
+    }
+}
+
+#[cfg(all(test, feature = "codec"))]
+mod codec_tests {
+    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use rgb::alt::BGRA;
+    use rgb::{Gray, Rgb, Rgba};
+
+    use crate::pixel::{GrayAlpha, PixelData};
+
     // --- PixelData → descriptor() roundtrip ---
 
     #[test]
@@ -2233,73 +2344,5 @@ mod tests {
         let buf = PixelBuffer::new(1, 1, desc);
         let err = PixelData::try_from(buf);
         assert_eq!(err.unwrap_err(), BufferError::FormatMismatch);
-    }
-
-    // --- Debug formatting ---
-
-    #[test]
-    fn debug_formats() {
-        let buf = PixelBuffer::new(10, 5, PixelDescriptor::RGB8_SRGB);
-        assert_eq!(format!("{buf:?}"), "PixelBuffer(10x5, Rgb U8)");
-
-        let slice = buf.as_slice();
-        assert_eq!(format!("{slice:?}"), "PixelSlice(10x5, Rgb U8)");
-
-        let mut buf = PixelBuffer::new(3, 3, PixelDescriptor::RGBA16_SRGB);
-        let slice_mut = buf.as_slice_mut();
-        assert_eq!(format!("{slice_mut:?}"), "PixelSliceMut(3x3, Rgba U16)");
-    }
-
-    // --- BufferError Display ---
-
-    #[test]
-    fn buffer_error_display() {
-        let msg = format!("{}", BufferError::StrideTooSmall);
-        assert!(msg.contains("stride"));
-    }
-
-    // --- Edge cases ---
-
-    #[test]
-    fn bgrx8_srgb_properties() {
-        let d = PixelDescriptor::BGRX8_SRGB;
-        assert_eq!(d.channel_type, ChannelType::U8);
-        assert_eq!(d.layout, ChannelLayout::Bgra);
-        assert_eq!(d.alpha, AlphaMode::None);
-        assert_eq!(d.transfer, TransferFunction::Srgb);
-        assert_eq!(d.bytes_per_pixel(), 4);
-        assert_eq!(d.min_alignment(), 1);
-        // Layout-compatible with BGRA8
-        assert!(d.layout_compatible(&PixelDescriptor::BGRA8_SRGB));
-        // BGRX has no meaningful alpha — the fourth byte is padding
-        assert!(!d.has_alpha());
-        // BGRA does have meaningful alpha
-        assert!(PixelDescriptor::BGRA8_SRGB.has_alpha());
-        // The layout itself reports an alpha-position channel
-        assert!(d.layout.has_alpha());
-    }
-
-    #[test]
-    fn zero_size_buffer() {
-        let buf = PixelBuffer::new(0, 0, PixelDescriptor::RGB8_SRGB);
-        assert_eq!(buf.width(), 0);
-        assert_eq!(buf.height(), 0);
-        let slice = buf.as_slice();
-        assert_eq!(slice.rows(), 0);
-    }
-
-    #[test]
-    fn crop_empty() {
-        let buf = PixelBuffer::new(4, 4, PixelDescriptor::RGB8_SRGB);
-        let crop = buf.crop_view(0, 0, 0, 0);
-        assert_eq!(crop.width(), 0);
-        assert_eq!(crop.rows(), 0);
-    }
-
-    #[test]
-    fn sub_rows_empty() {
-        let buf = PixelBuffer::new(4, 4, PixelDescriptor::RGB8_SRGB);
-        let sub = buf.rows(2, 0);
-        assert_eq!(sub.rows(), 0);
     }
 }

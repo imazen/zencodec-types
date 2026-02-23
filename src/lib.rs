@@ -2,18 +2,21 @@
 //!
 //! This crate defines the common API surface that all zen* codecs implement:
 //!
-//! - [`EncoderConfig`] / [`EncodeJob`] / [`Encoder`] / [`FrameEncoder`] — encode traits
-//! - [`DecoderConfig`] / [`DecodeJob`] / [`Decoder`] / [`FrameDecoder`] — decode traits
-//! - [`DecodeRowSink`] — zero-copy row sink for streaming decode
-//! - [`EncodeOutput`] / [`DecodeOutput`] — unified output types
 //! - [`PixelSlice`] / [`PixelSliceMut`] / [`PixelBuffer`] — format-erased pixel buffers
-//! - [`PixelData`] — typed pixel buffer enum over `imgref::ImgVec`
 //! - [`ImageInfo`] / [`MetadataView`] / [`Orientation`] — image metadata
 //! - [`ImageFormat`] — format detection from magic bytes
 //! - [`CodecCapabilities`] — capability flags for feature discovery
 //! - [`UnsupportedOperation`] / [`HasUnsupportedOperation`] — standard unsupported operation reporting
 //! - [`ResourceLimits`] — resource limit configuration
 //! - [`At`] / [`AtTrace`] / [`AtTraceable`] — error location tracking (via [`whereat`])
+//!
+//! With the `codec` feature (default):
+//!
+//! - [`EncoderConfig`] / [`EncodeJob`] / [`Encoder`] / [`FrameEncoder`] — encode traits
+//! - [`DecoderConfig`] / [`DecodeJob`] / [`Decoder`] / [`FrameDecoder`] — decode traits
+//! - [`DecodeRowSink`] — zero-copy row sink for streaming decode
+//! - [`DecodeOutput`] — decode output with typed pixel data
+//! - [`PixelData`] — typed pixel buffer enum over `imgref::ImgVec`
 //!
 //! Individual codecs (zenjpeg, zenwebp, zengif, zenavif) implement these traits
 //! on their own config types. Format-specific methods live on the concrete types,
@@ -26,6 +29,7 @@
 
 extern crate alloc;
 
+// Always-available modules (no external deps beyond whereat).
 mod buffer;
 mod capabilities;
 mod color;
@@ -35,9 +39,16 @@ mod info;
 mod limits;
 mod orientation;
 mod output;
+
+// Modules gated behind the `codec` feature (require rgb, imgref, enough).
+#[cfg(feature = "codec")]
 mod pixel;
+#[cfg(feature = "codec")]
 mod sink;
+#[cfg(feature = "codec")]
 mod traits;
+
+// --- Always-available exports ---
 
 pub use buffer::{
     AlphaMode, BufferError, ChannelLayout, ChannelType, PixelBuffer, PixelDescriptor, PixelSlice,
@@ -55,12 +66,17 @@ pub use info::{
 pub use info::ImageMetadata;
 pub use limits::{LimitExceeded, ResourceLimits};
 pub use orientation::Orientation;
-pub use output::{
-    DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput, FrameBlend, FrameDisposal,
-    TypedEncodeFrame,
-};
+pub use output::{EncodeFrame, EncodeOutput, FrameBlend, FrameDisposal};
+
+// --- Codec-feature-gated exports ---
+
+#[cfg(feature = "codec")]
+pub use output::{DecodeFrame, DecodeOutput, TypedEncodeFrame};
+#[cfg(feature = "codec")]
 pub use pixel::{GrayAlpha, PixelData};
+#[cfg(feature = "codec")]
 pub use sink::DecodeRowSink;
+#[cfg(feature = "codec")]
 pub use traits::{
     DecodeJob, Decoder, DecoderConfig, EncodeJob, Encoder, EncoderConfig, FrameDecoder,
     FrameEncoder,
@@ -91,14 +107,19 @@ pub fn clamp_quality(q: f32) -> f32 {
     q.clamp(0.0, 100.0)
 }
 
-// Re-exports for codec implementors and users.
+// Re-exports for codec implementors and users (codec feature).
+#[cfg(feature = "codec")]
 pub use enough::{Stop, Unstoppable};
+#[cfg(feature = "codec")]
 pub use imgref::{Img, ImgRef, ImgRefMut, ImgVec};
+#[cfg(feature = "codec")]
 pub use rgb;
+#[cfg(feature = "codec")]
 pub use rgb::alt::BGRA as Bgra;
+#[cfg(feature = "codec")]
 pub use rgb::{Gray, Rgb, Rgba};
 
-// Error location tracking re-exports.
+// Error location tracking re-exports (always available).
 //
 // Codec error types use `whereat` for file:line tracking.
 // The recommended pattern (codecs depend on `thiserror` directly):
