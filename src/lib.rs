@@ -51,8 +51,8 @@ mod traits;
 // --- Always-available exports ---
 
 pub use buffer::{
-    AlphaMode, BufferError, ChannelLayout, ChannelType, PixelBuffer, PixelDescriptor, PixelSlice,
-    PixelSliceMut, TransferFunction,
+    AlphaMode, BufferError, ChannelLayout, ChannelType, ColorPrimaries, PixelBuffer,
+    PixelDescriptor, PixelSlice, PixelSliceMut, TransferFunction,
 };
 pub use capabilities::{CodecCapabilities, HasUnsupportedOperation, UnsupportedOperation};
 pub use color::{ColorContext, ColorProfileSource, NamedProfile, WorkingColorSpace};

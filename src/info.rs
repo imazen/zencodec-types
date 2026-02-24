@@ -84,6 +84,15 @@ impl Cicp {
         full_range: true,
     };
 
+    /// Map the CICP `color_primaries` code to a [`ColorPrimaries`] enum.
+    ///
+    /// Returns [`Unknown`](crate::ColorPrimaries::Unknown) for unrecognized codes.
+    /// This is a convenience wrapper around [`ColorPrimaries::from_cicp`].
+    pub fn color_primaries_enum(&self) -> crate::ColorPrimaries {
+        crate::ColorPrimaries::from_cicp(self.color_primaries)
+            .unwrap_or(crate::ColorPrimaries::Unknown)
+    }
+
     /// Human-readable name for the color primaries code (ITU-T H.273 Table 2).
     pub fn color_primaries_name(code: u8) -> &'static str {
         match code {
@@ -513,6 +522,18 @@ impl ImageInfo {
             .unwrap_or(crate::TransferFunction::Unknown)
     }
 
+    /// Derive the color primaries from CICP metadata.
+    ///
+    /// Returns the [`ColorPrimaries`](crate::ColorPrimaries) corresponding
+    /// to the CICP `color_primaries` code, or
+    /// [`Bt709`](crate::ColorPrimaries::Bt709) if CICP is absent
+    /// (sRGB/BT.709 is the web default).
+    pub fn color_primaries(&self) -> crate::ColorPrimaries {
+        self.cicp
+            .map(|c| c.color_primaries_enum())
+            .unwrap_or(crate::ColorPrimaries::Bt709)
+    }
+
     /// Get the source color profile for CMS integration.
     ///
     /// Returns CICP if present (takes precedence per AVIF/HEIF specs),
@@ -790,6 +811,15 @@ impl<'a> MetadataView<'a> {
         self.cicp
             .and_then(|c| crate::TransferFunction::from_cicp(c.transfer_characteristics))
             .unwrap_or(crate::TransferFunction::Unknown)
+    }
+
+    /// Derive the color primaries from CICP metadata.
+    ///
+    /// Returns [`Bt709`](crate::ColorPrimaries::Bt709) if CICP is absent.
+    pub fn color_primaries(&self) -> crate::ColorPrimaries {
+        self.cicp
+            .map(|c| c.color_primaries_enum())
+            .unwrap_or(crate::ColorPrimaries::Bt709)
     }
 
     /// Get the source color profile for CMS integration.

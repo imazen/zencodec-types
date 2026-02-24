@@ -34,13 +34,28 @@ pub enum ChannelType {
     U16 = 2,
     /// 32-bit floating point (4 bytes per channel).
     F32 = 4,
+    /// IEEE 754 half-precision float (2 bytes per channel).
+    ///
+    /// Used by AVIF, JXL, GPU pipelines. 10 mantissa bits provide
+    /// ~3 decimal digits of precision (vs 23 bits / ~7 digits for f32).
+    F16 = 5,
+    /// Signed 16-bit integer (2 bytes per channel).
+    ///
+    /// Used for fixed-point processing pipelines (e.g., i16 resize kernels).
+    I16 = 6,
 }
 
 impl ChannelType {
     /// Byte size of a single channel value.
     #[inline]
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
     pub const fn byte_size(self) -> usize {
-        self as usize
+        match self {
+            Self::U8 => 1,
+            Self::U16 | Self::F16 | Self::I16 => 2,
+            Self::F32 => 4,
+            _ => 0,
+        }
     }
 }
 
@@ -139,18 +154,107 @@ impl TransferFunction {
     }
 }
 
+/// Color primaries (CIE xy chromaticities of R, G, B).
+///
+/// Tracks the gamut of pixel data independently of transfer function.
+/// This is critical for the cost model: P3→sRGB gamut clipping is lossy
+/// even when both use sRGB transfer, and BT.2020→sRGB clips even more.
+///
+/// Discriminant values match CICP `ColorPrimaries` codes (ITU-T H.273).
+///
+/// Note: this does not replace [`Cicp`](crate::Cicp) — use `Cicp` when
+/// you need full color description including matrix coefficients and range.
+/// `ColorPrimaries` is for lightweight gamut tracking in `PixelDescriptor`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+#[repr(u8)]
+pub enum ColorPrimaries {
+    /// BT.709 / sRGB (CICP 1). Standard for SDR web content.
+    #[default]
+    Bt709 = 1,
+    /// BT.2020 / BT.2100 (CICP 9). Wide gamut for HDR.
+    Bt2020 = 9,
+    /// Display P3 (CICP 12). Apple ecosystem, wide gamut SDR.
+    DisplayP3 = 12,
+    /// Primaries not known.
+    Unknown = 255,
+}
+
+impl ColorPrimaries {
+    /// Map a CICP `color_primaries` code to a [`ColorPrimaries`].
+    ///
+    /// Returns `None` for unrecognized codes. Use [`Unknown`](Self::Unknown)
+    /// when you need a fallback value.
+    pub const fn from_cicp(code: u8) -> Option<Self> {
+        match code {
+            1 => Some(Self::Bt709),
+            9 => Some(Self::Bt2020),
+            12 => Some(Self::DisplayP3),
+            _ => None,
+        }
+    }
+
+    /// Convert to the CICP `color_primaries` code.
+    ///
+    /// Returns `None` for [`Unknown`](Self::Unknown) since there is no
+    /// standard CICP code for "unknown primaries" (CICP uses 2="Unspecified").
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    pub const fn to_cicp(self) -> Option<u8> {
+        match self {
+            Self::Bt709 => Some(1),
+            Self::Bt2020 => Some(9),
+            Self::DisplayP3 => Some(12),
+            Self::Unknown => None,
+            _ => None,
+        }
+    }
+
+    /// Whether `self` fully contains the gamut of `other`.
+    ///
+    /// Gamut hierarchy: BT.2020 ⊃ Display P3 ⊃ BT.709.
+    /// Unknown is not contained by (or containing) anything.
+    ///
+    /// This is used by the cost model: converting from a wider gamut to
+    /// a narrower one is lossy (clipping), while the reverse is lossless.
+    pub const fn contains(self, other: Self) -> bool {
+        // Self must be at least as wide as other.
+        // Width order: Unknown=0, Bt709=1, DisplayP3=2, Bt2020=3
+        self.gamut_width() >= other.gamut_width() && !matches!(self, Self::Unknown) && !matches!(other, Self::Unknown)
+    }
+
+    /// Internal gamut width ranking (larger = wider gamut).
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    const fn gamut_width(self) -> u8 {
+        match self {
+            Self::Bt709 => 1,
+            Self::DisplayP3 => 2,
+            Self::Bt2020 => 3,
+            Self::Unknown => 0,
+            _ => 0,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PixelDescriptor
 // ---------------------------------------------------------------------------
 
-/// Compact pixel format descriptor (4 bytes).
+/// Compact pixel format descriptor (5 bytes).
 ///
 /// Describes the format of pixel data without carrying the data itself.
 /// Used to tag [`PixelBuffer`] and [`PixelSlice`] with their format.
+///
+/// Tracks channel type, layout, alpha mode, transfer function, and color
+/// primaries. The primaries field enables gamut-aware cost modeling: the
+/// negotiation system can detect lossy gamut clipping (P3→sRGB) separately
+/// from transfer function changes.
+///
+/// Note: this does not replace [`Cicp`](crate::Cicp) for full color
+/// description (which also includes matrix coefficients and range).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[non_exhaustive]
 pub struct PixelDescriptor {
-    /// Channel storage type (u8, u16, f32).
+    /// Channel storage type (u8, u16, f16, i16, f32).
     pub channel_type: ChannelType,
     /// Channel layout (gray, RGB, RGBA, etc.).
     pub layout: ChannelLayout,
@@ -158,10 +262,18 @@ pub struct PixelDescriptor {
     pub alpha: AlphaMode,
     /// Transfer function (sRGB, linear, PQ, etc.).
     pub transfer: TransferFunction,
+    /// Color primaries (gamut). Defaults to BT.709/sRGB.
+    ///
+    /// Used by the cost model to detect lossy gamut conversions.
+    /// PQ/HLG content should typically use [`Bt2020`](ColorPrimaries::Bt2020).
+    pub primaries: ColorPrimaries,
 }
 
 impl PixelDescriptor {
-    /// Create a pixel format descriptor.
+    /// Create a pixel format descriptor with BT.709 primaries (default).
+    ///
+    /// For HDR or wide-gamut content, use [`new_full`](Self::new_full) or
+    /// [`with_primaries`](Self::with_primaries) to set the correct primaries.
     pub const fn new(
         channel_type: ChannelType,
         layout: ChannelLayout,
@@ -173,6 +285,24 @@ impl PixelDescriptor {
             layout,
             alpha,
             transfer,
+            primaries: ColorPrimaries::Bt709,
+        }
+    }
+
+    /// Create a pixel format descriptor with explicit primaries.
+    pub const fn new_full(
+        channel_type: ChannelType,
+        layout: ChannelLayout,
+        alpha: AlphaMode,
+        transfer: TransferFunction,
+        primaries: ColorPrimaries,
+    ) -> Self {
+        Self {
+            channel_type,
+            layout,
+            alpha,
+            transfer,
+            primaries,
         }
     }
 
@@ -184,6 +314,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Rgb,
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 8-bit sRGB RGBA with straight alpha.
@@ -192,6 +323,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Rgba,
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 16-bit sRGB RGB.
@@ -200,6 +332,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Rgb,
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 16-bit sRGB RGBA with straight alpha.
@@ -208,6 +341,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Rgba,
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// Linear-light f32 RGB.
@@ -216,6 +350,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Rgb,
         alpha: AlphaMode::None,
         transfer: TransferFunction::Linear,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// Linear-light f32 RGBA with straight alpha.
@@ -224,6 +359,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Rgba,
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Linear,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 8-bit sRGB grayscale.
@@ -232,6 +368,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Gray,
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 16-bit sRGB grayscale.
@@ -240,6 +377,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Gray,
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// Linear-light f32 grayscale.
@@ -248,6 +386,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Gray,
         alpha: AlphaMode::None,
         transfer: TransferFunction::Linear,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 8-bit sRGB grayscale with straight alpha.
@@ -256,6 +395,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::GrayAlpha,
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 16-bit sRGB grayscale with straight alpha.
@@ -264,6 +404,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::GrayAlpha,
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// Linear-light f32 grayscale with straight alpha.
@@ -272,6 +413,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::GrayAlpha,
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Linear,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 8-bit sRGB BGRA with straight alpha.
@@ -280,6 +422,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Bgra,
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     /// 8-bit sRGB BGRX (opaque BGRA, padding byte ignored).
@@ -292,6 +435,7 @@ impl PixelDescriptor {
         layout: ChannelLayout::Bgra,
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
     };
 
     // Transfer-agnostic constants -----------------------------------------------
@@ -361,6 +505,28 @@ impl PixelDescriptor {
             layout: self.layout,
             alpha: self.alpha,
             transfer,
+            primaries: self.primaries,
+        }
+    }
+
+    /// Return a copy of this descriptor with different color primaries.
+    ///
+    /// Use when resolving from CICP metadata or converting to a wider/narrower gamut:
+    ///
+    /// ```
+    /// # use zencodec_types::{PixelDescriptor, ColorPrimaries};
+    /// let desc = PixelDescriptor::RGBF32_LINEAR;
+    /// let p3 = desc.with_primaries(ColorPrimaries::DisplayP3);
+    /// assert_eq!(p3.primaries, ColorPrimaries::DisplayP3);
+    /// ```
+    #[inline]
+    pub const fn with_primaries(self, primaries: ColorPrimaries) -> Self {
+        Self {
+            channel_type: self.channel_type,
+            layout: self.layout,
+            alpha: self.alpha,
+            transfer: self.transfer,
+            primaries,
         }
     }
 
@@ -2369,12 +2535,12 @@ mod codec_tests {
     #[test]
     fn pixel_buffer_format_mismatch() {
         // U16 + Bgra has no PixelData variant
-        let desc = PixelDescriptor {
-            channel_type: ChannelType::U16,
-            layout: ChannelLayout::Bgra,
-            alpha: AlphaMode::Straight,
-            transfer: TransferFunction::Srgb,
-        };
+        let desc = PixelDescriptor::new(
+            ChannelType::U16,
+            ChannelLayout::Bgra,
+            AlphaMode::Straight,
+            TransferFunction::Srgb,
+        );
         let buf = PixelBuffer::new(1, 1, desc);
         let err = PixelData::try_from(buf);
         assert_eq!(err.unwrap_err(), BufferError::FormatMismatch);
