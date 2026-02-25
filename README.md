@@ -18,25 +18,175 @@ This crate defines the common interface that all zen\* codecs implement. It cont
 
 ## What's in this crate
 
-**Traits** — `EncoderConfig`, `EncodeJob`, `Encoder`, `FrameEncoder`, `DecoderConfig`, `DecodeJob`, `Decoder`, `FrameDecoder`
+Everything below is always available (`no_std + alloc`). Types marked **(codec)** require the `codec` feature (enabled by default), which pulls in `rgb`, `imgref`, and `enough`.
 
-**Pixel data** — `PixelData` (typed enum over `ImgVec<T>`), `GrayAlpha<T>`
+### Pixel format descriptors
 
-**Opaque pixel buffers** — `PixelBuffer`, `PixelSlice`, `PixelSliceMut`, `PixelDescriptor`, `ChannelType`, `ChannelLayout`, `AlphaMode`, `TransferFunction`, `BufferError`
+**`PixelDescriptor`** — compact 5-byte struct describing a pixel format: channel type, layout, alpha mode, transfer function, and color primaries. This is the universal format tag used by `PixelBuffer`, `PixelSlice`, format negotiation (`supported_descriptors()`), and cost estimation.
 
-**Image metadata** — `ImageInfo`, `ImageMetadata`, `OutputInfo`, `Cicp`, `ContentLightLevel`, `MasteringDisplay`, `Orientation`
+Design rationale: image processing pipelines need to reason about pixel format without caring what concrete type holds the pixels. Packing five properties into a small `Copy` struct means you can compare formats, switch on them, and pass them through FFI boundaries without generic type parameters or trait objects. Named constants (`RGB8_SRGB`, `RGBAF32_LINEAR`, `BGRA8`, etc.) cover common formats; `with_transfer()` and `with_primaries()` let you resolve unknowns as metadata becomes available.
 
-**I/O types** — `EncodeOutput`, `DecodeOutput`, `DecodeFrame`, `EncodeFrame`, `TypedEncodeFrame`, `FrameBlend`, `FrameDisposal`
+Weakness: `PixelDescriptor` tracks gamut (primaries) and transfer function but does not encode the full CICP tuple — matrix coefficients and range are absent. For full color description you still need `Cicp`. The descriptor also can't represent planar formats (YUV), packed formats (RGB565), or palette-indexed data. If a codec produces YUV internally, it must convert before exposing data through the trait surface.
 
-**Color management** — `ColorProfileSource`, `NamedProfile`
+The five component enums:
 
-**Gain map support** — `GainMapMetadata` (ISO 21496-1 gain map parameters, shared by JPEG UltraHDR, AVIF, and JXL)
+| Enum | Variants | Notes |
+|------|----------|-------|
+| `ChannelType` | `U8`, `U16`, `F16`, `I16`, `F32` | `F16`/`I16` for GPU and fixed-point pipelines. `byte_size()` returns per-channel bytes. |
+| `ChannelLayout` | `Gray`, `GrayAlpha`, `Rgb`, `Rgba`, `Bgra` | No `Bgr` without alpha — Windows surfaces always have a fourth byte. |
+| `AlphaMode` | `None`, `Straight`, `Premultiplied` | `None` on `Bgra` layout = BGRX (padding byte). |
+| `TransferFunction` | `Linear`, `Srgb`, `Bt709`, `Pq`, `Hlg`, `Unknown` | `Unknown` is the default for raw decoded data. Must be resolved from CICP/ICC before color-sensitive operations. `from_cicp()` maps CICP transfer characteristic codes. |
+| `ColorPrimaries` | `Bt709`, `Bt2020`, `DisplayP3`, `Unknown` | Discriminant values match CICP codes. `contains()` models gamut hierarchy (BT.2020 ⊃ P3 ⊃ BT.709) for the cost model — converting to a narrower gamut is lossy. |
 
-**Cost estimation** — `DecodeCost`, `EncodeCost`
+**`BufferError`** — validation errors from `PixelBuffer`/`PixelSlice` construction: alignment violations, insufficient data, stride problems, invalid dimensions, format mismatches. Implements `core::error::Error`.
 
-**Resource management** — `ResourceLimits`, `LimitExceeded`, `ImageFormat` (magic-byte detection), `CodecCapabilities` (feature flags for capability discovery)
+### Pixel storage
 
-**Re-exports** — `imgref`, `rgb`, `enough` (for `Stop`/`Unstoppable`)
+**`PixelBuffer`** — owned, format-erased pixel buffer. Wraps a `Vec<u8>` with width, height, stride, and a `PixelDescriptor`. Allocate with `new()`, wrap a pool-managed vec with `from_vec()`, recover it with `into_vec()` for reuse. Supports row access, sub-row slicing, zero-copy crop views, and SIMD-friendly stride alignment.
+
+Design rationale: the alternative is `PixelData`, a 13-variant enum where every consumer must match all arms. `PixelBuffer` erases the format into a byte buffer tagged with a descriptor, so generic pipeline stages can operate on raw rows without monomorphization. The tradeoff is type safety — you work with `&[u8]` rows instead of `&[Rgb<u8>]`.
+
+Weakness: `PixelBuffer` cannot represent pixel types that aren't byte-aligned or that need custom Drop logic. It also can't represent planar layouts. The `from_vec()` path trusts the caller's descriptor — there's no runtime check that the data actually matches the claimed format.
+
+**`PixelSlice<'a>`** / **`PixelSliceMut<'a>`** — borrowed immutable / mutable views into pixel data with the same row/crop API as `PixelBuffer`. Zero-copy `From<ImgRef<T>>` impls exist for all rgb-crate pixel types (Rgb, Rgba, BGRA, Gray, and their u16/f32 variants). Optionally carry `ColorContext` (ICC/CICP metadata) and `WorkingColorSpace` (pipeline state tracking) so color metadata travels with pixel data through processing stages.
+
+Weakness: `GrayAlpha<T>` does not implement `rgb::ComponentBytes`, so there's no zero-copy `From<ImgRef<GrayAlpha<T>>>`. Those paths must copy through `PixelData::to_bytes()`. The `From<ImgRef>` conversions always produce `TransferFunction::Unknown` — the caller must call `with_transfer()` or attach a `ColorContext` when the transfer function is known.
+
+**`PixelData`** **(codec)** — `#[non_exhaustive]` enum with 13 variants over `ImgVec<T>`: `Rgb8`, `Rgba8`, `Bgra8`, `Gray8`, `Rgb16`, `Rgba16`, `Gray16`, `GrayAlpha8`, `GrayAlpha16`, `GrayAlphaF32`, `RgbF32`, `RgbaF32`, `GrayF32`. This is the typed pixel buffer used by `DecodeOutput` and `DecodeFrame`.
+
+Design rationale: codecs produce pixels in their native format. A JPEG decoder returns `Rgb8`; a high-bit-depth AVIF returns `Rgba16` or `RgbaF32`. `PixelData` preserves the exact type so callers can borrow the data with zero copies (`as_rgb8()` returns `Option<ImgRef<Rgb<u8>>>`). The `non_exhaustive` attribute means new variants can be added without a semver break.
+
+Weakness: 13 variants is a lot of match arms for generic consumers. `PixelData` does not convert between formats — it is a pure data container. If you need a specific format, use `Decoder::decode_into()` (the codec handles transfer function conversion correctly) or convert to `PixelBuffer` and work with raw bytes. `PixelData::descriptor()` always returns `TransferFunction::Unknown` because `ImgVec` carries no color metadata; use `DecodeOutput::descriptor()` or resolve manually from `ImageInfo::transfer_function()`.
+
+**`GrayAlpha<T>`** **(codec)** — two-component `#[repr(C)]` pixel type with fields `v` (gray) and `a` (alpha). Owned by this crate rather than using `rgb::alt::GrayAlpha` to avoid API instability in the `rgb` crate.
+
+Weakness: does not implement `rgb::ComponentBytes`, which blocks zero-copy conversion to `PixelSlice`. This is a conscious tradeoff — implementing it would require `unsafe` code.
+
+### Image metadata
+
+**`ImageInfo`** — everything known about an image from probing or decoding. Fields: dimensions, format, alpha, animation, frame count, bit depth, channel count, CICP, HDR metadata (ContentLightLevel, MasteringDisplay), ICC profile (`Arc<[u8]>` for cheap sharing), EXIF, XMP, orientation, gain map presence/metadata, and non-fatal warnings. Builder pattern with `with_*` methods.
+
+Design rationale: a single struct covers the superset of what any codec might report. Optional fields (`Option<T>`) handle the fact that not every format provides every piece of metadata — a JPEG has no CICP, a PNG has no MasteringDisplay. ICC is stored as `Arc<[u8]>` so it can be shared across pipeline stages and pixel slices without cloning megabytes of ICC data.
+
+Weakness: `ImageInfo` is large and keeps growing. Every new metadata type adds a field. The `warnings: Vec<String>` field allocates even for the common case (no warnings). EXIF and XMP are raw `Vec<u8>` — this crate doesn't parse them, so callers need a separate EXIF/XMP parser. There's also no way to represent per-frame metadata differences (all frames share one `ImageInfo` via `Arc`).
+
+**`OutputInfo`** — predicted output from a decode operation, returned by `DecodeJob::output_info()`. Fields: width, height, native pixel format, has_alpha, orientation_applied, crop_applied. This is what your buffer must match.
+
+Design rationale: decode hints (crop, scale, orientation) mean the output dimensions can differ from the stored dimensions. `OutputInfo` lets callers allocate the right buffer before decoding starts. `crop_applied` may differ from the crop hint because codecs round to block boundaries (JPEG MCU, AV1 superblock).
+
+**`MetadataView<'a>`** — borrowed view of ICC/EXIF/XMP/CICP/HDR/orientation for encode roundtrip. Borrows byte slices from `ImageInfo` or caller-provided data. `Metadata` is the owned counterpart for crossing async/thread boundaries.
+
+Design rationale: encoding typically happens right after decoding, so borrowing from the source `ImageInfo` avoids copying metadata bytes. The owned `Metadata` exists for pipelines where metadata must outlive the decoder (caches, async tasks).
+
+Weakness: `MetadataView` has no field for gain map metadata. On encode, gain maps must be handled out-of-band through codec-specific APIs. The `orientation` field is mutable-by-convention (callers set it to `Normal` after applying rotation), which is a bit of an API smell.
+
+**`Cicp`** — CICP color description (ITU-T H.273): color primaries, transfer characteristics, matrix coefficients, full-range flag. Named constants for common combinations: `SRGB`, `DISPLAY_P3`, `BT2100_PQ`, `BT2100_HLG`. Human-readable name methods for each code.
+
+Design rationale: CICP is the standard way modern image formats (AVIF, JXL, HEIF) and video codecs describe color. Four `u8` fields + one `bool` is compact and `Copy`. The raw code points are preserved so codecs can round-trip values the crate doesn't have named constants for.
+
+Weakness: the matrix coefficients field is only meaningful for YCbCr content. For RGB images, it should be 0 (Identity), but some encoders write incorrect values. This crate preserves whatever the file says; it doesn't validate consistency.
+
+**`ContentLightLevel`** / **`MasteringDisplay`** — HDR metadata types per CEA-861.3 and SMPTE ST 2086. `ContentLightLevel` carries MaxCLL and MaxFALL in nits. `MasteringDisplay` carries display primaries, white point, and luminance range in the spec's integer units (with `_f64()` and `_nits()` convenience methods).
+
+Design rationale: these travel with the image through the pipeline and get embedded in the output file. Keeping them as separate structs (rather than fields on `Cicp`) matches how they're stored in containers — AVIF and HEIF have separate boxes for each.
+
+**`Orientation`** — EXIF orientation values 1-8. `from_exif()` maps u16 tag values, `swaps_dimensions()` reports whether width/height are exchanged, `display_dimensions()` computes the effective display size.
+
+Design rationale: orientation is one of those things every image pipeline must handle, and getting it wrong means rotated thumbnails. Having it as a first-class enum with dimension helpers prevents the common mistake of forgetting to swap width/height for 90/270 rotations.
+
+### Color management
+
+**`ColorProfileSource<'a>`** — unified reference to a source color profile: `Icc(&[u8])`, `Cicp(Cicp)`, or `Named(NamedProfile)`. Pass directly to a CMS backend.
+
+**`NamedProfile`** — well-known color profiles: `Srgb`, `DisplayP3`, `Bt2020`, `Bt2020Pq`, `Bt2020Hlg`, `AdobeRgb`, `LinearSrgb`. `to_cicp()` converts to CICP codes when a standard mapping exists (returns `None` for Adobe RGB).
+
+**`ColorContext`** — bundles ICC profile bytes (`Option<Arc<[u8]>>`) and CICP parameters into a single `Arc`-shareable context. Carried on `PixelSlice` so color metadata travels with pixel data through pipeline stages without per-strip cloning.
+
+**`WorkingColorSpace`** — tracks what color space pixels are currently in: `Native` (as-decoded), `LinearSrgb`, `LinearRec2020`, or `Oklab`. Used by the pipeline planner to know what transforms have been applied.
+
+Design rationale: separating color metadata from pixel data is intentional. Pixel buffers are format-erased bytes; color context is metadata that describes those bytes. `Arc` sharing means a single ICC profile allocation serves an entire pipeline.
+
+Weakness: `ColorProfileSource` borrows ICC data, so it can't outlive the `ImageInfo` it came from. For long-lived references, use `ColorContext` (which owns via `Arc`). `NamedProfile` covers only 7 profiles; uncommon profiles (ProPhoto, ROMM, ACEScg) require the `Icc` variant. `WorkingColorSpace` only tracks four working spaces — pipelines using other spaces (ACES, ICtCp) would need to extend the enum or use `Native` as a catch-all.
+
+### Format detection
+
+**`ImageFormat`** — enum of supported formats: `Jpeg`, `WebP`, `Gif`, `Png`, `Avif`, `Jxl`, `Pnm`, `Bmp`, `Farbfeld`. `detect()` identifies format from magic bytes (needs 2-12 bytes depending on format). `from_extension()` maps file extensions case-insensitively. Also provides `mime_type()`, `extensions()`, `min_probe_bytes()`, and capability queries (`supports_lossy()`, `supports_lossless()`, `supports_animation()`, `supports_alpha()`).
+
+Design rationale: format detection belongs in the shared types crate because every pipeline entry point needs it, and magic byte detection is codec-independent. The `non_exhaustive` attribute means new formats can be added without breaking callers.
+
+Weakness: `detect()` only checks the first bytes — it doesn't validate the file is actually well-formed. AVIF detection only checks for `avif`/`avis` ftyp brands; HEIF images with different brands won't match. JPEG detection can false-positive on some binary files that happen to start with `FF D8 FF`.
+
+### Resource management
+
+**`ResourceLimits`** — caps on resource usage: max pixels, max memory, max output size, max width/height, max file size, max frames, max animation duration. All fields `Option` — `None` means no limit. `Copy` so it's cheap to pass around. Validation methods: `check_dimensions()`, `check_memory()`, `check_file_size()`, `check_output_size()`, `check_frames()`, `check_duration()`, plus composite checks `check_image_info()`, `check_output_info()`, `check_decode_cost()`, `check_encode_cost()`.
+
+Design rationale: server-side image processing needs hard limits to prevent resource exhaustion from malicious or oversized inputs. Having limits as a first-class type (rather than ad-hoc checks) means every codec enforces them consistently, and callers can validate at multiple stages — fast rejection from `probe_header()`, then refined rejection from `estimated_cost()`.
+
+Weakness: codecs enforce what they can, but not all codecs support all limit types. `CodecCapabilities` reports which limits are enforced, but a codec that claims `enforces_max_memory: false` silently ignores the limit rather than returning an error. The caller must do their own `check_*` validation before calling into the codec for guaranteed protection.
+
+**`LimitExceeded`** — error enum with variant-specific `actual`/`max` fields: `Width`, `Height`, `Pixels`, `Memory`, `FileSize`, `OutputSize`, `Frames`, `Duration`. Implements `core::error::Error`.
+
+**`DecodeCost`** / **`EncodeCost`** — estimated resource costs. `DecodeCost` has `output_bytes`, `pixel_count`, and optional `peak_memory`. `EncodeCost` has `input_bytes`, `pixel_count`, and optional `peak_memory`. When `peak_memory` is `None`, the `check_*` methods fall back to buffer size as a lower-bound estimate.
+
+Weakness: `peak_memory` accuracy varies wildly by codec. Some codecs can predict it well (JPEG); others have highly variable memory usage depending on content and settings (JPEG XL lossy can range from 6x to 22x input size). The fallback to buffer size can significantly undercount actual memory usage.
+
+### Capability discovery
+
+**`CodecCapabilities`** — static feature flags returned by each codec via `capabilities()`. ~30 boolean flags covering metadata support, animation, bit depth, alpha, cancellation, HDR, decode paths, encode paths, and limit enforcement. Plus `effort_range()` and `quality_range()` for parameter bounds. Constructed via `const fn` builder pattern for static initialization.
+
+Design rationale: callers need to know what a codec supports before calling methods that might be no-ops or return `UnsupportedOperation`. A `&'static` reference means zero runtime cost. The builder pattern with `with_*` methods enables clean static construction in codec crates.
+
+Weakness: capabilities are self-reported — there's no compile-time enforcement that a codec setting `row_level_encode: true` actually implements `push_rows()`. A dishonest capability struct will cause runtime errors. The flag count keeps growing; it's approaching the point where a bitflag set might be cleaner, but const fn builder ergonomics would suffer.
+
+**`UnsupportedOperation`** — enum identifying which operation failed: `RowLevelEncode`, `PullEncode`, `AnimationEncode`, `DecodeInto`, `RowLevelDecode`, etc. Implements `core::error::Error`.
+
+**`HasUnsupportedOperation`** — opt-in trait for codec error types. Lets generic callers check `err.unsupported_operation()` without downcasting to the codec-specific error type.
+
+### Gain map support
+
+**`GainMapMetadata`** — ISO 21496-1 parameters describing how to combine a base image with a gain map image for adaptive HDR/SDR rendering. Per-channel `[f32; 3]` fields for gain range, gamma, and offsets; scalar fields for HDR capacity range. Used by JPEG UltraHDR, AVIF, and JXL.
+
+Design rationale: gain maps are the industry's answer to "how do I ship one file that looks good on both SDR and HDR displays." The metadata format is standardized across three major formats, so it belongs in the shared types crate rather than being duplicated in each codec.
+
+Weakness: the gain map pixel data is accessed through `DecodeOutput::extras` via `Box<dyn Any>` downcast — there are no trait methods for gain map encoding/decoding yet. Callers must know the concrete extras type to downcast. This will be promoted to proper trait methods after the pattern is proven across multiple codecs. There's also no streaming API for gain maps — you can't decode the base image and gain map in parallel strips.
+
+### I/O types
+
+**`EncodeOutput`** — encoded bytes (`Vec<u8>`) plus `ImageFormat`. `into_vec()` recovers the vec, `bytes()` borrows, `AsRef<[u8]>` for direct use.
+
+**`DecodeOutput`** **(codec)** — decoded pixels (`PixelData`) plus `ImageInfo` plus optional type-erased extras (`Box<dyn Any + Send>`). The `extras` field is the escape hatch for codec-specific secondary data (gain maps, MPF thumbnails) that doesn't fit the standard interface. `descriptor()` resolves transfer function from CICP automatically.
+
+Weakness: `DecodeOutput` allocates the full image in memory. There's no streaming variant — for large images, use `Decoder::decode_rows()` or `Decoder::decode_into()` to avoid the allocation.
+
+**`DecodeFrame`** **(codec)** — single animation frame with pixel data, `Arc<ImageInfo>`, delay, index, and compositing metadata (blend mode, disposal method, frame rect, required prior frame). The `Arc<ImageInfo>` means container-level metadata is shared across frames without duplication.
+
+**`EncodeFrame<'a>`** — single frame for encoding with `PixelSlice`, duration, and compositing parameters. **`TypedEncodeFrame<'a, Pixel>`** **(codec)** is the generic-typed variant for convenience methods like `encode_animation_rgb8`.
+
+**`FrameBlend`** — `Source` (replace) or `Over` (alpha-blend). **`FrameDisposal`** — `None` (leave as-is), `RestoreBackground`, or `RestorePrevious`. These map directly to GIF/APNG/WebP animation semantics.
+
+**`DecodeRowSink`** **(codec)** — trait for zero-copy streaming decode. The codec calls `demand(y, height, width, bpp)` and the sink returns `(&mut [u8], stride)`. The sink controls stride (tight-packed or SIMD-aligned), and the codec writes directly into the provided buffer. Object-safe.
+
+### Codec traits (codec feature)
+
+**`EncoderConfig`** / **`DecoderConfig`** — reusable config types (`Clone + Send + Sync`, no lifetimes). Universal parameters on the trait: `with_calibrated_quality()`, `with_effort()`, `with_lossless()`. Format-specific settings on the concrete type. Create jobs with `job()`.
+
+**`EncodeJob<'a>`** / **`DecodeJob<'a>`** — per-operation setup borrowing temporary data (stop tokens, metadata, limits) via `'a`. Create executors with `encoder()` / `decoder()` / `frame_encoder()` / `frame_decoder()`.
+
+**`Encoder`** / **`Decoder`** — single-image executors with three paths each (one-shot, row-level, pull/push).
+
+**`FrameEncoder`** / **`FrameDecoder`** — animation executors with three per-frame paths each.
+
+Design rationale: the four-level hierarchy (config → job → executor) separates concerns cleanly. Configs are reusable and thread-safe. Jobs borrow per-operation data. Executors are consumed (or mutated for animation). GATs on the config traits (`type Job<'a>`) enable this without boxing.
+
+Weakness: the trait surface is large. Each config trait requires `capabilities()`, `supported_descriptors()`, `format()`, `probe_header()`, plus a dozen convenience methods with defaults. Codec authors must implement a lot of boilerplate even for simple formats. The three-path design (one-shot / row-level / pull) means every executor has methods that some codecs can't meaningfully implement — those return `UnsupportedOperation`, but the caller has to check `CodecCapabilities` to know which paths are real.
+
+### Error tracking (re-exports from `whereat`)
+
+**`At<E>`** — wraps any error with file:line location. **`AtTrace`** / **`AtTraceable`** — trace chain support. **`ErrorAtExt`** / **`ResultAtExt`** — extension traits for `.at()` on errors and results. Codec error types use `type Error = At<MyCodecError>` so every error carries its source location.
+
+### Re-exports (codec feature)
+
+`imgref` (`Img`, `ImgRef`, `ImgRefMut`, `ImgVec`), `rgb` (the full crate, plus `Rgb`, `Rgba`, `Gray`, `Bgra` type aliases), `enough` (`Stop`, `Unstoppable` for cooperative cancellation).
 
 ## Architecture: Config → Job → Encoder/Decoder
 
@@ -228,7 +378,7 @@ let slice_mut = PixelSliceMut::from(img.as_mut());
 
 ### Color profile source
 
-`ImageInfo` and `ImageMetadata` carry raw color data (CICP codes, ICC bytes, HDR metadata). The `color_profile_source()` method returns a unified `ColorProfileSource` that consumers can pass directly to a CMS backend (e.g., moxcms):
+`ImageInfo` and `MetadataView` carry raw color data (CICP codes, ICC bytes, HDR metadata). The `color_profile_source()` method returns a unified `ColorProfileSource` that consumers can pass directly to a CMS backend (e.g., moxcms):
 
 ```rust
 use zencodec_types::{ColorProfileSource, NamedProfile};
@@ -520,7 +670,7 @@ If cancellation isn't feasible for your codec (or for one side — encode vs dec
 
 ### `with_metadata()` and metadata handling
 
-`EncodeJob::with_metadata()` receives an `ImageMetadata<'a>` with optional ICC, EXIF, and XMP data. Embed whatever your format supports. Metadata types that the format can't represent are silently skipped — but `capabilities()` must accurately reflect what gets embedded.
+`EncodeJob::with_metadata()` receives a `MetadataView<'a>` with optional ICC, EXIF, and XMP data. Embed whatever your format supports. Metadata types that the format can't represent are silently skipped — but `capabilities()` must accurately reflect what gets embedded.
 
 ### Encoder trait — three paths
 
@@ -650,9 +800,9 @@ Open design questions that should be resolved before publishing. Adding required
 
 ### Metadata communication
 
-**No encode-side contract for CICP vs ICC precedence.** The decode side documents "CICP takes precedence per AVIF/HEIF spec." On encode, if `ImageMetadata` contains both CICP and ICC, what should the codec do? Embed both when the format allows? Prefer one? The contract is silent.
+**No encode-side contract for CICP vs ICC precedence.** The decode side documents "CICP takes precedence per AVIF/HEIF spec." On encode, if `MetadataView` contains both CICP and ICC, what should the codec do? Embed both when the format allows? Prefer one? The contract is silent.
 
-**No individual metadata setters on `EncodeJob`.** The current trait only has `with_metadata()`. This works (via `ImageMetadata::none().with_icc(data).with_orientation(Rotate90)`) but is more verbose than separate `with_icc()`, `with_exif()`, `with_xmp()` methods.
+**No individual metadata setters on `EncodeJob`.** The current trait only has `with_metadata()`. This works (via `MetadataView::none().with_icc(data).with_orientation(Rotate90)`) but is more verbose than separate `with_icc()`, `with_exif()`, `with_xmp()` methods.
 
 ### Extra layers and gain maps
 
