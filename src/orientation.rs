@@ -121,7 +121,6 @@ pub enum OrientationHint {
     ExactTransform(Orientation),
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

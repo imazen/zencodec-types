@@ -188,21 +188,22 @@ impl PixelData {
     /// doesn't implement `rgb::ComponentBytes`, so we can't get a byte
     /// slice without copying).
     pub fn as_pixel_slice(&self) -> Option<crate::buffer::PixelSlice<'_>> {
+        use crate::buffer::PixelSlice;
         // The From<ImgRef> impls use convention-based descriptors (sRGB for u8,
         // linear for f32). Override with self.descriptor() which preserves the
         // transfer-agnostic Unknown from decoded pixel data.
         let desc = self.descriptor();
-        let slice: crate::buffer::PixelSlice<'_> = match self {
-            PixelData::Rgb8(img) => img.as_ref().into(),
-            PixelData::Rgba8(img) => img.as_ref().into(),
-            PixelData::Rgb16(img) => img.as_ref().into(),
-            PixelData::Rgba16(img) => img.as_ref().into(),
-            PixelData::RgbF32(img) => img.as_ref().into(),
-            PixelData::RgbaF32(img) => img.as_ref().into(),
-            PixelData::Gray8(img) => img.as_ref().into(),
-            PixelData::Gray16(img) => img.as_ref().into(),
-            PixelData::GrayF32(img) => img.as_ref().into(),
-            PixelData::Bgra8(img) => img.as_ref().into(),
+        let slice: PixelSlice<'_> = match self {
+            PixelData::Rgb8(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::Rgba8(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::Rgb16(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::Rgba16(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::RgbF32(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::RgbaF32(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::Gray8(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::Gray16(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::GrayF32(img) => PixelSlice::from(img.as_ref()).erase(),
+            PixelData::Bgra8(img) => PixelSlice::from(img.as_ref()).erase(),
             // GrayAlpha types don't implement ComponentBytes
             PixelData::GrayAlpha8(_) | PixelData::GrayAlpha16(_) | PixelData::GrayAlphaF32(_) => {
                 return None;

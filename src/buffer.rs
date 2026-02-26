@@ -7,6 +7,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
+use core::marker::PhantomData;
 
 #[cfg(feature = "codec")]
 use imgref::ImgRef;
@@ -427,6 +428,19 @@ impl PixelDescriptor {
         primaries: ColorPrimaries::Bt709,
     };
 
+    /// 8-bit sRGB RGBX (opaque RGBA, padding byte ignored).
+    ///
+    /// Same memory layout as RGBA8 but the fourth byte is padding
+    /// (`AlphaMode::None`). Useful for SIMD-friendly 32-bit RGB
+    /// processing without alpha semantics.
+    pub const RGBX8_SRGB: Self = Self {
+        channel_type: ChannelType::U8,
+        layout: ChannelLayout::Rgba,
+        alpha: AlphaMode::None,
+        transfer: TransferFunction::Srgb,
+        primaries: ColorPrimaries::Bt709,
+    };
+
     /// 8-bit sRGB BGRX (opaque BGRA, padding byte ignored).
     ///
     /// Same memory layout as BGRA8 but the fourth byte is padding
@@ -484,6 +498,9 @@ impl PixelDescriptor {
 
     /// 8-bit BGRA with straight alpha, transfer function unknown.
     pub const BGRA8: Self = Self::BGRA8_SRGB.with_transfer(TransferFunction::Unknown);
+
+    /// 8-bit RGBX (opaque RGBA, padding byte ignored), transfer function unknown.
+    pub const RGBX8: Self = Self::RGBX8_SRGB.with_transfer(TransferFunction::Unknown);
 
     /// 8-bit BGRX (opaque BGRA, padding byte ignored), transfer function unknown.
     pub const BGRX8: Self = Self::BGRX8_SRGB.with_transfer(TransferFunction::Unknown);
@@ -630,6 +647,135 @@ impl PixelDescriptor {
 }
 
 // ---------------------------------------------------------------------------
+// Padded pixel types (32-bit SIMD-friendly)
+// ---------------------------------------------------------------------------
+
+/// 32-bit RGB pixel with padding byte (RGBx).
+///
+/// Same memory layout as `Rgba<u8>` but the 4th byte is padding,
+/// not alpha. Use this for SIMD-friendly 32-bit RGB processing
+/// without alpha semantics.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct Rgbx {
+    /// Red channel.
+    pub r: u8,
+    /// Green channel.
+    pub g: u8,
+    /// Blue channel.
+    pub b: u8,
+    /// Padding byte. Value is unspecified and should be ignored.
+    pub x: u8,
+}
+
+/// 32-bit BGR pixel with padding byte (BGRx).
+///
+/// Same memory layout as `BGRA<u8>` but the 4th byte is padding.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct Bgrx {
+    /// Blue channel.
+    pub b: u8,
+    /// Green channel.
+    pub g: u8,
+    /// Red channel.
+    pub r: u8,
+    /// Padding byte. Value is unspecified and should be ignored.
+    pub x: u8,
+}
+
+// ---------------------------------------------------------------------------
+// Pixel trait
+// ---------------------------------------------------------------------------
+
+/// Compile-time pixel format descriptor.
+///
+/// Implemented for pixel types to associate them with their
+/// [`PixelDescriptor`]. This enables typed [`PixelSlice`] construction
+/// where the type system enforces format correctness.
+///
+/// The trait is open (not sealed) — custom pixel types can implement it.
+/// The `new_typed()` constructors include a compile-time assertion that
+/// `size_of::<P>() == P::DESCRIPTOR.bytes_per_pixel()` to catch bad impls.
+pub trait Pixel: Copy + 'static {
+    /// The pixel format descriptor for this type.
+    const DESCRIPTOR: PixelDescriptor;
+}
+
+impl Pixel for Rgbx {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::RGBX8;
+}
+
+impl Pixel for Bgrx {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::BGRX8;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Rgb<u8> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::RGB8;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Rgba<u8> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::RGBA8;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Gray<u8> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::GRAY8;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Rgb<u16> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::RGB16;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Rgba<u16> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::RGBA16;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Gray<u16> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::GRAY16;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Rgb<f32> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::RGBF32;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Rgba<f32> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::RGBAF32;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for Gray<f32> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::GRAYF32;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for BGRA<u8> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::BGRA8;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for GrayAlpha<u8> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::GRAYA8;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for GrayAlpha<u16> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::GRAYA16;
+}
+
+#[cfg(feature = "codec")]
+impl Pixel for GrayAlpha<f32> {
+    const DESCRIPTOR: PixelDescriptor = PixelDescriptor::GRAYAF32;
+}
+
+// ---------------------------------------------------------------------------
 // BufferError
 // ---------------------------------------------------------------------------
 
@@ -682,11 +828,19 @@ impl core::error::Error for BufferError {}
 /// Represents a contiguous region of pixel rows, possibly a sub-region
 /// of a larger buffer. All rows share the same stride.
 ///
+/// The type parameter `P` tracks the pixel format at compile time:
+/// - `PixelSlice<'a, Rgb<u8>>` — known to be RGB8 pixels
+/// - `PixelSlice<'a>` (= `PixelSlice<'a, ()>`) — type-erased, format in descriptor
+///
+/// Use [`new_typed()`](PixelSlice::new_typed) to create a typed slice, or
+/// [`erase()`](PixelSlice::erase) / [`try_typed()`](PixelSlice::try_typed)
+/// to convert between typed and erased forms.
+///
 /// Optionally carries [`ColorContext`] and [`WorkingColorSpace`] to
 /// track source color metadata and current color space through the
 /// processing pipeline.
 #[non_exhaustive]
-pub struct PixelSlice<'a> {
+pub struct PixelSlice<'a, P = ()> {
     data: &'a [u8],
     width: u32,
     rows: u32,
@@ -694,10 +848,13 @@ pub struct PixelSlice<'a> {
     descriptor: PixelDescriptor,
     working_space: WorkingColorSpace,
     color: Option<Arc<ColorContext>>,
+    _pixel: PhantomData<P>,
 }
 
 impl<'a> PixelSlice<'a> {
     /// Create a new pixel slice with validation.
+    ///
+    /// `stride_bytes` is the byte distance between the start of consecutive rows.
     ///
     /// # Errors
     ///
@@ -707,38 +864,67 @@ impl<'a> PixelSlice<'a> {
         data: &'a [u8],
         width: u32,
         rows: u32,
-        stride: usize,
+        stride_bytes: usize,
         descriptor: PixelDescriptor,
     ) -> Result<Self, BufferError> {
-        let bpp = descriptor.bytes_per_pixel();
-        let min_stride = (width as usize)
-            .checked_mul(bpp)
-            .ok_or(BufferError::InvalidDimensions)?;
-        if stride < min_stride {
-            return Err(BufferError::StrideTooSmall);
-        }
-        if bpp > 0 && !stride.is_multiple_of(bpp) {
-            return Err(BufferError::StrideNotPixelAligned);
-        }
-        if rows > 0 {
-            let required = required_bytes(rows, stride, min_stride)?;
-            if data.len() < required {
-                return Err(BufferError::InsufficientData);
-            }
-        }
-        let align = descriptor.min_alignment();
-        if !(data.as_ptr() as usize).is_multiple_of(align) {
-            return Err(BufferError::AlignmentViolation);
-        }
+        validate_slice(
+            data.len(),
+            data.as_ptr(),
+            width,
+            rows,
+            stride_bytes,
+            &descriptor,
+        )?;
         Ok(Self {
             data,
             width,
             rows,
-            stride,
+            stride: stride_bytes,
             descriptor,
             working_space: WorkingColorSpace::Native,
             color: None,
+            _pixel: PhantomData,
         })
+    }
+}
+
+impl<'a, P> PixelSlice<'a, P> {
+    /// Erase the pixel type, returning a type-erased slice.
+    ///
+    /// This is a zero-cost operation that just changes the type parameter.
+    pub fn erase(self) -> PixelSlice<'a> {
+        PixelSlice {
+            data: self.data,
+            width: self.width,
+            rows: self.rows,
+            stride: self.stride,
+            descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color,
+            _pixel: PhantomData,
+        }
+    }
+
+    /// Try to reinterpret as a typed pixel slice.
+    ///
+    /// Succeeds if the descriptors are layout-compatible (same channel type
+    /// and layout). Transfer function and alpha mode are metadata, not
+    /// layout constraints.
+    pub fn try_typed<Q: Pixel>(self) -> Option<PixelSlice<'a, Q>> {
+        if self.descriptor.layout_compatible(&Q::DESCRIPTOR) {
+            Some(PixelSlice {
+                data: self.data,
+                width: self.width,
+                rows: self.rows,
+                stride: self.stride,
+                descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color,
+                _pixel: PhantomData,
+            })
+        } else {
+            None
+        }
     }
 
     /// Replace the descriptor, preserving all other fields.
@@ -887,7 +1073,7 @@ impl<'a> PixelSlice<'a> {
     /// # Panics
     ///
     /// Panics if `y + count > rows`.
-    pub fn sub_rows(&self, y: u32, count: u32) -> PixelSlice<'_> {
+    pub fn sub_rows(&self, y: u32, count: u32) -> PixelSlice<'_, P> {
         assert!(
             y.checked_add(count).is_some_and(|end| end <= self.rows),
             "sub_rows({y}, {count}) out of bounds (rows: {})",
@@ -902,6 +1088,7 @@ impl<'a> PixelSlice<'a> {
                 descriptor: self.descriptor,
                 working_space: self.working_space,
                 color: self.color.clone(),
+                _pixel: PhantomData,
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -915,6 +1102,7 @@ impl<'a> PixelSlice<'a> {
             descriptor: self.descriptor,
             working_space: self.working_space,
             color: self.color.clone(),
+            _pixel: PhantomData,
         }
     }
 
@@ -924,7 +1112,7 @@ impl<'a> PixelSlice<'a> {
     /// # Panics
     ///
     /// Panics if the crop region is out of bounds.
-    pub fn crop_view(&self, x: u32, y: u32, w: u32, h: u32) -> PixelSlice<'_> {
+    pub fn crop_view(&self, x: u32, y: u32, w: u32, h: u32) -> PixelSlice<'_, P> {
         assert!(
             x.checked_add(w).is_some_and(|end| end <= self.width),
             "crop x={x} w={w} exceeds width {}",
@@ -944,6 +1132,7 @@ impl<'a> PixelSlice<'a> {
                 descriptor: self.descriptor,
                 working_space: self.working_space,
                 color: self.color.clone(),
+                _pixel: PhantomData,
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -957,11 +1146,112 @@ impl<'a> PixelSlice<'a> {
             descriptor: self.descriptor,
             working_space: self.working_space,
             color: self.color.clone(),
+            _pixel: PhantomData,
         }
     }
 }
 
-impl fmt::Debug for PixelSlice<'_> {
+impl<'a, P: Pixel> PixelSlice<'a, P> {
+    /// Create a typed pixel slice.
+    ///
+    /// `stride_pixels` is the number of pixels per row (>= width).
+    /// The byte stride is `stride_pixels * size_of::<P>()`.
+    ///
+    /// # Compile-time safety
+    ///
+    /// Includes a compile-time assertion that `size_of::<P>()` matches
+    /// `P::DESCRIPTOR.bytes_per_pixel()`, catching bad `Pixel` impls.
+    pub fn new_typed(
+        data: &'a [u8],
+        width: u32,
+        rows: u32,
+        stride_pixels: u32,
+    ) -> Result<Self, BufferError> {
+        const { assert!(core::mem::size_of::<P>() == P::DESCRIPTOR.bytes_per_pixel()) }
+        let stride_bytes = stride_pixels as usize * core::mem::size_of::<P>();
+        validate_slice(
+            data.len(),
+            data.as_ptr(),
+            width,
+            rows,
+            stride_bytes,
+            &P::DESCRIPTOR,
+        )?;
+        Ok(Self {
+            data,
+            width,
+            rows,
+            stride: stride_bytes,
+            descriptor: P::DESCRIPTOR,
+            working_space: WorkingColorSpace::Native,
+            color: None,
+            _pixel: PhantomData,
+        })
+    }
+}
+
+impl<'a, P: Pixel> PixelSliceMut<'a, P> {
+    /// Create a typed mutable pixel slice.
+    ///
+    /// `stride_pixels` is the number of pixels per row (>= width).
+    /// The byte stride is `stride_pixels * size_of::<P>()`.
+    pub fn new_typed(
+        data: &'a mut [u8],
+        width: u32,
+        rows: u32,
+        stride_pixels: u32,
+    ) -> Result<Self, BufferError> {
+        const { assert!(core::mem::size_of::<P>() == P::DESCRIPTOR.bytes_per_pixel()) }
+        let stride_bytes = stride_pixels as usize * core::mem::size_of::<P>();
+        validate_slice(
+            data.len(),
+            data.as_ptr(),
+            width,
+            rows,
+            stride_bytes,
+            &P::DESCRIPTOR,
+        )?;
+        Ok(Self {
+            data,
+            width,
+            rows,
+            stride: stride_bytes,
+            descriptor: P::DESCRIPTOR,
+            working_space: WorkingColorSpace::Native,
+            color: None,
+            _pixel: PhantomData,
+        })
+    }
+}
+
+impl<P: Pixel> PixelBuffer<P> {
+    /// Allocate a typed zero-filled buffer for the given dimensions.
+    ///
+    /// The descriptor is derived from `P::DESCRIPTOR`.
+    pub fn new_typed(width: u32, height: u32) -> Self {
+        const { assert!(core::mem::size_of::<P>() == P::DESCRIPTOR.bytes_per_pixel()) }
+        let descriptor = P::DESCRIPTOR;
+        let stride = descriptor.aligned_stride(width);
+        let total = stride * height as usize;
+        let align = descriptor.min_alignment();
+        let alloc_size = total + align - 1;
+        let data = vec![0u8; alloc_size];
+        let offset = align_offset(data.as_ptr(), align);
+        Self {
+            data,
+            offset,
+            width,
+            height,
+            stride,
+            descriptor,
+            working_space: WorkingColorSpace::Native,
+            color: None,
+            _pixel: PhantomData,
+        }
+    }
+}
+
+impl<P> fmt::Debug for PixelSlice<'_, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -978,8 +1268,9 @@ impl fmt::Debug for PixelSlice<'_> {
 /// Mutable borrowed view of pixel data.
 ///
 /// Same semantics as [`PixelSlice`] but allows writing to rows.
+/// The type parameter `P` tracks pixel format at compile time.
 #[non_exhaustive]
-pub struct PixelSliceMut<'a> {
+pub struct PixelSliceMut<'a, P = ()> {
     data: &'a mut [u8],
     width: u32,
     rows: u32,
@@ -987,10 +1278,13 @@ pub struct PixelSliceMut<'a> {
     descriptor: PixelDescriptor,
     working_space: WorkingColorSpace,
     color: Option<Arc<ColorContext>>,
+    _pixel: PhantomData<P>,
 }
 
 impl<'a> PixelSliceMut<'a> {
     /// Create a new mutable pixel slice with validation.
+    ///
+    /// `stride_bytes` is the byte distance between the start of consecutive rows.
     ///
     /// # Errors
     ///
@@ -1000,38 +1294,63 @@ impl<'a> PixelSliceMut<'a> {
         data: &'a mut [u8],
         width: u32,
         rows: u32,
-        stride: usize,
+        stride_bytes: usize,
         descriptor: PixelDescriptor,
     ) -> Result<Self, BufferError> {
-        let bpp = descriptor.bytes_per_pixel();
-        let min_stride = (width as usize)
-            .checked_mul(bpp)
-            .ok_or(BufferError::InvalidDimensions)?;
-        if stride < min_stride {
-            return Err(BufferError::StrideTooSmall);
-        }
-        if bpp > 0 && !stride.is_multiple_of(bpp) {
-            return Err(BufferError::StrideNotPixelAligned);
-        }
-        if rows > 0 {
-            let required = required_bytes(rows, stride, min_stride)?;
-            if data.len() < required {
-                return Err(BufferError::InsufficientData);
-            }
-        }
-        let align = descriptor.min_alignment();
-        if !(data.as_ptr() as usize).is_multiple_of(align) {
-            return Err(BufferError::AlignmentViolation);
-        }
+        validate_slice(
+            data.len(),
+            data.as_ptr(),
+            width,
+            rows,
+            stride_bytes,
+            &descriptor,
+        )?;
         Ok(Self {
             data,
             width,
             rows,
-            stride,
+            stride: stride_bytes,
             descriptor,
             working_space: WorkingColorSpace::Native,
             color: None,
+            _pixel: PhantomData,
         })
+    }
+}
+
+impl<'a, P> PixelSliceMut<'a, P> {
+    /// Erase the pixel type, returning a type-erased mutable slice.
+    pub fn erase(self) -> PixelSliceMut<'a> {
+        PixelSliceMut {
+            data: self.data,
+            width: self.width,
+            rows: self.rows,
+            stride: self.stride,
+            descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color,
+            _pixel: PhantomData,
+        }
+    }
+
+    /// Try to reinterpret as a typed mutable pixel slice.
+    ///
+    /// Succeeds if the descriptors are layout-compatible.
+    pub fn try_typed<Q: Pixel>(self) -> Option<PixelSliceMut<'a, Q>> {
+        if self.descriptor.layout_compatible(&Q::DESCRIPTOR) {
+            Some(PixelSliceMut {
+                data: self.data,
+                width: self.width,
+                rows: self.rows,
+                stride: self.stride,
+                descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color,
+                _pixel: PhantomData,
+            })
+        } else {
+            None
+        }
     }
 
     /// Image width in pixels.
@@ -1123,7 +1442,7 @@ impl<'a> PixelSliceMut<'a> {
     /// # Panics
     ///
     /// Panics if `y + count > rows`.
-    pub fn sub_rows_mut(&mut self, y: u32, count: u32) -> PixelSliceMut<'_> {
+    pub fn sub_rows_mut(&mut self, y: u32, count: u32) -> PixelSliceMut<'_, P> {
         assert!(
             y.checked_add(count).is_some_and(|end| end <= self.rows),
             "sub_rows_mut({y}, {count}) out of bounds (rows: {})",
@@ -1138,6 +1457,7 @@ impl<'a> PixelSliceMut<'a> {
                 descriptor: self.descriptor,
                 working_space: self.working_space,
                 color: self.color.clone(),
+                _pixel: PhantomData,
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -1151,11 +1471,283 @@ impl<'a> PixelSliceMut<'a> {
             descriptor: self.descriptor,
             working_space: self.working_space,
             color: self.color.clone(),
+            _pixel: PhantomData,
         }
     }
 }
 
-impl fmt::Debug for PixelSliceMut<'_> {
+// ---------------------------------------------------------------------------
+// In-place 32-bit pixel format conversions on PixelSliceMut
+// ---------------------------------------------------------------------------
+
+/// Helper: iterate over pixel rows, calling `f` on each 4-byte pixel.
+fn for_each_pixel_4bpp(
+    data: &mut [u8],
+    width: u32,
+    rows: u32,
+    stride: usize,
+    mut f: impl FnMut(&mut [u8; 4]),
+) {
+    let row_bytes = width as usize * 4;
+    for y in 0..rows as usize {
+        let row_start = y * stride;
+        let row = &mut data[row_start..row_start + row_bytes];
+        for chunk in row.chunks_exact_mut(4) {
+            let px: &mut [u8; 4] = chunk.try_into().unwrap();
+            f(px);
+        }
+    }
+}
+
+impl<'a> PixelSliceMut<'a, Rgbx> {
+    /// Byte-swap R↔B channels in place, converting to BGRX.
+    pub fn swap_to_bgrx(self) -> PixelSliceMut<'a, Bgrx> {
+        let width = self.width;
+        let rows = self.rows;
+        let stride = self.stride;
+        let ws = self.working_space;
+        let color = self.color;
+        let data = self.data;
+        for_each_pixel_4bpp(data, width, rows, stride, |px| {
+            px.swap(0, 2);
+        });
+        PixelSliceMut {
+            data,
+            width,
+            rows,
+            stride,
+            descriptor: PixelDescriptor::BGRX8_SRGB,
+            working_space: ws,
+            color,
+            _pixel: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "codec")]
+impl<'a> PixelSliceMut<'a, Rgbx> {
+    /// Upgrade to RGBA by setting all padding bytes to 255 (fully opaque).
+    pub fn upgrade_to_rgba(self) -> PixelSliceMut<'a, Rgba<u8>> {
+        let width = self.width;
+        let rows = self.rows;
+        let stride = self.stride;
+        let ws = self.working_space;
+        let color = self.color;
+        let data = self.data;
+        for_each_pixel_4bpp(data, width, rows, stride, |px| {
+            px[3] = 255;
+        });
+        PixelSliceMut {
+            data,
+            width,
+            rows,
+            stride,
+            descriptor: PixelDescriptor::RGBA8_SRGB,
+            working_space: ws,
+            color,
+            _pixel: PhantomData,
+        }
+    }
+}
+
+impl<'a> PixelSliceMut<'a, Bgrx> {
+    /// Byte-swap B↔R channels in place, converting to RGBX.
+    pub fn swap_to_rgbx(self) -> PixelSliceMut<'a, Rgbx> {
+        let width = self.width;
+        let rows = self.rows;
+        let stride = self.stride;
+        let ws = self.working_space;
+        let color = self.color;
+        let data = self.data;
+        for_each_pixel_4bpp(data, width, rows, stride, |px| {
+            px.swap(0, 2);
+        });
+        PixelSliceMut {
+            data,
+            width,
+            rows,
+            stride,
+            descriptor: PixelDescriptor::RGBX8_SRGB,
+            working_space: ws,
+            color,
+            _pixel: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "codec")]
+impl<'a> PixelSliceMut<'a, Bgrx> {
+    /// Upgrade to BGRA by setting all padding bytes to 255 (fully opaque).
+    pub fn upgrade_to_bgra(self) -> PixelSliceMut<'a, BGRA<u8>> {
+        let width = self.width;
+        let rows = self.rows;
+        let stride = self.stride;
+        let ws = self.working_space;
+        let color = self.color;
+        let data = self.data;
+        for_each_pixel_4bpp(data, width, rows, stride, |px| {
+            px[3] = 255;
+        });
+        PixelSliceMut {
+            data,
+            width,
+            rows,
+            stride,
+            descriptor: PixelDescriptor::BGRA8_SRGB,
+            working_space: ws,
+            color,
+            _pixel: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "codec")]
+impl<'a> PixelSliceMut<'a, Rgba<u8>> {
+    /// Matte alpha against a solid RGB background, producing RGBX.
+    ///
+    /// Each pixel is composited: `out = src * alpha/255 + bg * (255 - alpha)/255`.
+    /// The alpha byte becomes padding.
+    pub fn matte_to_rgbx(self, bg: Rgb<u8>) -> PixelSliceMut<'a, Rgbx> {
+        let width = self.width;
+        let rows = self.rows;
+        let stride = self.stride;
+        let ws = self.working_space;
+        let color = self.color;
+        let data = self.data;
+        for_each_pixel_4bpp(data, width, rows, stride, |px| {
+            let a = px[3] as u16;
+            let inv_a = 255 - a;
+            px[0] = ((px[0] as u16 * a + bg.r as u16 * inv_a + 127) / 255) as u8;
+            px[1] = ((px[1] as u16 * a + bg.g as u16 * inv_a + 127) / 255) as u8;
+            px[2] = ((px[2] as u16 * a + bg.b as u16 * inv_a + 127) / 255) as u8;
+            px[3] = 0;
+        });
+        PixelSliceMut {
+            data,
+            width,
+            rows,
+            stride,
+            descriptor: PixelDescriptor::RGBX8_SRGB,
+            working_space: ws,
+            color,
+            _pixel: PhantomData,
+        }
+    }
+
+    /// Strip alpha to RGBX without compositing (just mark as padding).
+    ///
+    /// The alpha byte value is preserved in memory but semantically ignored.
+    /// Use when you know alpha is already 255 or don't care about the values.
+    pub fn strip_alpha_to_rgbx(self) -> PixelSliceMut<'a, Rgbx> {
+        PixelSliceMut {
+            data: self.data,
+            width: self.width,
+            rows: self.rows,
+            stride: self.stride,
+            descriptor: PixelDescriptor::RGBX8_SRGB,
+            working_space: self.working_space,
+            color: self.color,
+            _pixel: PhantomData,
+        }
+    }
+
+    /// Byte-swap R↔B channels in place, converting to BGRA.
+    pub fn swap_to_bgra(self) -> PixelSliceMut<'a, BGRA<u8>> {
+        let width = self.width;
+        let rows = self.rows;
+        let stride = self.stride;
+        let ws = self.working_space;
+        let color = self.color;
+        let data = self.data;
+        for_each_pixel_4bpp(data, width, rows, stride, |px| {
+            px.swap(0, 2);
+        });
+        PixelSliceMut {
+            data,
+            width,
+            rows,
+            stride,
+            descriptor: PixelDescriptor::BGRA8_SRGB,
+            working_space: ws,
+            color,
+            _pixel: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "codec")]
+impl<'a> PixelSliceMut<'a, BGRA<u8>> {
+    /// Matte alpha against a solid RGB background, producing BGRX.
+    ///
+    /// Each pixel is composited: `out = src * alpha/255 + bg * (255 - alpha)/255`.
+    /// The alpha byte becomes padding.
+    pub fn matte_to_bgrx(self, bg: Rgb<u8>) -> PixelSliceMut<'a, Bgrx> {
+        let width = self.width;
+        let rows = self.rows;
+        let stride = self.stride;
+        let ws = self.working_space;
+        let color = self.color;
+        let data = self.data;
+        for_each_pixel_4bpp(data, width, rows, stride, |px| {
+            let a = px[3] as u16;
+            let inv_a = 255 - a;
+            // BGRA layout: [B, G, R, A]
+            px[0] = ((px[0] as u16 * a + bg.b as u16 * inv_a + 127) / 255) as u8;
+            px[1] = ((px[1] as u16 * a + bg.g as u16 * inv_a + 127) / 255) as u8;
+            px[2] = ((px[2] as u16 * a + bg.r as u16 * inv_a + 127) / 255) as u8;
+            px[3] = 0;
+        });
+        PixelSliceMut {
+            data,
+            width,
+            rows,
+            stride,
+            descriptor: PixelDescriptor::BGRX8_SRGB,
+            working_space: ws,
+            color,
+            _pixel: PhantomData,
+        }
+    }
+
+    /// Strip alpha to BGRX without compositing (just mark as padding).
+    pub fn strip_alpha_to_bgrx(self) -> PixelSliceMut<'a, Bgrx> {
+        PixelSliceMut {
+            data: self.data,
+            width: self.width,
+            rows: self.rows,
+            stride: self.stride,
+            descriptor: PixelDescriptor::BGRX8_SRGB,
+            working_space: self.working_space,
+            color: self.color,
+            _pixel: PhantomData,
+        }
+    }
+
+    /// Byte-swap B↔R channels in place, converting to RGBA.
+    pub fn swap_to_rgba(self) -> PixelSliceMut<'a, Rgba<u8>> {
+        let width = self.width;
+        let rows = self.rows;
+        let stride = self.stride;
+        let ws = self.working_space;
+        let color = self.color;
+        let data = self.data;
+        for_each_pixel_4bpp(data, width, rows, stride, |px| {
+            px.swap(0, 2);
+        });
+        PixelSliceMut {
+            data,
+            width,
+            rows,
+            stride,
+            descriptor: PixelDescriptor::RGBA8_SRGB,
+            working_space: ws,
+            color,
+            _pixel: PhantomData,
+        }
+    }
+}
+
+impl<P> fmt::Debug for PixelSliceMut<'_, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -1175,8 +1767,11 @@ impl fmt::Debug for PixelSliceMut<'_> {
 /// rows start at the correct alignment for the channel type. The
 /// backing vec can be recovered with [`into_vec`](Self::into_vec) for
 /// pool reuse.
+///
+/// The type parameter `P` tracks pixel format at compile time, same as
+/// [`PixelSlice`].
 #[non_exhaustive]
-pub struct PixelBuffer {
+pub struct PixelBuffer<P = ()> {
     data: Vec<u8>,
     /// Byte offset from `data` start to the first aligned pixel.
     offset: usize,
@@ -1186,6 +1781,7 @@ pub struct PixelBuffer {
     descriptor: PixelDescriptor,
     working_space: WorkingColorSpace,
     color: Option<Arc<ColorContext>>,
+    _pixel: PhantomData<P>,
 }
 
 impl PixelBuffer {
@@ -1206,6 +1802,7 @@ impl PixelBuffer {
             descriptor,
             working_space: WorkingColorSpace::Native,
             color: None,
+            _pixel: PhantomData,
         }
     }
 
@@ -1236,6 +1833,7 @@ impl PixelBuffer {
             descriptor,
             working_space: WorkingColorSpace::Native,
             color: None,
+            _pixel: PhantomData,
         }
     }
 
@@ -1272,7 +1870,46 @@ impl PixelBuffer {
             descriptor,
             working_space: WorkingColorSpace::Native,
             color: None,
+            _pixel: PhantomData,
         })
+    }
+}
+
+impl<P> PixelBuffer<P> {
+    /// Erase the pixel type, returning a type-erased buffer.
+    pub fn erase(self) -> PixelBuffer {
+        PixelBuffer {
+            data: self.data,
+            offset: self.offset,
+            width: self.width,
+            height: self.height,
+            stride: self.stride,
+            descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color,
+            _pixel: PhantomData,
+        }
+    }
+
+    /// Try to reinterpret as a typed pixel buffer.
+    ///
+    /// Succeeds if the descriptors are layout-compatible.
+    pub fn try_typed<Q: Pixel>(self) -> Option<PixelBuffer<Q>> {
+        if self.descriptor.layout_compatible(&Q::DESCRIPTOR) {
+            Some(PixelBuffer {
+                data: self.data,
+                offset: self.offset,
+                width: self.width,
+                height: self.height,
+                stride: self.stride,
+                descriptor: self.descriptor,
+                working_space: self.working_space,
+                color: self.color,
+                _pixel: PhantomData,
+            })
+        } else {
+            None
+        }
     }
 
     /// Consume the buffer and return the backing `Vec<u8>` for pool reuse.
@@ -1331,7 +1968,7 @@ impl PixelBuffer {
     }
 
     /// Borrow the full buffer as an immutable [`PixelSlice`].
-    pub fn as_slice(&self) -> PixelSlice<'_> {
+    pub fn as_slice(&self) -> PixelSlice<'_, P> {
         let total = self.stride * self.height as usize;
         PixelSlice {
             data: &self.data[self.offset..self.offset + total],
@@ -1341,11 +1978,12 @@ impl PixelBuffer {
             descriptor: self.descriptor,
             working_space: self.working_space,
             color: self.color.clone(),
+            _pixel: PhantomData,
         }
     }
 
     /// Borrow the full buffer as a mutable [`PixelSliceMut`].
-    pub fn as_slice_mut(&mut self) -> PixelSliceMut<'_> {
+    pub fn as_slice_mut(&mut self) -> PixelSliceMut<'_, P> {
         let total = self.stride * self.height as usize;
         let offset = self.offset;
         PixelSliceMut {
@@ -1356,6 +1994,7 @@ impl PixelBuffer {
             descriptor: self.descriptor,
             working_space: self.working_space,
             color: self.color.clone(),
+            _pixel: PhantomData,
         }
     }
 
@@ -1364,7 +2003,7 @@ impl PixelBuffer {
     /// # Panics
     ///
     /// Panics if `y + count > height`.
-    pub fn rows(&self, y: u32, count: u32) -> PixelSlice<'_> {
+    pub fn rows(&self, y: u32, count: u32) -> PixelSlice<'_, P> {
         assert!(
             y.checked_add(count).is_some_and(|end| end <= self.height),
             "rows({y}, {count}) out of bounds (height: {})",
@@ -1379,6 +2018,7 @@ impl PixelBuffer {
                 descriptor: self.descriptor,
                 working_space: self.working_space,
                 color: self.color.clone(),
+                _pixel: PhantomData,
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -1394,6 +2034,7 @@ impl PixelBuffer {
             descriptor: self.descriptor,
             working_space: self.working_space,
             color: self.color.clone(),
+            _pixel: PhantomData,
         }
     }
 
@@ -1402,7 +2043,7 @@ impl PixelBuffer {
     /// # Panics
     ///
     /// Panics if `y + count > height`.
-    pub fn rows_mut(&mut self, y: u32, count: u32) -> PixelSliceMut<'_> {
+    pub fn rows_mut(&mut self, y: u32, count: u32) -> PixelSliceMut<'_, P> {
         assert!(
             y.checked_add(count).is_some_and(|end| end <= self.height),
             "rows_mut({y}, {count}) out of bounds (height: {})",
@@ -1417,6 +2058,7 @@ impl PixelBuffer {
                 descriptor: self.descriptor,
                 working_space: self.working_space,
                 color: self.color.clone(),
+                _pixel: PhantomData,
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -1432,6 +2074,7 @@ impl PixelBuffer {
             descriptor: self.descriptor,
             working_space: self.working_space,
             color: self.color.clone(),
+            _pixel: PhantomData,
         }
     }
 
@@ -1440,7 +2083,7 @@ impl PixelBuffer {
     /// # Panics
     ///
     /// Panics if the crop region is out of bounds.
-    pub fn crop_view(&self, x: u32, y: u32, w: u32, h: u32) -> PixelSlice<'_> {
+    pub fn crop_view(&self, x: u32, y: u32, w: u32, h: u32) -> PixelSlice<'_, P> {
         assert!(
             x.checked_add(w).is_some_and(|end| end <= self.width),
             "crop x={x} w={w} exceeds width {}",
@@ -1460,6 +2103,7 @@ impl PixelBuffer {
                 descriptor: self.descriptor,
                 working_space: self.working_space,
                 color: self.color.clone(),
+                _pixel: PhantomData,
             };
         }
         let bpp = self.descriptor.bytes_per_pixel();
@@ -1475,6 +2119,7 @@ impl PixelBuffer {
             descriptor: self.descriptor,
             working_space: self.working_space,
             color: self.color.clone(),
+            _pixel: PhantomData,
         }
     }
 
@@ -1483,11 +2128,25 @@ impl PixelBuffer {
     /// # Panics
     ///
     /// Panics if the crop region is out of bounds.
-    pub fn crop_copy(&self, x: u32, y: u32, w: u32, h: u32) -> PixelBuffer {
+    pub fn crop_copy(&self, x: u32, y: u32, w: u32, h: u32) -> PixelBuffer<P> {
         let src = self.crop_view(x, y, w, h);
-        let mut dst = PixelBuffer::new(w, h, self.descriptor);
-        dst.working_space = self.working_space;
-        dst.color = self.color.clone();
+        let stride = self.descriptor.aligned_stride(w);
+        let total = stride * h as usize;
+        let align = self.descriptor.min_alignment();
+        let alloc_size = total + align - 1;
+        let data = vec![0u8; alloc_size];
+        let offset = align_offset(data.as_ptr(), align);
+        let mut dst = PixelBuffer {
+            data,
+            offset,
+            width: w,
+            height: h,
+            stride,
+            descriptor: self.descriptor,
+            working_space: self.working_space,
+            color: self.color.clone(),
+            _pixel: PhantomData,
+        };
         let bpp = self.descriptor.bytes_per_pixel();
         let row_bytes = w as usize * bpp;
         for row_y in 0..h {
@@ -1499,7 +2158,7 @@ impl PixelBuffer {
     }
 }
 
-impl fmt::Debug for PixelBuffer {
+impl<P> fmt::Debug for PixelBuffer<P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -1516,7 +2175,7 @@ impl fmt::Debug for PixelBuffer {
 #[cfg(feature = "codec")]
 macro_rules! impl_from_imgref {
     ($pixel:ty, $descriptor:expr) => {
-        impl<'a> From<ImgRef<'a, $pixel>> for PixelSlice<'a> {
+        impl<'a> From<ImgRef<'a, $pixel>> for PixelSlice<'a, $pixel> {
             fn from(img: ImgRef<'a, $pixel>) -> Self {
                 use rgb::ComponentBytes;
                 let bytes = img.buf().as_bytes();
@@ -1529,6 +2188,7 @@ macro_rules! impl_from_imgref {
                     descriptor: $descriptor,
                     working_space: WorkingColorSpace::Native,
                     color: None,
+                    _pixel: PhantomData,
                 }
             }
         }
@@ -1565,7 +2225,7 @@ impl_from_imgref!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
 #[cfg(feature = "codec")]
 macro_rules! impl_from_imgref_mut {
     ($pixel:ty, $descriptor:expr) => {
-        impl<'a> From<imgref::ImgRefMut<'a, $pixel>> for PixelSliceMut<'a> {
+        impl<'a> From<imgref::ImgRefMut<'a, $pixel>> for PixelSliceMut<'a, $pixel> {
             fn from(img: imgref::ImgRefMut<'a, $pixel>) -> Self {
                 use rgb::ComponentBytes;
                 let width = img.width() as u32;
@@ -1581,6 +2241,7 @@ macro_rules! impl_from_imgref_mut {
                     descriptor: $descriptor,
                     working_space: WorkingColorSpace::Native,
                     color: None,
+                    _pixel: PhantomData,
                 }
             }
         }
@@ -1609,6 +2270,28 @@ impl_from_imgref_mut!(Gray<f32>, PixelDescriptor::GRAYF32_LINEAR);
 impl_from_imgref_mut!(BGRA<u8>, PixelDescriptor::BGRA8_SRGB);
 
 // ---------------------------------------------------------------------------
+// Typed → Erased blanket From impls (erase via From)
+// ---------------------------------------------------------------------------
+
+impl<'a, P: Pixel> From<PixelSlice<'a, P>> for PixelSlice<'a> {
+    fn from(typed: PixelSlice<'a, P>) -> Self {
+        typed.erase()
+    }
+}
+
+impl<'a, P: Pixel> From<PixelSliceMut<'a, P>> for PixelSliceMut<'a> {
+    fn from(typed: PixelSliceMut<'a, P>) -> Self {
+        typed.erase()
+    }
+}
+
+impl<P: Pixel> From<PixelBuffer<P>> for PixelBuffer {
+    fn from(typed: PixelBuffer<P>) -> Self {
+        typed.erase()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // PixelData → PixelBuffer (From, always copies) — codec feature only
 // ---------------------------------------------------------------------------
 
@@ -1629,6 +2312,7 @@ impl From<PixelData> for PixelBuffer {
             descriptor,
             working_space: WorkingColorSpace::Native,
             color: None,
+            _pixel: PhantomData,
         }
     }
 }
@@ -1774,6 +2458,38 @@ const fn lcm(a: usize, b: usize) -> usize {
 fn align_offset(ptr: *const u8, align: usize) -> usize {
     let addr = ptr as usize;
     align_up(addr, align) - addr
+}
+
+/// Validate slice parameters (shared by erased and typed constructors).
+fn validate_slice(
+    data_len: usize,
+    data_ptr: *const u8,
+    width: u32,
+    rows: u32,
+    stride_bytes: usize,
+    descriptor: &PixelDescriptor,
+) -> Result<(), BufferError> {
+    let bpp = descriptor.bytes_per_pixel();
+    let min_stride = (width as usize)
+        .checked_mul(bpp)
+        .ok_or(BufferError::InvalidDimensions)?;
+    if stride_bytes < min_stride {
+        return Err(BufferError::StrideTooSmall);
+    }
+    if bpp > 0 && !stride_bytes.is_multiple_of(bpp) {
+        return Err(BufferError::StrideNotPixelAligned);
+    }
+    if rows > 0 {
+        let required = required_bytes(rows, stride_bytes, min_stride)?;
+        if data_len < required {
+            return Err(BufferError::InsufficientData);
+        }
+    }
+    let align = descriptor.min_alignment();
+    if !(data_ptr as usize).is_multiple_of(align) {
+        return Err(BufferError::AlignmentViolation);
+    }
+    Ok(())
 }
 
 /// Minimum bytes needed: `(rows - 1) * stride + min_stride`.
@@ -2403,7 +3119,7 @@ mod codec_tests {
             },
         ];
         let img = imgref::Img::new(pixels.as_slice(), 2, 2);
-        let slice: PixelSlice<'_> = img.into();
+        let slice: PixelSlice<'_, Rgb<u8>> = img.into();
         assert_eq!(slice.width(), 2);
         assert_eq!(slice.rows(), 2);
         assert_eq!(slice.row(0), &[10, 20, 30, 40, 50, 60]);
@@ -2414,7 +3130,7 @@ mod codec_tests {
     fn imgref_to_pixel_slice_gray16() {
         let pixels = vec![Gray::new(1000u16), Gray::new(2000u16)];
         let img = imgref::Img::new(pixels.as_slice(), 2, 1);
-        let slice: PixelSlice<'_> = img.into();
+        let slice: PixelSlice<'_, Gray<u16>> = img.into();
         assert_eq!(slice.width(), 2);
         assert_eq!(slice.rows(), 1);
         assert_eq!(slice.descriptor(), PixelDescriptor::GRAY16);

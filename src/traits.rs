@@ -33,6 +33,7 @@ use crate::{
     DecodeFrame, DecodeOutput, EncodeOutput, ImageInfo, MetadataView, OutputInfo, PixelDescriptor,
     PixelSlice, ResourceLimits, Stop,
 };
+use rgb::{Gray, Rgb, Rgba};
 
 // ===========================================================================
 // Encode traits
@@ -202,7 +203,7 @@ pub trait EncodeRgb8 {
     /// The codec-specific error type.
     type Error;
     /// Encode RGB8 pixels. Consumes self (single-shot).
-    fn encode_rgb8(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_rgb8(self, pixels: PixelSlice<'_, Rgb<u8>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Encode from 8-bit RGBA pixels.
@@ -210,7 +211,7 @@ pub trait EncodeRgba8 {
     /// The codec-specific error type.
     type Error;
     /// Encode RGBA8 pixels. Consumes self (single-shot).
-    fn encode_rgba8(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_rgba8(self, pixels: PixelSlice<'_, Rgba<u8>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Encode from 8-bit grayscale pixels.
@@ -218,7 +219,7 @@ pub trait EncodeGray8 {
     /// The codec-specific error type.
     type Error;
     /// Encode Gray8 pixels. Consumes self (single-shot).
-    fn encode_gray8(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_gray8(self, pixels: PixelSlice<'_, Gray<u8>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Encode from 16-bit RGB pixels.
@@ -226,7 +227,7 @@ pub trait EncodeRgb16 {
     /// The codec-specific error type.
     type Error;
     /// Encode RGB16 pixels. Consumes self (single-shot).
-    fn encode_rgb16(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_rgb16(self, pixels: PixelSlice<'_, Rgb<u16>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Encode from 16-bit RGBA pixels.
@@ -234,7 +235,7 @@ pub trait EncodeRgba16 {
     /// The codec-specific error type.
     type Error;
     /// Encode RGBA16 pixels. Consumes self (single-shot).
-    fn encode_rgba16(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_rgba16(self, pixels: PixelSlice<'_, Rgba<u16>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Encode from 16-bit grayscale pixels.
@@ -242,10 +243,12 @@ pub trait EncodeGray16 {
     /// The codec-specific error type.
     type Error;
     /// Encode Gray16 pixels. Consumes self (single-shot).
-    fn encode_gray16(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_gray16(self, pixels: PixelSlice<'_, Gray<u16>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Encode from half-precision (f16) RGB pixels.
+///
+/// Uses type-erased `PixelSlice` because the `rgb` crate has no half-float type.
 pub trait EncodeRgbF16 {
     /// The codec-specific error type.
     type Error;
@@ -254,6 +257,8 @@ pub trait EncodeRgbF16 {
 }
 
 /// Encode from half-precision (f16) RGBA pixels.
+///
+/// Uses type-erased `PixelSlice` because the `rgb` crate has no half-float type.
 pub trait EncodeRgbaF16 {
     /// The codec-specific error type.
     type Error;
@@ -266,7 +271,7 @@ pub trait EncodeRgbF32 {
     /// The codec-specific error type.
     type Error;
     /// Encode RGB f32 pixels. Consumes self (single-shot).
-    fn encode_rgb_f32(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_rgb_f32(self, pixels: PixelSlice<'_, Rgb<f32>>) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Encode from 32-bit float RGBA pixels.
@@ -274,7 +279,10 @@ pub trait EncodeRgbaF32 {
     /// The codec-specific error type.
     type Error;
     /// Encode RGBA f32 pixels. Consumes self (single-shot).
-    fn encode_rgba_f32(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_rgba_f32(
+        self,
+        pixels: PixelSlice<'_, Rgba<f32>>,
+    ) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Encode from 32-bit float grayscale pixels.
@@ -282,7 +290,10 @@ pub trait EncodeGrayF32 {
     /// The codec-specific error type.
     type Error;
     /// Encode Gray f32 pixels. Consumes self (single-shot).
-    fn encode_gray_f32(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
+    fn encode_gray_f32(
+        self,
+        pixels: PixelSlice<'_, Gray<f32>>,
+    ) -> Result<EncodeOutput, Self::Error>;
 }
 
 // ===========================================================================
@@ -296,7 +307,7 @@ pub trait FrameEncodeRgb8 {
     /// Push one RGB8 animation frame.
     fn push_frame_rgb8(
         &mut self,
-        pixels: PixelSlice<'_>,
+        pixels: PixelSlice<'_, Rgb<u8>>,
         duration_ms: u32,
     ) -> Result<(), Self::Error>;
     /// Finalize and return the encoded animation.
@@ -310,7 +321,7 @@ pub trait FrameEncodeRgba8 {
     /// Push one RGBA8 animation frame.
     fn push_frame_rgba8(
         &mut self,
-        pixels: PixelSlice<'_>,
+        pixels: PixelSlice<'_, Rgba<u8>>,
         duration_ms: u32,
     ) -> Result<(), Self::Error>;
     /// Finalize and return the encoded animation.
