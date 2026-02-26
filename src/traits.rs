@@ -71,17 +71,23 @@ pub trait EncoderConfig: Clone + Send + Sync {
 
     /// Set encoding quality on a calibrated 0.0–100.0 scale.
     ///
-    /// Default no-op. Check [`quality()`](EncoderConfig::quality) for the
-    /// current value.
-    fn with_quality(self, _quality: f32) -> Self {
+    /// "Generic" because this is the codec-agnostic quality knob. Individual
+    /// codecs may also have format-specific quality methods on their config types.
+    ///
+    /// Default no-op. Check [`generic_quality()`](EncoderConfig::generic_quality)
+    /// for the current value.
+    fn with_generic_quality(self, _quality: f32) -> Self {
         self
     }
 
     /// Set encoding effort (higher = slower, better compression).
     ///
+    /// "Generic" because this is the codec-agnostic effort knob. Individual
+    /// codecs may also have format-specific effort/speed methods.
+    ///
     /// Each codec maps this to its internal effort/speed scale.
     /// Default no-op.
-    fn with_effort(self, _effort: i32) -> Self {
+    fn with_generic_effort(self, _effort: i32) -> Self {
         self
     }
 
@@ -99,13 +105,13 @@ pub trait EncoderConfig: Clone + Send + Sync {
         self
     }
 
-    /// Current quality value, or `None` if the codec has no quality tuning.
-    fn quality(&self) -> Option<f32> {
+    /// Current generic quality value, or `None` if the codec has no quality tuning.
+    fn generic_quality(&self) -> Option<f32> {
         None
     }
 
-    /// Current effort value, or `None` if the codec has no effort tuning.
-    fn effort(&self) -> Option<i32> {
+    /// Current generic effort value, or `None` if the codec has no effort tuning.
+    fn generic_effort(&self) -> Option<i32> {
         None
     }
 
