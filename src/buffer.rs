@@ -109,6 +109,25 @@ pub enum AlphaMode {
     Premultiplied = 2,
 }
 
+/// Signal range for pixel values.
+///
+/// Distinguishes full-range (0–255 for 8-bit) from narrow/limited range
+/// (16–235 luma, 16–240 chroma for 8-bit) as defined by ITU-R BT.601/709/2020.
+///
+/// Video codecs (HEVC, AV1, VP9) commonly use narrow range internally.
+/// Image codecs almost always use full range. The CICP `full_range` flag
+/// maps directly to this enum.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+#[repr(u8)]
+pub enum SignalRange {
+    /// Full range: 0–2^N-1 (e.g. 0–255 for 8-bit).
+    #[default]
+    Full = 0,
+    /// Narrow (limited/studio) range: 16–235 luma, 16–240 chroma (for 8-bit).
+    Narrow = 1,
+}
+
 /// Electro-optical transfer function.
 ///
 /// When a pixel buffer's transfer function is not known (e.g. raw decoded data
@@ -270,6 +289,12 @@ pub struct PixelDescriptor {
     /// Used by the cost model to detect lossy gamut conversions.
     /// PQ/HLG content should typically use [`Bt2020`](ColorPrimaries::Bt2020).
     pub primaries: ColorPrimaries,
+    /// Signal range (full vs narrow/limited).
+    ///
+    /// Defaults to [`Full`](SignalRange::Full). Video-origin content
+    /// (HEVC, AV1, VP9) may use [`Narrow`](SignalRange::Narrow) range.
+    /// Maps to the CICP `full_range` flag.
+    pub signal_range: SignalRange,
 }
 
 impl PixelDescriptor {
@@ -289,6 +314,7 @@ impl PixelDescriptor {
             alpha,
             transfer,
             primaries: ColorPrimaries::Bt709,
+            signal_range: SignalRange::Full,
         }
     }
 
@@ -306,6 +332,7 @@ impl PixelDescriptor {
             alpha,
             transfer,
             primaries,
+            signal_range: SignalRange::Full,
         }
     }
 
@@ -318,6 +345,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 8-bit sRGB RGBA with straight alpha.
@@ -327,6 +355,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 16-bit sRGB RGB.
@@ -336,6 +365,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 16-bit sRGB RGBA with straight alpha.
@@ -345,6 +375,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// Linear-light f32 RGB.
@@ -354,6 +385,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::None,
         transfer: TransferFunction::Linear,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// Linear-light f32 RGBA with straight alpha.
@@ -363,6 +395,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Linear,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 8-bit sRGB grayscale.
@@ -372,6 +405,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 16-bit sRGB grayscale.
@@ -381,6 +415,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// Linear-light f32 grayscale.
@@ -390,6 +425,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::None,
         transfer: TransferFunction::Linear,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 8-bit sRGB grayscale with straight alpha.
@@ -399,6 +435,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 16-bit sRGB grayscale with straight alpha.
@@ -408,6 +445,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// Linear-light f32 grayscale with straight alpha.
@@ -417,6 +455,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Linear,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 8-bit sRGB BGRA with straight alpha.
@@ -426,6 +465,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::Straight,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 8-bit sRGB RGBX (opaque RGBA, padding byte ignored).
@@ -439,6 +479,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     /// 8-bit sRGB BGRX (opaque BGRA, padding byte ignored).
@@ -452,6 +493,7 @@ impl PixelDescriptor {
         alpha: AlphaMode::None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
+        signal_range: SignalRange::Full,
     };
 
     // Transfer-agnostic constants -----------------------------------------------
@@ -525,6 +567,7 @@ impl PixelDescriptor {
             alpha: self.alpha,
             transfer,
             primaries: self.primaries,
+            signal_range: self.signal_range,
         }
     }
 
@@ -546,7 +589,39 @@ impl PixelDescriptor {
             alpha: self.alpha,
             transfer: self.transfer,
             primaries,
+            signal_range: self.signal_range,
         }
+    }
+
+    /// Return a copy of this descriptor with a different signal range.
+    ///
+    /// Use when decoding video-origin content that uses narrow (limited) range:
+    ///
+    /// ```
+    /// # use zencodec_types::{PixelDescriptor, SignalRange};
+    /// let desc = PixelDescriptor::RGB8;
+    /// let narrow = desc.with_signal_range(SignalRange::Narrow);
+    /// assert!(narrow.is_narrow_range());
+    /// ```
+    #[inline]
+    pub const fn with_signal_range(self, signal_range: SignalRange) -> Self {
+        Self {
+            channel_type: self.channel_type,
+            layout: self.layout,
+            alpha: self.alpha,
+            transfer: self.transfer,
+            primaries: self.primaries,
+            signal_range,
+        }
+    }
+
+    /// Whether this format uses narrow (limited/studio) signal range.
+    ///
+    /// Full-range uses 0–2^N-1. Narrow-range reserves headroom and footroom
+    /// (e.g. 16–235 for 8-bit luma).
+    #[inline]
+    pub const fn is_narrow_range(self) -> bool {
+        matches!(self.signal_range, SignalRange::Narrow)
     }
 
     /// Check if this descriptor matches the layout and type of another,
