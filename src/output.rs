@@ -876,7 +876,7 @@ mod codec_tests {
         let frame = DecodeFrame::new(PixelData::Rgb8(img), Arc::clone(&info), 100, 0);
         assert_eq!(frame.info().format, ImageFormat::WebP);
         assert_eq!(
-            frame.info().icc_profile.as_deref(),
+            frame.info().source_color.icc_profile.as_deref(),
             Some([10, 20, 30].as_slice())
         );
         assert_eq!(frame.format(), ImageFormat::WebP);

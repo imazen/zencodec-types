@@ -263,6 +263,149 @@ impl MasteringDisplay {
     }
 }
 
+/// Source color description from the image file.
+///
+/// Groups color-related metadata from the original source: CICP tags,
+/// ICC profile, bit depth, channel count, and HDR descriptors
+/// (content light level, mastering display).
+///
+/// These describe the *source* color space — not the current pixel
+/// data's color space (which is tracked by [`PixelDescriptor`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
+pub struct SourceColor {
+    /// CICP color description (ITU-T H.273).
+    ///
+    /// When present, describes the color space without requiring an ICC
+    /// profile. Both CICP and ICC may be present — CICP takes precedence
+    /// per AVIF/HEIF specs, but callers should use ICC when CICP is absent.
+    pub cicp: Option<Cicp>,
+    /// Embedded ICC color profile.
+    ///
+    /// Stored as `Arc<[u8]>` for cheap sharing across pipeline stages
+    /// and pixel slices. Accepts `Vec<u8>` via [`with_icc_profile()`](Self::with_icc_profile).
+    pub icc_profile: Option<Arc<[u8]>>,
+    /// Bits per channel (e.g. 8, 10, 12, 16, 32).
+    ///
+    /// `None` if unknown (e.g. from a header-only probe that doesn't
+    /// report bit depth).
+    pub bit_depth: Option<u8>,
+    /// Number of channels (1=gray, 2=gray+alpha, 3=RGB, 4=RGBA).
+    ///
+    /// `None` if unknown.
+    pub channel_count: Option<u8>,
+    /// Content Light Level Info (CEA-861.3) for HDR content.
+    pub content_light_level: Option<ContentLightLevel>,
+    /// Mastering Display Color Volume (SMPTE ST 2086) for HDR content.
+    pub mastering_display: Option<MasteringDisplay>,
+}
+
+impl SourceColor {
+    /// Set the CICP color description.
+    pub fn with_cicp(mut self, cicp: Cicp) -> Self {
+        self.cicp = Some(cicp);
+        self
+    }
+
+    /// Set the ICC color profile.
+    pub fn with_icc_profile(mut self, icc: impl Into<Arc<[u8]>>) -> Self {
+        self.icc_profile = Some(icc.into());
+        self
+    }
+
+    /// Set the bit depth.
+    pub fn with_bit_depth(mut self, bit_depth: u8) -> Self {
+        self.bit_depth = Some(bit_depth);
+        self
+    }
+
+    /// Set the channel count.
+    pub fn with_channel_count(mut self, channel_count: u8) -> Self {
+        self.channel_count = Some(channel_count);
+        self
+    }
+
+    /// Set the Content Light Level Info.
+    pub fn with_content_light_level(mut self, clli: ContentLightLevel) -> Self {
+        self.content_light_level = Some(clli);
+        self
+    }
+
+    /// Set the Mastering Display Color Volume.
+    pub fn with_mastering_display(mut self, mdcv: MasteringDisplay) -> Self {
+        self.mastering_display = Some(mdcv);
+        self
+    }
+
+    /// Derive the transfer function from CICP metadata.
+    pub fn transfer_function(&self) -> crate::TransferFunction {
+        self.cicp
+            .and_then(|c| crate::TransferFunction::from_cicp(c.transfer_characteristics))
+            .unwrap_or(crate::TransferFunction::Unknown)
+    }
+
+    /// Derive the color primaries from CICP metadata.
+    pub fn color_primaries(&self) -> crate::ColorPrimaries {
+        self.cicp
+            .map(|c| c.color_primaries_enum())
+            .unwrap_or(crate::ColorPrimaries::Bt709)
+    }
+
+    /// Get the source color profile for CMS integration.
+    pub fn color_profile_source(&self) -> Option<ColorProfileSource<'_>> {
+        if let Some(cicp) = self.cicp {
+            Some(ColorProfileSource::Cicp(cicp))
+        } else {
+            self.icc_profile.as_deref().map(ColorProfileSource::Icc)
+        }
+    }
+
+    /// Build a [`ColorContext`] from the embedded ICC and CICP metadata.
+    pub fn color_context(&self) -> Option<Arc<ColorContext>> {
+        if self.icc_profile.is_some() || self.cicp.is_some() {
+            Some(Arc::new(ColorContext {
+                icc: self.icc_profile.clone(),
+                cicp: self.cicp,
+            }))
+        } else {
+            None
+        }
+    }
+}
+
+/// Embedded non-color metadata from the image file.
+///
+/// Groups metadata blobs (EXIF, XMP) that are carried through
+/// decode/encode for roundtrip preservation but don't affect
+/// pixel interpretation.
+#[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
+pub struct EmbeddedMetadata {
+    /// Embedded EXIF metadata.
+    pub exif: Option<Vec<u8>>,
+    /// Embedded XMP metadata.
+    pub xmp: Option<Vec<u8>>,
+}
+
+impl EmbeddedMetadata {
+    /// Set the EXIF metadata.
+    pub fn with_exif(mut self, exif: Vec<u8>) -> Self {
+        self.exif = Some(exif);
+        self
+    }
+
+    /// Set the XMP metadata.
+    pub fn with_xmp(mut self, xmp: Vec<u8>) -> Self {
+        self.xmp = Some(xmp);
+        self
+    }
+
+    /// Whether any metadata is present.
+    pub fn is_empty(&self) -> bool {
+        self.exif.is_none() && self.xmp.is_none()
+    }
+}
+
 /// Image metadata obtained from probing or decoding.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -279,34 +422,6 @@ pub struct ImageInfo {
     pub has_animation: bool,
     /// Number of frames (None if unknown without full parse).
     pub frame_count: Option<u32>,
-    /// Bits per channel (e.g. 8, 10, 12, 16, 32).
-    ///
-    /// `None` if unknown (e.g. from a header-only probe that doesn't
-    /// report bit depth).
-    pub bit_depth: Option<u8>,
-    /// Number of channels (1=gray, 2=gray+alpha, 3=RGB, 4=RGBA).
-    ///
-    /// `None` if unknown.
-    pub channel_count: Option<u8>,
-    /// CICP color description (ITU-T H.273).
-    ///
-    /// When present, describes the color space without requiring an ICC
-    /// profile. Both CICP and ICC may be present — CICP takes precedence
-    /// per AVIF/HEIF specs, but callers should use ICC when CICP is absent.
-    pub cicp: Option<Cicp>,
-    /// Content Light Level Info (CEA-861.3) for HDR content.
-    pub content_light_level: Option<ContentLightLevel>,
-    /// Mastering Display Color Volume (SMPTE ST 2086) for HDR content.
-    pub mastering_display: Option<MasteringDisplay>,
-    /// Embedded ICC color profile.
-    ///
-    /// Stored as `Arc<[u8]>` for cheap sharing across pipeline stages
-    /// and pixel slices. Accepts `Vec<u8>` via [`with_icc_profile()`](Self::with_icc_profile).
-    pub icc_profile: Option<Arc<[u8]>>,
-    /// Embedded EXIF metadata.
-    pub exif: Option<Vec<u8>>,
-    /// Embedded XMP metadata.
-    pub xmp: Option<Vec<u8>>,
     /// EXIF orientation (1-8).
     ///
     /// When a codec applies orientation during decode (rotating the pixel
@@ -319,6 +434,10 @@ pub struct ImageInfo {
     /// [`display_height()`](ImageInfo::display_height) to get effective
     /// display dimensions regardless.
     pub orientation: Orientation,
+    /// Source color description (CICP, ICC, bit depth, HDR metadata).
+    pub source_color: SourceColor,
+    /// Embedded non-color metadata (EXIF, XMP).
+    pub embedded_metadata: EmbeddedMetadata,
     /// Whether the image contains an HDR gain map (ISO 21496-1).
     ///
     /// When `true`, the image carries a secondary gain map image that
@@ -354,15 +473,9 @@ impl ImageInfo {
             has_alpha: false,
             has_animation: false,
             frame_count: None,
-            bit_depth: None,
-            channel_count: None,
-            cicp: None,
-            content_light_level: None,
-            mastering_display: None,
-            icc_profile: None,
-            exif: None,
-            xmp: None,
             orientation: Orientation::Normal,
+            source_color: SourceColor::default(),
+            embedded_metadata: EmbeddedMetadata::default(),
             has_gain_map: false,
             gain_map_metadata: None,
             warnings: Vec::new(),
@@ -387,59 +500,71 @@ impl ImageInfo {
         self
     }
 
-    /// Set the bit depth (bits per channel).
+    /// Set the bit depth (bits per channel). Convenience for `source_color.bit_depth`.
     pub fn with_bit_depth(mut self, bit_depth: u8) -> Self {
-        self.bit_depth = Some(bit_depth);
+        self.source_color.bit_depth = Some(bit_depth);
         self
     }
 
-    /// Set the channel count.
+    /// Set the channel count. Convenience for `source_color.channel_count`.
     pub fn with_channel_count(mut self, channel_count: u8) -> Self {
-        self.channel_count = Some(channel_count);
+        self.source_color.channel_count = Some(channel_count);
         self
     }
 
-    /// Set the CICP color description.
+    /// Set the CICP color description. Convenience for `source_color.cicp`.
     pub fn with_cicp(mut self, cicp: Cicp) -> Self {
-        self.cicp = Some(cicp);
+        self.source_color.cicp = Some(cicp);
         self
     }
 
-    /// Set the Content Light Level Info.
+    /// Set the Content Light Level Info. Convenience for `source_color.content_light_level`.
     pub fn with_content_light_level(mut self, clli: ContentLightLevel) -> Self {
-        self.content_light_level = Some(clli);
+        self.source_color.content_light_level = Some(clli);
         self
     }
 
-    /// Set the Mastering Display Color Volume.
+    /// Set the Mastering Display Color Volume. Convenience for `source_color.mastering_display`.
     pub fn with_mastering_display(mut self, mdcv: MasteringDisplay) -> Self {
-        self.mastering_display = Some(mdcv);
+        self.source_color.mastering_display = Some(mdcv);
         self
     }
 
-    /// Set the ICC color profile.
+    /// Set the ICC color profile. Convenience for `source_color.icc_profile`.
     ///
     /// Accepts `Vec<u8>`, `&[u8]`, or `Arc<[u8]>`.
     pub fn with_icc_profile(mut self, icc: impl Into<Arc<[u8]>>) -> Self {
-        self.icc_profile = Some(icc.into());
+        self.source_color.icc_profile = Some(icc.into());
         self
     }
 
-    /// Set the EXIF metadata.
+    /// Set the EXIF metadata. Convenience for `embedded_metadata.exif`.
     pub fn with_exif(mut self, exif: Vec<u8>) -> Self {
-        self.exif = Some(exif);
+        self.embedded_metadata.exif = Some(exif);
         self
     }
 
-    /// Set the XMP metadata.
+    /// Set the XMP metadata. Convenience for `embedded_metadata.xmp`.
     pub fn with_xmp(mut self, xmp: Vec<u8>) -> Self {
-        self.xmp = Some(xmp);
+        self.embedded_metadata.xmp = Some(xmp);
         self
     }
 
     /// Set the EXIF orientation.
     pub fn with_orientation(mut self, orientation: Orientation) -> Self {
         self.orientation = orientation;
+        self
+    }
+
+    /// Set the source color description.
+    pub fn with_source_color(mut self, source_color: SourceColor) -> Self {
+        self.source_color = source_color;
+        self
+    }
+
+    /// Set the embedded metadata.
+    pub fn with_embedded_metadata(mut self, embedded_metadata: EmbeddedMetadata) -> Self {
+        self.embedded_metadata = embedded_metadata;
         self
     }
 
@@ -506,10 +631,7 @@ impl ImageInfo {
 
     /// Derive the transfer function from CICP metadata.
     ///
-    /// Returns the [`TransferFunction`](crate::TransferFunction) corresponding
-    /// to the CICP `transfer_characteristics` code, or
-    /// [`Unknown`](crate::TransferFunction::Unknown) if CICP is absent or
-    /// the code is not recognized.
+    /// Delegates to [`SourceColor::transfer_function()`].
     ///
     /// Use this to resolve a [`PixelDescriptor`]'s unknown transfer function:
     ///
@@ -517,61 +639,39 @@ impl ImageInfo {
     /// let desc = pixels.descriptor().with_transfer(info.transfer_function());
     /// ```
     pub fn transfer_function(&self) -> crate::TransferFunction {
-        self.cicp
-            .and_then(|c| crate::TransferFunction::from_cicp(c.transfer_characteristics))
-            .unwrap_or(crate::TransferFunction::Unknown)
+        self.source_color.transfer_function()
     }
 
     /// Derive the color primaries from CICP metadata.
     ///
-    /// Returns the [`ColorPrimaries`](crate::ColorPrimaries) corresponding
-    /// to the CICP `color_primaries` code, or
-    /// [`Bt709`](crate::ColorPrimaries::Bt709) if CICP is absent
-    /// (sRGB/BT.709 is the web default).
+    /// Delegates to [`SourceColor::color_primaries()`].
     pub fn color_primaries(&self) -> crate::ColorPrimaries {
-        self.cicp
-            .map(|c| c.color_primaries_enum())
-            .unwrap_or(crate::ColorPrimaries::Bt709)
+        self.source_color.color_primaries()
     }
 
     /// Get the source color profile for CMS integration.
     ///
-    /// Returns CICP if present (takes precedence per AVIF/HEIF specs),
-    /// otherwise returns the ICC profile. Returns `None` if neither is
-    /// available — callers should assume sRGB in that case.
+    /// Delegates to [`SourceColor::color_profile_source()`].
     pub fn color_profile_source(&self) -> Option<ColorProfileSource<'_>> {
-        if let Some(cicp) = self.cicp {
-            Some(ColorProfileSource::Cicp(cicp))
-        } else {
-            self.icc_profile.as_deref().map(ColorProfileSource::Icc)
-        }
+        self.source_color.color_profile_source()
     }
 
     /// Build a [`ColorContext`] from the embedded ICC and CICP metadata.
     ///
-    /// Returns `None` if neither ICC nor CICP is present.
-    /// The returned `Arc<ColorContext>` is suitable for attaching to
-    /// [`PixelSlice`](crate::PixelSlice) and pipeline sources.
+    /// Delegates to [`SourceColor::color_context()`].
     pub fn color_context(&self) -> Option<Arc<ColorContext>> {
-        if self.icc_profile.is_some() || self.cicp.is_some() {
-            Some(Arc::new(ColorContext {
-                icc: self.icc_profile.clone(),
-                cicp: self.cicp,
-            }))
-        } else {
-            None
-        }
+        self.source_color.color_context()
     }
 
     /// Borrow embedded metadata for roundtrip encode.
     pub fn metadata(&self) -> MetadataView<'_> {
         MetadataView {
-            icc_profile: self.icc_profile.as_deref(),
-            exif: self.exif.as_deref(),
-            xmp: self.xmp.as_deref(),
-            cicp: self.cicp,
-            content_light_level: self.content_light_level,
-            mastering_display: self.mastering_display,
+            icc_profile: self.source_color.icc_profile.as_deref(),
+            exif: self.embedded_metadata.exif.as_deref(),
+            xmp: self.embedded_metadata.xmp.as_deref(),
+            cicp: self.source_color.cicp,
+            content_light_level: self.source_color.content_light_level,
+            mastering_display: self.source_color.mastering_display,
             orientation: self.orientation,
         }
     }
@@ -738,12 +838,12 @@ impl From<MetadataView<'_>> for Metadata {
 impl From<&ImageInfo> for Metadata {
     fn from(info: &ImageInfo) -> Self {
         Self {
-            icc_profile: info.icc_profile.as_deref().map(|s| s.to_vec()),
-            exif: info.exif.clone(),
-            xmp: info.xmp.clone(),
-            cicp: info.cicp,
-            content_light_level: info.content_light_level,
-            mastering_display: info.mastering_display,
+            icc_profile: info.source_color.icc_profile.as_deref().map(|s| s.to_vec()),
+            exif: info.embedded_metadata.exif.clone(),
+            xmp: info.embedded_metadata.xmp.clone(),
+            cicp: info.source_color.cicp,
+            content_light_level: info.source_color.content_light_level,
+            mastering_display: info.source_color.mastering_display,
             orientation: info.orientation,
         }
     }
@@ -1150,9 +1250,18 @@ mod tests {
         assert!(info.has_alpha);
         assert!(info.has_animation);
         assert_eq!(info.frame_count, Some(5));
-        assert_eq!(info.icc_profile.as_deref(), Some([1, 2].as_slice()));
-        assert_eq!(info.exif.as_deref(), Some([3, 4].as_slice()));
-        assert_eq!(info.xmp.as_deref(), Some([5, 6].as_slice()));
+        assert_eq!(
+            info.source_color.icc_profile.as_deref(),
+            Some([1, 2].as_slice())
+        );
+        assert_eq!(
+            info.embedded_metadata.exif.as_deref(),
+            Some([3, 4].as_slice())
+        );
+        assert_eq!(
+            info.embedded_metadata.xmp.as_deref(),
+            Some([5, 6].as_slice())
+        );
     }
 
     #[test]
@@ -1180,8 +1289,8 @@ mod tests {
             .with_bit_depth(10)
             .with_channel_count(4)
             .with_alpha(true);
-        assert_eq!(info.bit_depth, Some(10));
-        assert_eq!(info.channel_count, Some(4));
+        assert_eq!(info.source_color.bit_depth, Some(10));
+        assert_eq!(info.source_color.channel_count, Some(4));
     }
 
     #[test]
@@ -1200,12 +1309,18 @@ mod tests {
             .with_cicp(Cicp::BT2100_PQ)
             .with_content_light_level(clli)
             .with_mastering_display(mdcv);
-        assert_eq!(info.cicp, Some(Cicp::BT2100_PQ));
+        assert_eq!(info.source_color.cicp, Some(Cicp::BT2100_PQ));
         assert_eq!(
-            info.content_light_level.unwrap().max_content_light_level,
+            info.source_color
+                .content_light_level
+                .unwrap()
+                .max_content_light_level,
             4000
         );
-        assert_eq!(info.mastering_display.unwrap().max_luminance, 40000000);
+        assert_eq!(
+            info.source_color.mastering_display.unwrap().max_luminance,
+            40000000
+        );
     }
 
     #[test]

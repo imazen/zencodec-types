@@ -62,8 +62,8 @@ pub use color::{ColorContext, ColorProfileSource, NamedProfile, WorkingColorSpac
 pub use format::ImageFormat;
 pub use gainmap::GainMapMetadata;
 pub use info::{
-    Cicp, ContentLightLevel, DecodeCost, EncodeCost, ImageInfo, MasteringDisplay, Metadata,
-    MetadataView, OutputInfo,
+    Cicp, ContentLightLevel, DecodeCost, EmbeddedMetadata, EncodeCost, ImageInfo, MasteringDisplay,
+    Metadata, MetadataView, OutputInfo, SourceColor,
 };
 pub use limits::{LimitExceeded, ResourceLimits};
 pub use orientation::{Orientation, OrientationHint};
