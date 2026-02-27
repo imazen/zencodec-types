@@ -19,7 +19,6 @@
 //! - [`Decode`] / [`FrameDecode`] — type-erased decode with preferred format negotiation
 //! - [`DecodeRowSink`] — zero-copy row sink for streaming decode
 //! - [`DecodeOutput`] — decode output with typed pixel data
-//! - [`PixelData`] — typed pixel buffer enum over `imgref::ImgVec`
 //!
 //! Individual codecs (zenjpeg, zenwebp, zengif, zenavif) implement these traits
 //! on their own config types. Format-specific methods live on the concrete types,
@@ -74,6 +73,7 @@ pub use output::{EncodeFrame, EncodeOutput, FrameBlend, FrameDisposal};
 #[cfg(feature = "codec")]
 pub use output::{DecodeFrame, DecodeOutput, TypedEncodeFrame};
 #[cfg(feature = "codec")]
+#[allow(deprecated)]
 pub use pixel::{GrayAlpha, PixelData};
 #[cfg(feature = "codec")]
 pub use sink::DecodeRowSink;

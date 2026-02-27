@@ -1,12 +1,9 @@
-//! Typed pixel buffer definitions.
+//! Custom pixel types and legacy `PixelData` enum.
 //!
-//! Uses `imgref::ImgVec` for 2D pixel data with typed pixels from the `rgb` crate.
-//!
-//! `PixelData` is a data container — it holds pixels and describes their layout,
-//! but does **not** convert between formats. Format conversion requires
-//! transfer function awareness that belongs in a dedicated conversion crate.
-//! Use [`Decoder::decode_into()`](crate::Decoder::decode_into) to request
-//! a specific format from the codec, which can convert correctly.
+//! `PixelData` is deprecated — use [`PixelBuffer`](crate::PixelBuffer) instead.
+//! It remains available for codec crates that haven't migrated yet.
+
+#![allow(deprecated)]
 
 use alloc::vec::Vec;
 use imgref::ImgVec;
@@ -46,23 +43,20 @@ impl<T> GrayAlpha<T> {
 
 /// Decoded pixel data in a typed buffer.
 ///
+/// # Deprecated
+///
+/// Use [`PixelBuffer`](crate::PixelBuffer) instead. `PixelData` will be removed
+/// once all codec crates have migrated to `PixelBuffer`.
+///
 /// The variant determines both the pixel format and precision.
 /// Width and height are embedded in the `ImgVec`.
 ///
-/// # Transfer function
-///
 /// `PixelData` does not track its transfer function — that metadata lives in
-/// [`ImageInfo::cicp`](crate::ImageInfo) (or the ICC profile). The actual
-/// transfer function depends on how the data was produced (codec-specific).
-///
-/// If you need a specific pixel format, use
-/// [`Decoder::decode_into()`](crate::Decoder::decode_into) to request it
-/// from the codec. Codecs can convert correctly because they know the source
-/// transfer function. Post-hoc conversion between depth classes (u8/u16 ↔ f32)
-/// requires transfer function math that this crate intentionally does not provide.
+/// [`ImageInfo::cicp`](crate::ImageInfo) (or the ICC profile).
 ///
 /// u16 variants use the full 0–65535 range regardless of source bit depth
 /// (e.g. 10-bit AVIF values are scaled up, not left in 0–1023).
+#[deprecated(note = "use PixelBuffer instead")]
 #[non_exhaustive]
 pub enum PixelData {
     /// 8-bit RGB.

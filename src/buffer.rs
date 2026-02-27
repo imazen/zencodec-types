@@ -1,7 +1,6 @@
 //! Opaque pixel buffer abstraction.
 //!
-//! Provides format-aware pixel storage that carries its own metadata,
-//! eliminating the need to match on 13 [`PixelData`](crate::PixelData) variants.
+//! Provides format-aware pixel storage that carries its own metadata.
 
 use alloc::sync::Arc;
 use alloc::vec;
@@ -18,7 +17,7 @@ use rgb::{Gray, Rgb, Rgba};
 
 use crate::color::{ColorContext, WorkingColorSpace};
 #[cfg(feature = "codec")]
-use crate::pixel::{GrayAlpha, PixelData};
+use crate::pixel::GrayAlpha;
 
 #[cfg(feature = "codec")]
 use imgref::ImgVec;
@@ -874,8 +873,6 @@ pub enum BufferError {
     StrideNotPixelAligned,
     /// Width or height is zero or causes overflow.
     InvalidDimensions,
-    /// Descriptor does not match any [`PixelData`] variant.
-    FormatMismatch,
 }
 
 impl fmt::Display for BufferError {
@@ -890,7 +887,6 @@ impl fmt::Display for BufferError {
                 write!(f, "stride is not a multiple of bytes_per_pixel")
             }
             Self::InvalidDimensions => write!(f, "width or height is zero or causes overflow"),
-            Self::FormatMismatch => write!(f, "pixel format has no matching PixelData variant"),
         }
     }
 }
@@ -2700,11 +2696,13 @@ impl<P: Pixel> From<PixelBuffer<P>> for PixelBuffer {
 
 // ---------------------------------------------------------------------------
 // PixelData → PixelBuffer (From, always copies) — codec feature only
+// Deprecated: exists for codecs still using PixelData internally.
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "codec")]
-impl From<PixelData> for PixelBuffer {
-    fn from(pixels: PixelData) -> Self {
+#[allow(deprecated)]
+impl From<crate::pixel::PixelData> for PixelBuffer {
+    fn from(pixels: crate::pixel::PixelData) -> Self {
         let width = pixels.width();
         let height = pixels.height();
         let descriptor = pixels.descriptor();
@@ -2720,113 +2718,6 @@ impl From<PixelData> for PixelBuffer {
             working_space: WorkingColorSpace::Native,
             color: None,
             _pixel: PhantomData,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// PixelBuffer → PixelData (TryFrom, always copies) — codec feature only
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "codec")]
-impl TryFrom<PixelBuffer> for PixelData {
-    type Error = BufferError;
-
-    fn try_from(buf: PixelBuffer) -> Result<Self, BufferError> {
-        let w = buf.width as usize;
-        let h = buf.height as usize;
-        let slice = buf.as_slice();
-
-        match (buf.descriptor.channel_type, buf.descriptor.layout) {
-            (ChannelType::U8, ChannelLayout::Rgb) => {
-                let pixels = collect_rows(&slice, w, |c| Rgb {
-                    r: c[0],
-                    g: c[1],
-                    b: c[2],
-                });
-                Ok(PixelData::Rgb8(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::U8, ChannelLayout::Rgba) => {
-                let pixels = collect_rows(&slice, w, |c| Rgba {
-                    r: c[0],
-                    g: c[1],
-                    b: c[2],
-                    a: c[3],
-                });
-                Ok(PixelData::Rgba8(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::U8, ChannelLayout::Gray) => {
-                let pixels = collect_rows(&slice, w, |c| Gray::new(c[0]));
-                Ok(PixelData::Gray8(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::U8, ChannelLayout::GrayAlpha) => {
-                let pixels = collect_rows(&slice, w, |c| GrayAlpha::new(c[0], c[1]));
-                Ok(PixelData::GrayAlpha8(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::U8, ChannelLayout::Bgra) => {
-                let pixels = collect_rows(&slice, w, |c| BGRA {
-                    b: c[0],
-                    g: c[1],
-                    r: c[2],
-                    a: c[3],
-                });
-                Ok(PixelData::Bgra8(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::U16, ChannelLayout::Rgb) => {
-                let pixels = collect_rows(&slice, w, |c| Rgb {
-                    r: parse_u16(c),
-                    g: parse_u16(&c[2..]),
-                    b: parse_u16(&c[4..]),
-                });
-                Ok(PixelData::Rgb16(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::U16, ChannelLayout::Rgba) => {
-                let pixels = collect_rows(&slice, w, |c| Rgba {
-                    r: parse_u16(c),
-                    g: parse_u16(&c[2..]),
-                    b: parse_u16(&c[4..]),
-                    a: parse_u16(&c[6..]),
-                });
-                Ok(PixelData::Rgba16(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::U16, ChannelLayout::Gray) => {
-                let pixels = collect_rows(&slice, w, |c| Gray::new(parse_u16(c)));
-                Ok(PixelData::Gray16(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::U16, ChannelLayout::GrayAlpha) => {
-                let pixels = collect_rows(&slice, w, |c| {
-                    GrayAlpha::new(parse_u16(c), parse_u16(&c[2..]))
-                });
-                Ok(PixelData::GrayAlpha16(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::F32, ChannelLayout::Rgb) => {
-                let pixels = collect_rows(&slice, w, |c| Rgb {
-                    r: parse_f32(c),
-                    g: parse_f32(&c[4..]),
-                    b: parse_f32(&c[8..]),
-                });
-                Ok(PixelData::RgbF32(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::F32, ChannelLayout::Rgba) => {
-                let pixels = collect_rows(&slice, w, |c| Rgba {
-                    r: parse_f32(c),
-                    g: parse_f32(&c[4..]),
-                    b: parse_f32(&c[8..]),
-                    a: parse_f32(&c[12..]),
-                });
-                Ok(PixelData::RgbaF32(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::F32, ChannelLayout::Gray) => {
-                let pixels = collect_rows(&slice, w, |c| Gray::new(parse_f32(c)));
-                Ok(PixelData::GrayF32(imgref::ImgVec::new(pixels, w, h)))
-            }
-            (ChannelType::F32, ChannelLayout::GrayAlpha) => {
-                let pixels = collect_rows(&slice, w, |c| {
-                    GrayAlpha::new(parse_f32(c), parse_f32(&c[4..]))
-                });
-                Ok(PixelData::GrayAlphaF32(imgref::ImgVec::new(pixels, w, h)))
-            }
-            _ => Err(BufferError::FormatMismatch),
         }
     }
 }
@@ -2907,20 +2798,6 @@ fn required_bytes(rows: u32, stride: usize, min_stride: usize) -> Result<usize, 
     preceding
         .checked_add(min_stride)
         .ok_or(BufferError::InvalidDimensions)
-}
-
-#[cfg(feature = "codec")]
-/// Collect typed pixels from a PixelSlice by parsing each pixel's bytes.
-fn collect_rows<T>(slice: &PixelSlice<'_>, width: usize, parse: impl Fn(&[u8]) -> T) -> Vec<T> {
-    let bpp = slice.descriptor.bytes_per_pixel();
-    let mut pixels = Vec::with_capacity(width * slice.rows as usize);
-    for y in 0..slice.rows {
-        let row = slice.row(y);
-        for chunk in row.chunks_exact(bpp) {
-            pixels.push(parse(chunk));
-        }
-    }
-    pixels
 }
 
 #[cfg(feature = "codec")]
@@ -3778,125 +3655,6 @@ mod codec_tests {
     use rgb::alt::BGRA;
     use rgb::{Gray, Rgb, Rgba};
 
-    use crate::pixel::{GrayAlpha, PixelData};
-
-    // --- PixelData → descriptor() roundtrip ---
-
-    #[test]
-    fn pixel_data_descriptor_matches() {
-        use imgref::ImgVec;
-
-        // PixelData::descriptor() returns Unknown transfer — the actual TF
-        // is only known from CICP/ICC metadata, not from the pixel type.
-        let cases: Vec<(PixelData, PixelDescriptor)> = vec![
-            (
-                PixelData::Rgb8(ImgVec::new(vec![Rgb { r: 0, g: 0, b: 0 }], 1, 1)),
-                PixelDescriptor::RGB8,
-            ),
-            (
-                PixelData::Rgba8(ImgVec::new(
-                    vec![Rgba {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 0,
-                    }],
-                    1,
-                    1,
-                )),
-                PixelDescriptor::RGBA8,
-            ),
-            (
-                PixelData::Rgb16(ImgVec::new(vec![Rgb { r: 0, g: 0, b: 0 }], 1, 1)),
-                PixelDescriptor::RGB16,
-            ),
-            (
-                PixelData::Rgba16(ImgVec::new(
-                    vec![Rgba {
-                        r: 0u16,
-                        g: 0,
-                        b: 0,
-                        a: 0,
-                    }],
-                    1,
-                    1,
-                )),
-                PixelDescriptor::RGBA16,
-            ),
-            (
-                PixelData::RgbF32(ImgVec::new(
-                    vec![Rgb {
-                        r: 0.0f32,
-                        g: 0.0,
-                        b: 0.0,
-                    }],
-                    1,
-                    1,
-                )),
-                PixelDescriptor::RGBF32,
-            ),
-            (
-                PixelData::RgbaF32(ImgVec::new(
-                    vec![Rgba {
-                        r: 0.0f32,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 0.0,
-                    }],
-                    1,
-                    1,
-                )),
-                PixelDescriptor::RGBAF32,
-            ),
-            (
-                PixelData::Gray8(ImgVec::new(vec![Gray::new(0u8)], 1, 1)),
-                PixelDescriptor::GRAY8,
-            ),
-            (
-                PixelData::Gray16(ImgVec::new(vec![Gray::new(0u16)], 1, 1)),
-                PixelDescriptor::GRAY16,
-            ),
-            (
-                PixelData::GrayF32(ImgVec::new(vec![Gray::new(0.0f32)], 1, 1)),
-                PixelDescriptor::GRAYF32,
-            ),
-            (
-                PixelData::Bgra8(ImgVec::new(
-                    vec![BGRA {
-                        b: 0,
-                        g: 0,
-                        r: 0,
-                        a: 0,
-                    }],
-                    1,
-                    1,
-                )),
-                PixelDescriptor::BGRA8,
-            ),
-            (
-                PixelData::GrayAlpha8(ImgVec::new(vec![GrayAlpha::new(0u8, 0)], 1, 1)),
-                PixelDescriptor::GRAYA8,
-            ),
-            (
-                PixelData::GrayAlpha16(ImgVec::new(vec![GrayAlpha::new(0u16, 0)], 1, 1)),
-                PixelDescriptor::GRAYA16,
-            ),
-            (
-                PixelData::GrayAlphaF32(ImgVec::new(vec![GrayAlpha::new(0.0f32, 0.0)], 1, 1)),
-                PixelDescriptor::GRAYAF32,
-            ),
-        ];
-
-        for (data, expected) in cases {
-            assert_eq!(
-                data.descriptor(),
-                expected,
-                "descriptor mismatch for {:?}",
-                data
-            );
-        }
-    }
-
     // --- ImgRef → PixelSlice → row access ---
 
     #[test]
@@ -3946,127 +3704,6 @@ mod codec_tests {
         let v1 = u16::from_ne_bytes([row[2], row[3]]);
         assert_eq!(v0, 1000);
         assert_eq!(v1, 2000);
-    }
-
-    // --- PixelBuffer → PixelData TryFrom roundtrip ---
-
-    #[test]
-    fn pixel_buffer_to_pixel_data_rgb8() {
-        let pixels = vec![
-            Rgb {
-                r: 10u8,
-                g: 20,
-                b: 30,
-            },
-            Rgb {
-                r: 40u8,
-                g: 50,
-                b: 60,
-            },
-        ];
-        let img = imgref::ImgVec::new(pixels, 2, 1);
-        let data = PixelData::Rgb8(img);
-        let buf = PixelBuffer::from(data);
-        let data2 = PixelData::try_from(buf).unwrap();
-        if let PixelData::Rgb8(img) = data2 {
-            assert_eq!(img.width(), 2);
-            assert_eq!(img.height(), 1);
-            assert_eq!(
-                img.buf()[0],
-                Rgb {
-                    r: 10,
-                    g: 20,
-                    b: 30
-                }
-            );
-            assert_eq!(
-                img.buf()[1],
-                Rgb {
-                    r: 40,
-                    g: 50,
-                    b: 60
-                }
-            );
-        } else {
-            panic!("expected Rgb8");
-        }
-    }
-
-    #[test]
-    fn pixel_buffer_to_pixel_data_rgba16() {
-        let pixels = vec![Rgba {
-            r: 1000u16,
-            g: 2000,
-            b: 3000,
-            a: 4000,
-        }];
-        let img = imgref::ImgVec::new(pixels, 1, 1);
-        let data = PixelData::Rgba16(img);
-        let buf = PixelBuffer::from(data);
-        let data2 = PixelData::try_from(buf).unwrap();
-        if let PixelData::Rgba16(img) = data2 {
-            assert_eq!(
-                img.buf()[0],
-                Rgba {
-                    r: 1000,
-                    g: 2000,
-                    b: 3000,
-                    a: 4000
-                }
-            );
-        } else {
-            panic!("expected Rgba16");
-        }
-    }
-
-    #[test]
-    fn pixel_buffer_to_pixel_data_gray_alpha_f32() {
-        let pixels = vec![GrayAlpha::new(0.5f32, 0.75)];
-        let img = imgref::ImgVec::new(pixels, 1, 1);
-        let data = PixelData::GrayAlphaF32(img);
-        let buf = PixelBuffer::from(data);
-        let data2 = PixelData::try_from(buf).unwrap();
-        if let PixelData::GrayAlphaF32(img) = data2 {
-            let px = &img.buf()[0];
-            assert!((px.v - 0.5).abs() < 1e-6);
-            assert!((px.a - 0.75).abs() < 1e-6);
-        } else {
-            panic!("expected GrayAlphaF32");
-        }
-    }
-
-    #[test]
-    fn pixel_buffer_to_pixel_data_bgra8() {
-        let pixels = vec![BGRA {
-            b: 10,
-            g: 20,
-            r: 30,
-            a: 40,
-        }];
-        let img = imgref::ImgVec::new(pixels, 1, 1);
-        let data = PixelData::Bgra8(img);
-        let buf = PixelBuffer::from(data);
-        let data2 = PixelData::try_from(buf).unwrap();
-        if let PixelData::Bgra8(img) = data2 {
-            let px = &img.buf()[0];
-            assert_eq!((px.b, px.g, px.r, px.a), (10, 20, 30, 40));
-        } else {
-            panic!("expected Bgra8");
-        }
-    }
-
-    #[test]
-    fn pixel_buffer_format_mismatch() {
-        // U16 + Bgra has no PixelData variant
-        let desc = PixelDescriptor::new(
-            ChannelType::U16,
-            ChannelLayout::Bgra,
-            AlphaMode::Straight,
-            TransferFunction::Srgb,
-        );
-        let buf = PixelBuffer::new(1, 1, desc);
-        let err = PixelData::try_from(buf);
-        assert_eq!(err.unwrap_err(), BufferError::FormatMismatch);
     }
 
     // --- PixelBuffer format conversion tests ---

@@ -21,7 +21,7 @@ use rgb::alt::BGRA;
 use rgb::{Gray, Rgb, Rgba};
 
 #[cfg(feature = "codec")]
-use crate::{PixelBuffer, PixelData, PixelDescriptor, TransferFunction};
+use crate::{PixelBuffer, PixelDescriptor};
 
 /// Output from an encode operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,24 +91,6 @@ impl DecodeOutput {
     pub fn new(pixels: PixelBuffer, info: ImageInfo) -> Self {
         Self {
             pixels,
-            info,
-            extras: None,
-        }
-    }
-
-    /// Create from legacy [`PixelData`], converting to [`PixelBuffer`] internally.
-    ///
-    /// Resolves the transfer function from CICP metadata in `info` and sets it
-    /// on the PixelBuffer's descriptor (since PixelData always returns Unknown TF).
-    pub fn from_pixel_data(pixels: PixelData, info: ImageInfo) -> Self {
-        let mut buf: PixelBuffer = pixels.into();
-        let tf = info.transfer_function();
-        if tf != TransferFunction::Unknown {
-            let desc = buf.descriptor().with_transfer(tf);
-            buf = buf.with_descriptor(desc);
-        }
-        Self {
-            pixels: buf,
             info,
             extras: None,
         }
@@ -212,10 +194,6 @@ impl DecodeOutput {
     }
 
     /// Pixel format descriptor.
-    ///
-    /// Returns the descriptor from the PixelBuffer directly. When constructed
-    /// via [`from_pixel_data()`](Self::from_pixel_data), the transfer function
-    /// is resolved from CICP metadata.
     pub fn descriptor(&self) -> PixelDescriptor {
         self.pixels.descriptor()
     }
@@ -345,33 +323,6 @@ impl DecodeFrame {
     pub fn new(pixels: PixelBuffer, info: Arc<ImageInfo>, delay_ms: u32, index: u32) -> Self {
         Self {
             pixels,
-            info,
-            delay_ms,
-            index,
-            required_frame: None,
-            blend: FrameBlend::Source,
-            disposal: FrameDisposal::None,
-            frame_rect: None,
-        }
-    }
-
-    /// Create from legacy [`PixelData`], converting to [`PixelBuffer`] internally.
-    ///
-    /// Resolves the transfer function from CICP metadata in `info`.
-    pub fn from_pixel_data(
-        pixels: PixelData,
-        info: Arc<ImageInfo>,
-        delay_ms: u32,
-        index: u32,
-    ) -> Self {
-        let mut buf: PixelBuffer = pixels.into();
-        let tf = info.transfer_function();
-        if tf != TransferFunction::Unknown {
-            let desc = buf.descriptor().with_transfer(tf);
-            buf = buf.with_descriptor(desc);
-        }
-        Self {
-            pixels: buf,
             info,
             delay_ms,
             index,
@@ -810,7 +761,13 @@ mod tests {
 mod codec_tests {
     use super::*;
     use alloc::vec;
+    use crate::PixelBuffer;
     use imgref::ImgVec;
+
+    fn make_rgb8_buf(w: u32, h: u32) -> PixelBuffer {
+        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; (w * h) as usize], w as usize, h as usize);
+        PixelBuffer::from_imgvec(img).into()
+    }
 
     fn test_info(w: u32, h: u32, fmt: ImageFormat) -> Arc<ImageInfo> {
         Arc::new(ImageInfo::new(w, h, fmt))
@@ -819,19 +776,13 @@ mod codec_tests {
     #[test]
     fn decode_output() {
         let img = ImgVec::new(
-            vec![
-                Rgb {
-                    r: 10u8,
-                    g: 20,
-                    b: 30
-                };
-                4
-            ],
+            vec![Rgb { r: 10u8, g: 20, b: 30 }; 4],
             2,
             2,
         );
+        let buf = PixelBuffer::from_imgvec(img);
         let info = ImageInfo::new(2, 2, ImageFormat::Png).with_frame_count(1);
-        let output = DecodeOutput::from_pixel_data(PixelData::Rgb8(img), info);
+        let output = DecodeOutput::new(buf.into(), info);
         assert_eq!(output.width(), 2);
         assert_eq!(output.height(), 2);
         assert!(!output.has_alpha());
@@ -842,9 +793,9 @@ mod codec_tests {
 
     #[test]
     fn decode_output_extras() {
-        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 4], 2, 2);
+        let buf = make_rgb8_buf(2, 2);
         let info = ImageInfo::new(2, 2, ImageFormat::Jpeg);
-        let mut output = DecodeOutput::from_pixel_data(PixelData::Rgb8(img), info).with_extras(42u32);
+        let mut output = DecodeOutput::new(buf, info).with_extras(42u32);
         assert_eq!(output.extras::<u32>(), Some(&42u32));
         assert_eq!(output.extras::<u64>(), None); // wrong type
         let taken = output.take_extras::<u32>();
@@ -855,20 +806,13 @@ mod codec_tests {
     #[test]
     fn decode_frame() {
         let img = ImgVec::new(
-            vec![
-                Rgba {
-                    r: 1u8,
-                    g: 2,
-                    b: 3,
-                    a: 4
-                };
-                4
-            ],
+            vec![Rgba { r: 1u8, g: 2, b: 3, a: 4 }; 4],
             2,
             2,
         );
+        let buf: PixelBuffer = PixelBuffer::from_imgvec(img).into();
         let info = test_info(2, 2, ImageFormat::Png);
-        let frame = DecodeFrame::from_pixel_data(PixelData::Rgba8(img), info, 100, 0);
+        let frame = DecodeFrame::new(buf, info, 100, 0);
         assert_eq!(frame.delay_ms(), 100);
         assert_eq!(frame.index(), 0);
         assert_eq!(frame.width(), 2);
@@ -879,24 +823,8 @@ mod codec_tests {
 
     #[test]
     fn decode_frame_as_methods() {
-        let img = ImgVec::new(
-            vec![
-                Rgb {
-                    r: 10u8,
-                    g: 20,
-                    b: 30
-                };
-                4
-            ],
-            2,
-            2,
-        );
-        let frame = DecodeFrame::from_pixel_data(
-            PixelData::Rgb8(img),
-            test_info(2, 2, ImageFormat::Png),
-            50,
-            1,
-        );
+        let buf = make_rgb8_buf(2, 2);
+        let frame = DecodeFrame::new(buf, test_info(2, 2, ImageFormat::Png), 50, 1);
         assert!(frame.as_rgb8().is_some());
         assert!(frame.as_rgba8().is_none());
         assert!(frame.as_bgra8().is_none());
@@ -906,12 +834,8 @@ mod codec_tests {
     #[test]
     fn decode_frame_debug() {
         let img = ImgVec::new(vec![Gray::new(0u8); 4], 2, 2);
-        let frame = DecodeFrame::from_pixel_data(
-            PixelData::Gray8(img),
-            test_info(2, 2, ImageFormat::Gif),
-            100,
-            3,
-        );
+        let buf: PixelBuffer = PixelBuffer::from_imgvec(img).into();
+        let frame = DecodeFrame::new(buf, test_info(2, 2, ImageFormat::Gif), 100, 3);
         let s = alloc::format!("{:?}", frame);
         assert!(s.contains("DecodeFrame"));
         assert!(s.contains("delay_ms: 100"));
@@ -921,18 +845,19 @@ mod codec_tests {
     #[test]
     fn decode_output_as_gray8() {
         let img = ImgVec::new(vec![Gray::new(42u8); 4], 2, 2);
+        let buf: PixelBuffer = PixelBuffer::from_imgvec(img).into();
         let info = ImageInfo::new(2, 2, ImageFormat::Png);
-        let output = DecodeOutput::from_pixel_data(PixelData::Gray8(img), info);
+        let output = DecodeOutput::new(buf, info);
         assert!(output.as_gray8().is_some());
         assert!(output.as_rgb8().is_none());
     }
 
     #[test]
     fn decode_frame_info_accessor() {
-        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 4], 2, 2);
+        let buf = make_rgb8_buf(2, 2);
         let info =
             Arc::new(ImageInfo::new(2, 2, ImageFormat::WebP).with_icc_profile(vec![10, 20, 30]));
-        let frame = DecodeFrame::from_pixel_data(PixelData::Rgb8(img), Arc::clone(&info), 100, 0);
+        let frame = DecodeFrame::new(buf, Arc::clone(&info), 100, 0);
         assert_eq!(frame.info().format, ImageFormat::WebP);
         assert_eq!(
             frame.info().source_color.icc_profile.as_deref(),
@@ -943,13 +868,13 @@ mod codec_tests {
 
     #[test]
     fn decode_frame_metadata_accessor() {
-        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 4], 2, 2);
+        let buf = make_rgb8_buf(2, 2);
         let info = Arc::new(
             ImageInfo::new(2, 2, ImageFormat::Avif)
                 .with_cicp(crate::info::Cicp::SRGB)
                 .with_orientation(crate::Orientation::Rotate90),
         );
-        let frame = DecodeFrame::from_pixel_data(PixelData::Rgb8(img), info, 50, 0);
+        let frame = DecodeFrame::new(buf, info, 50, 0);
         let meta = frame.metadata();
         assert_eq!(meta.cicp, Some(crate::info::Cicp::SRGB));
         assert_eq!(meta.orientation, crate::Orientation::Rotate90);
@@ -957,9 +882,9 @@ mod codec_tests {
 
     #[test]
     fn decode_frame_info_arc_shared() {
-        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; 4], 2, 2);
+        let buf = make_rgb8_buf(2, 2);
         let info = Arc::new(ImageInfo::new(2, 2, ImageFormat::Gif));
-        let frame = DecodeFrame::from_pixel_data(PixelData::Rgb8(img), Arc::clone(&info), 100, 0);
+        let frame = DecodeFrame::new(buf, Arc::clone(&info), 100, 0);
         let arc2 = frame.info_arc();
         assert!(Arc::ptr_eq(&info, &arc2));
     }

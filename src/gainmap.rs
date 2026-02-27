@@ -12,7 +12,7 @@
 //!
 //! # Usage
 //!
-//! Codecs that decode gain maps put `(PixelData, GainMapMetadata)` (or a
+//! Codecs that decode gain maps put `(PixelBuffer, GainMapMetadata)` (or a
 //! codec-specific wrapper) in [`DecodeOutput::extras`](crate::DecodeOutput).
 //! Callers retrieve it via downcast. Structured trait methods for gain maps
 //! may be added in a future version after the pattern is proven across
