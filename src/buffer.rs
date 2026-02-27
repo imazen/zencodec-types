@@ -60,6 +60,50 @@ impl ChannelType {
             _ => 0,
         }
     }
+
+    /// Whether this is [`U8`](Self::U8).
+    #[inline]
+    pub const fn is_u8(self) -> bool {
+        matches!(self, Self::U8)
+    }
+
+    /// Whether this is [`U16`](Self::U16).
+    #[inline]
+    pub const fn is_u16(self) -> bool {
+        matches!(self, Self::U16)
+    }
+
+    /// Whether this is [`F32`](Self::F32).
+    #[inline]
+    pub const fn is_f32(self) -> bool {
+        matches!(self, Self::F32)
+    }
+
+    /// Whether this is [`F16`](Self::F16).
+    #[inline]
+    pub const fn is_f16(self) -> bool {
+        matches!(self, Self::F16)
+    }
+
+    /// Whether this is [`I16`](Self::I16).
+    #[inline]
+    pub const fn is_i16(self) -> bool {
+        matches!(self, Self::I16)
+    }
+
+    /// Whether this is an integer type ([`U8`](Self::U8), [`U16`](Self::U16), or [`I16`](Self::I16)).
+    #[inline]
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    pub const fn is_integer(self) -> bool {
+        matches!(self, Self::U8 | Self::U16 | Self::I16)
+    }
+
+    /// Whether this is a floating-point type ([`F32`](Self::F32) or [`F16`](Self::F16)).
+    #[inline]
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    pub const fn is_float(self) -> bool {
+        matches!(self, Self::F32 | Self::F16)
+    }
 }
 
 /// Channel layout (number and meaning of channels).
@@ -256,6 +300,231 @@ impl ColorPrimaries {
             Self::Unknown => 0,
             _ => 0,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Display impls for descriptor enums
+// ---------------------------------------------------------------------------
+
+impl fmt::Display for ChannelType {
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::U8 => f.write_str("U8"),
+            Self::U16 => f.write_str("U16"),
+            Self::F32 => f.write_str("F32"),
+            Self::F16 => f.write_str("F16"),
+            Self::I16 => f.write_str("I16"),
+            _ => write!(f, "ChannelType({})", *self as u8),
+        }
+    }
+}
+
+impl fmt::Display for ChannelLayout {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Gray => f.write_str("Gray"),
+            Self::GrayAlpha => f.write_str("GrayAlpha"),
+            Self::Rgb => f.write_str("RGB"),
+            Self::Rgba => f.write_str("RGBA"),
+            Self::Bgra => f.write_str("BGRA"),
+        }
+    }
+}
+
+impl fmt::Display for AlphaMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => f.write_str("none"),
+            Self::Straight => f.write_str("straight"),
+            Self::Premultiplied => f.write_str("premultiplied"),
+        }
+    }
+}
+
+impl fmt::Display for TransferFunction {
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Linear => f.write_str("linear"),
+            Self::Srgb => f.write_str("sRGB"),
+            Self::Bt709 => f.write_str("BT.709"),
+            Self::Pq => f.write_str("PQ"),
+            Self::Hlg => f.write_str("HLG"),
+            Self::Unknown => f.write_str("unknown"),
+            _ => write!(f, "TransferFunction({})", *self as u8),
+        }
+    }
+}
+
+impl fmt::Display for ColorPrimaries {
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bt709 => f.write_str("BT.709"),
+            Self::Bt2020 => f.write_str("BT.2020"),
+            Self::DisplayP3 => f.write_str("Display P3"),
+            Self::Unknown => f.write_str("unknown"),
+            _ => write!(f, "ColorPrimaries({})", *self as u8),
+        }
+    }
+}
+
+impl fmt::Display for SignalRange {
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Full => f.write_str("full"),
+            Self::Narrow => f.write_str("narrow"),
+            _ => write!(f, "SignalRange({})", *self as u8),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PixelFormat — match-friendly physical layout enum
+// ---------------------------------------------------------------------------
+
+/// Physical pixel layout for match-based format dispatch.
+///
+/// Captures channel type and layout only — NOT transfer function, primaries,
+/// or signal range. Use this for `match`-based dispatch instead of chaining
+/// `if descriptor.layout_compatible(...)` checks.
+///
+/// Every variant corresponds to a named [`PixelDescriptor`] constant.
+/// Use [`PixelFormat::descriptor()`] to get the base descriptor, or
+/// [`PixelDescriptor::pixel_format()`] to go the other direction.
+///
+/// # Mixed-alpha note
+///
+/// Today `ChannelType` describes all channels uniformly. The `rgb` crate
+/// supports `Rgba<u16, u8>` (mixed alpha types), but no codec in this
+/// ecosystem produces those. `PixelDescriptor` is `#[non_exhaustive]`, so
+/// if mixed-alpha enters the ecosystem we can add an
+/// `alpha_channel_type: Option<ChannelType>` field without breaking
+/// existing code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum PixelFormat {
+    /// 8-bit RGB (3 bytes/pixel).
+    Rgb8,
+    /// 8-bit RGBA with alpha (4 bytes/pixel).
+    Rgba8,
+    /// 16-bit RGB (6 bytes/pixel).
+    Rgb16,
+    /// 16-bit RGBA with alpha (8 bytes/pixel).
+    Rgba16,
+    /// 32-bit float RGB (12 bytes/pixel).
+    RgbF32,
+    /// 32-bit float RGBA with alpha (16 bytes/pixel).
+    RgbaF32,
+    /// 8-bit grayscale (1 byte/pixel).
+    Gray8,
+    /// 16-bit grayscale (2 bytes/pixel).
+    Gray16,
+    /// 32-bit float grayscale (4 bytes/pixel).
+    GrayF32,
+    /// 8-bit grayscale + alpha (2 bytes/pixel).
+    GrayA8,
+    /// 16-bit grayscale + alpha (4 bytes/pixel).
+    GrayA16,
+    /// 32-bit float grayscale + alpha (8 bytes/pixel).
+    GrayAF32,
+    /// 8-bit BGRA with alpha (4 bytes/pixel).
+    Bgra8,
+    /// 8-bit RGBX — opaque RGBA, padding byte ignored (4 bytes/pixel).
+    Rgbx8,
+    /// 8-bit BGRX — opaque BGRA, padding byte ignored (4 bytes/pixel).
+    Bgrx8,
+}
+
+impl PixelFormat {
+    /// Base descriptor with `Unknown` transfer, BT.709 primaries, full range.
+    ///
+    /// The returned descriptor has the correct channel type, layout, and alpha
+    /// mode for this format, but uses default metadata. Use
+    /// [`PixelDescriptor::with_transfer()`] etc. to set specific metadata.
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    pub const fn descriptor(self) -> PixelDescriptor {
+        match self {
+            Self::Rgb8 => PixelDescriptor::RGB8,
+            Self::Rgba8 => PixelDescriptor::RGBA8,
+            Self::Rgb16 => PixelDescriptor::RGB16,
+            Self::Rgba16 => PixelDescriptor::RGBA16,
+            Self::RgbF32 => PixelDescriptor::RGBF32,
+            Self::RgbaF32 => PixelDescriptor::RGBAF32,
+            Self::Gray8 => PixelDescriptor::GRAY8,
+            Self::Gray16 => PixelDescriptor::GRAY16,
+            Self::GrayF32 => PixelDescriptor::GRAYF32,
+            Self::GrayA8 => PixelDescriptor::GRAYA8,
+            Self::GrayA16 => PixelDescriptor::GRAYA16,
+            Self::GrayAF32 => PixelDescriptor::GRAYAF32,
+            Self::Bgra8 => PixelDescriptor::BGRA8,
+            Self::Rgbx8 => PixelDescriptor::RGBX8,
+            Self::Bgrx8 => PixelDescriptor::BGRX8,
+            // Safety net for future variants — return a reasonable default.
+            _ => PixelDescriptor::RGB8,
+        }
+    }
+
+    /// Short human-readable name: `"RGB8"`, `"RGBA16"`, `"GrayA8"`, etc.
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Rgb8 => "RGB8",
+            Self::Rgba8 => "RGBA8",
+            Self::Rgb16 => "RGB16",
+            Self::Rgba16 => "RGBA16",
+            Self::RgbF32 => "RgbF32",
+            Self::RgbaF32 => "RgbaF32",
+            Self::Gray8 => "Gray8",
+            Self::Gray16 => "Gray16",
+            Self::GrayF32 => "GrayF32",
+            Self::GrayA8 => "GrayA8",
+            Self::GrayA16 => "GrayA16",
+            Self::GrayAF32 => "GrayAF32",
+            Self::Bgra8 => "BGRA8",
+            Self::Rgbx8 => "RGBX8",
+            Self::Bgrx8 => "BGRX8",
+            _ => "Unknown",
+        }
+    }
+
+    /// Bytes per pixel for this format.
+    #[inline]
+    pub const fn bytes_per_pixel(self) -> usize {
+        self.descriptor().bytes_per_pixel()
+    }
+
+    /// Whether this format carries meaningful alpha data.
+    #[inline]
+    pub const fn has_alpha(self) -> bool {
+        self.descriptor().has_alpha()
+    }
+
+    /// Whether this format is grayscale.
+    #[inline]
+    pub const fn is_grayscale(self) -> bool {
+        self.descriptor().is_grayscale()
+    }
+
+    /// Channel storage type for this format.
+    #[inline]
+    pub const fn channel_type(self) -> ChannelType {
+        self.descriptor().channel_type
+    }
+
+    /// Channel layout for this format.
+    #[inline]
+    pub const fn channel_layout(self) -> ChannelLayout {
+        self.descriptor().layout
+    }
+}
+
+impl fmt::Display for PixelFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
     }
 }
 
@@ -721,6 +990,86 @@ impl PixelDescriptor {
         let align = lcm(bpp, simd_align);
         align_up_general(raw, align)
     }
+
+    /// Returns the physical pixel format if it matches a known layout.
+    ///
+    /// Returns `None` for non-standard combinations (e.g., I16 Rgb,
+    /// F16 Gray). The full descriptor is still valid — this just means
+    /// there's no standard [`PixelFormat`] variant for it.
+    #[allow(unreachable_patterns)] // non_exhaustive: future variants
+    pub const fn pixel_format(&self) -> Option<PixelFormat> {
+        match (self.channel_type, self.layout, self.alpha) {
+            (ChannelType::U8, ChannelLayout::Rgb, AlphaMode::None) => Some(PixelFormat::Rgb8),
+            (
+                ChannelType::U8,
+                ChannelLayout::Rgba,
+                AlphaMode::Straight | AlphaMode::Premultiplied,
+            ) => Some(PixelFormat::Rgba8),
+            (ChannelType::U16, ChannelLayout::Rgb, AlphaMode::None) => Some(PixelFormat::Rgb16),
+            (
+                ChannelType::U16,
+                ChannelLayout::Rgba,
+                AlphaMode::Straight | AlphaMode::Premultiplied,
+            ) => Some(PixelFormat::Rgba16),
+            (ChannelType::F32, ChannelLayout::Rgb, AlphaMode::None) => Some(PixelFormat::RgbF32),
+            (
+                ChannelType::F32,
+                ChannelLayout::Rgba,
+                AlphaMode::Straight | AlphaMode::Premultiplied,
+            ) => Some(PixelFormat::RgbaF32),
+            (ChannelType::U8, ChannelLayout::Gray, AlphaMode::None) => Some(PixelFormat::Gray8),
+            (ChannelType::U16, ChannelLayout::Gray, AlphaMode::None) => Some(PixelFormat::Gray16),
+            (ChannelType::F32, ChannelLayout::Gray, AlphaMode::None) => Some(PixelFormat::GrayF32),
+            (
+                ChannelType::U8,
+                ChannelLayout::GrayAlpha,
+                AlphaMode::Straight | AlphaMode::Premultiplied,
+            ) => Some(PixelFormat::GrayA8),
+            (
+                ChannelType::U16,
+                ChannelLayout::GrayAlpha,
+                AlphaMode::Straight | AlphaMode::Premultiplied,
+            ) => Some(PixelFormat::GrayA16),
+            (
+                ChannelType::F32,
+                ChannelLayout::GrayAlpha,
+                AlphaMode::Straight | AlphaMode::Premultiplied,
+            ) => Some(PixelFormat::GrayAF32),
+            (
+                ChannelType::U8,
+                ChannelLayout::Bgra,
+                AlphaMode::Straight | AlphaMode::Premultiplied,
+            ) => Some(PixelFormat::Bgra8),
+            // RGBX: RGBA layout with no alpha semantics
+            (ChannelType::U8, ChannelLayout::Rgba, AlphaMode::None) => Some(PixelFormat::Rgbx8),
+            // BGRX: BGRA layout with no alpha semantics
+            (ChannelType::U8, ChannelLayout::Bgra, AlphaMode::None) => Some(PixelFormat::Bgrx8),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for PixelDescriptor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Base name from pixel_format, or fallback to "layout/channel_type"
+        match self.pixel_format() {
+            Some(pf) => f.write_str(pf.name())?,
+            None => write!(f, "{}/{}", self.layout, self.channel_type)?,
+        }
+        // Transfer: shown if not Unknown
+        if !matches!(self.transfer, TransferFunction::Unknown) {
+            write!(f, "/{}", self.transfer)?;
+        }
+        // Primaries: shown if not BT.709 (the default)
+        if !matches!(self.primaries, ColorPrimaries::Bt709) {
+            write!(f, "/{}", self.primaries)?;
+        }
+        // Signal range: shown if Narrow
+        if matches!(self.signal_range, SignalRange::Narrow) {
+            write!(f, "/{}", self.signal_range)?;
+        }
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -873,6 +1222,11 @@ pub enum BufferError {
     StrideNotPixelAligned,
     /// Width or height is zero or causes overflow.
     InvalidDimensions,
+    /// Descriptor bytes_per_pixel mismatch in `reinterpret()`.
+    ///
+    /// The new descriptor has a different `bytes_per_pixel()` than the
+    /// current one, so reinterpreting the buffer would be invalid.
+    IncompatibleDescriptor,
 }
 
 impl fmt::Display for BufferError {
@@ -887,6 +1241,9 @@ impl fmt::Display for BufferError {
                 write!(f, "stride is not a multiple of bytes_per_pixel")
             }
             Self::InvalidDimensions => write!(f, "width or height is zero or causes overflow"),
+            Self::IncompatibleDescriptor => {
+                write!(f, "new descriptor has different bytes_per_pixel")
+            }
         }
     }
 }
@@ -1001,21 +1358,74 @@ impl<'a, P> PixelSlice<'a, P> {
         }
     }
 
-    /// Replace the descriptor, preserving all other fields.
+    /// Replace the descriptor with a layout-compatible one.
     ///
     /// Use after a transform that changes pixel metadata without changing
     /// the buffer layout (e.g., transfer function change, alpha mode change,
     /// signal range expansion).
     ///
-    /// # Safety (logical)
+    /// For per-field updates, prefer the specific setters: [`with_transfer()`](Self::with_transfer),
+    /// [`with_primaries()`](Self::with_primaries), [`with_signal_range()`](Self::with_signal_range),
+    /// [`with_alpha_mode()`](Self::with_alpha_mode).
     ///
-    /// The caller must ensure the new descriptor is layout-compatible with
-    /// the data — same `channel_type` and `layout`. Changing those requires
-    /// a new buffer. This method does **not** validate compatibility to
-    /// allow zero-cost metadata updates.
+    /// # Panics
+    ///
+    /// Panics if the new descriptor is not layout-compatible (different
+    /// `channel_type` or `layout`). Use [`reinterpret()`](Self::reinterpret)
+    /// for genuine layout changes.
     #[inline]
     pub fn with_descriptor(mut self, descriptor: PixelDescriptor) -> Self {
+        assert!(
+            self.descriptor.layout_compatible(&descriptor),
+            "with_descriptor() cannot change physical layout ({} -> {}); \
+             use reinterpret() for layout changes",
+            self.descriptor,
+            descriptor
+        );
         self.descriptor = descriptor;
+        self
+    }
+
+    /// Reinterpret the buffer with a different physical layout.
+    ///
+    /// Unlike [`with_descriptor()`](Self::with_descriptor), this allows
+    /// changing `channel_type` and `layout`. The new descriptor must have
+    /// the same `bytes_per_pixel()` as the current one.
+    ///
+    /// Use cases: treating RGBA8 data as BGRA8, RGBX8 as RGBA8.
+    pub fn reinterpret(mut self, descriptor: PixelDescriptor) -> Result<Self, BufferError> {
+        if self.descriptor.bytes_per_pixel() != descriptor.bytes_per_pixel() {
+            return Err(BufferError::IncompatibleDescriptor);
+        }
+        self.descriptor = descriptor;
+        Ok(self)
+    }
+
+    /// Return a copy with a different transfer function.
+    #[inline]
+    pub fn with_transfer(mut self, tf: TransferFunction) -> Self {
+        self.descriptor.transfer = tf;
+        self
+    }
+
+    /// Return a copy with different color primaries.
+    #[inline]
+    pub fn with_primaries(mut self, cp: ColorPrimaries) -> Self {
+        self.descriptor.primaries = cp;
+        self
+    }
+
+    /// Return a copy with a different signal range.
+    #[inline]
+    pub fn with_signal_range(mut self, sr: SignalRange) -> Self {
+        self.descriptor.signal_range = sr;
+        self
+    }
+
+    /// Return a copy with a different alpha mode.
+    #[inline]
+    pub fn with_alpha_mode(mut self, am: AlphaMode) -> Self {
+        self.descriptor.alpha = am;
         self
     }
 
@@ -1433,9 +1843,25 @@ impl<P: Pixel + bytemuck::AnyBitPattern + bytemuck::NoUninit> PixelBuffer<P> {
     }
 }
 
-/// Type-erased `try_as_imgref` for PixelBuffer.
+/// Type-erased construction and `try_as_imgref` for PixelBuffer.
 #[cfg(feature = "codec")]
 impl PixelBuffer {
+    /// Zero-copy construction from typed pixels, returning an erased `PixelBuffer`.
+    ///
+    /// Equivalent to `PixelBuffer::<P>::from_pixels(pixels, w, h)?.into()` but
+    /// avoids the intermediate typed `PixelBuffer`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BufferError::InvalidDimensions`] if `pixels.len() != width * height`.
+    pub fn from_pixels_erased<P: Pixel + bytemuck::NoUninit>(
+        pixels: Vec<P>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, BufferError> {
+        PixelBuffer::<P>::from_pixels(pixels, width, height).map(PixelBuffer::from)
+    }
+
     /// Try to borrow the buffer as a typed [`ImgRef`].
     ///
     /// Returns `None` if the descriptor is not layout-compatible with `P`.
@@ -1450,8 +1876,7 @@ impl PixelBuffer {
         let total_bytes = if self.height == 0 {
             0
         } else {
-            (self.height as usize - 1) * self.stride
-                + self.width as usize * pixel_size
+            (self.height as usize - 1) * self.stride + self.width as usize * pixel_size
         };
         let data = &self.data[self.offset..self.offset + total_bytes];
         let pixels: &[P] = bytemuck::cast_slice(data);
@@ -1480,8 +1905,7 @@ impl PixelBuffer {
         let total_bytes = if self.height == 0 {
             0
         } else {
-            (self.height as usize - 1) * self.stride
-                + self.width as usize * pixel_size
+            (self.height as usize - 1) * self.stride + self.width as usize * pixel_size
         };
         let offset = self.offset;
         let data = &mut self.data[offset..offset + total_bytes];
@@ -1598,12 +2022,58 @@ impl<'a, P> PixelSliceMut<'a, P> {
         }
     }
 
-    /// Replace the descriptor, preserving all other fields.
+    /// Replace the descriptor with a layout-compatible one.
     ///
     /// See [`PixelSlice::with_descriptor()`] for details.
     #[inline]
     pub fn with_descriptor(mut self, descriptor: PixelDescriptor) -> Self {
+        assert!(
+            self.descriptor.layout_compatible(&descriptor),
+            "with_descriptor() cannot change physical layout ({} -> {}); \
+             use reinterpret() for layout changes",
+            self.descriptor,
+            descriptor
+        );
         self.descriptor = descriptor;
+        self
+    }
+
+    /// Reinterpret the buffer with a different physical layout.
+    ///
+    /// See [`PixelSlice::reinterpret()`] for details.
+    pub fn reinterpret(mut self, descriptor: PixelDescriptor) -> Result<Self, BufferError> {
+        if self.descriptor.bytes_per_pixel() != descriptor.bytes_per_pixel() {
+            return Err(BufferError::IncompatibleDescriptor);
+        }
+        self.descriptor = descriptor;
+        Ok(self)
+    }
+
+    /// Return a copy with a different transfer function.
+    #[inline]
+    pub fn with_transfer(mut self, tf: TransferFunction) -> Self {
+        self.descriptor.transfer = tf;
+        self
+    }
+
+    /// Return a copy with different color primaries.
+    #[inline]
+    pub fn with_primaries(mut self, cp: ColorPrimaries) -> Self {
+        self.descriptor.primaries = cp;
+        self
+    }
+
+    /// Return a copy with a different signal range.
+    #[inline]
+    pub fn with_signal_range(mut self, sr: SignalRange) -> Self {
+        self.descriptor.signal_range = sr;
+        self
+    }
+
+    /// Return a copy with a different alpha mode.
+    #[inline]
+    pub fn with_alpha_mode(mut self, am: AlphaMode) -> Self {
+        self.descriptor.alpha = am;
         self
     }
 
@@ -2166,12 +2636,58 @@ impl<P> PixelBuffer<P> {
         }
     }
 
-    /// Replace the descriptor, preserving all other fields.
+    /// Replace the descriptor with a layout-compatible one.
     ///
     /// See [`PixelSlice::with_descriptor()`] for details.
     #[inline]
     pub fn with_descriptor(mut self, descriptor: PixelDescriptor) -> Self {
+        assert!(
+            self.descriptor.layout_compatible(&descriptor),
+            "with_descriptor() cannot change physical layout ({} -> {}); \
+             use reinterpret() for layout changes",
+            self.descriptor,
+            descriptor
+        );
         self.descriptor = descriptor;
+        self
+    }
+
+    /// Reinterpret the buffer with a different physical layout.
+    ///
+    /// See [`PixelSlice::reinterpret()`] for details.
+    pub fn reinterpret(mut self, descriptor: PixelDescriptor) -> Result<Self, BufferError> {
+        if self.descriptor.bytes_per_pixel() != descriptor.bytes_per_pixel() {
+            return Err(BufferError::IncompatibleDescriptor);
+        }
+        self.descriptor = descriptor;
+        Ok(self)
+    }
+
+    /// Return a copy with a different transfer function.
+    #[inline]
+    pub fn with_transfer(mut self, tf: TransferFunction) -> Self {
+        self.descriptor.transfer = tf;
+        self
+    }
+
+    /// Return a copy with different color primaries.
+    #[inline]
+    pub fn with_primaries(mut self, cp: ColorPrimaries) -> Self {
+        self.descriptor.primaries = cp;
+        self
+    }
+
+    /// Return a copy with a different signal range.
+    #[inline]
+    pub fn with_signal_range(mut self, sr: SignalRange) -> Self {
+        self.descriptor.signal_range = sr;
+        self
+    }
+
+    /// Return a copy with a different alpha mode.
+    #[inline]
+    pub fn with_alpha_mode(mut self, am: AlphaMode) -> Self {
+        self.descriptor.alpha = am;
         self
     }
 
@@ -2190,6 +2706,31 @@ impl<P> PixelBuffer<P> {
     /// Consume the buffer and return the backing `Vec<u8>` for pool reuse.
     pub fn into_vec(self) -> Vec<u8> {
         self.data
+    }
+
+    /// Copy pixel data to a new contiguous byte `Vec` without stride padding.
+    ///
+    /// Returns exactly `width * height * bytes_per_pixel` bytes in row-major order.
+    /// For buffers already tightly packed (stride == width * bpp), this is a single memcpy.
+    /// For padded buffers, this strips the padding row by row.
+    pub fn copy_to_contiguous_bytes(&self) -> Vec<u8> {
+        let bpp = self.descriptor.bytes_per_pixel();
+        let row_bytes = self.width as usize * bpp;
+        let total = row_bytes * self.height as usize;
+
+        // Fast path: already contiguous
+        if self.stride == row_bytes {
+            let start = self.offset;
+            return self.data[start..start + total].to_vec();
+        }
+
+        // Slow path: strip padding
+        let mut out = Vec::with_capacity(total);
+        let slice = self.as_slice();
+        for y in 0..self.height {
+            out.extend_from_slice(slice.row(y));
+        }
+        out
     }
 
     /// Image width in pixels.
@@ -3645,6 +4186,307 @@ mod tests {
         let sub = buf.rows(2, 0);
         assert_eq!(sub.rows(), 0);
     }
+
+    // --- PixelFormat round-trip ---
+
+    #[test]
+    fn pixel_format_roundtrip_all_named_constants() {
+        // Every transfer-agnostic named constant should round-trip through pixel_format()
+        let cases: &[(PixelDescriptor, PixelFormat)] = &[
+            (PixelDescriptor::RGB8, PixelFormat::Rgb8),
+            (PixelDescriptor::RGBA8, PixelFormat::Rgba8),
+            (PixelDescriptor::RGB16, PixelFormat::Rgb16),
+            (PixelDescriptor::RGBA16, PixelFormat::Rgba16),
+            (PixelDescriptor::RGBF32, PixelFormat::RgbF32),
+            (PixelDescriptor::RGBAF32, PixelFormat::RgbaF32),
+            (PixelDescriptor::GRAY8, PixelFormat::Gray8),
+            (PixelDescriptor::GRAY16, PixelFormat::Gray16),
+            (PixelDescriptor::GRAYF32, PixelFormat::GrayF32),
+            (PixelDescriptor::GRAYA8, PixelFormat::GrayA8),
+            (PixelDescriptor::GRAYA16, PixelFormat::GrayA16),
+            (PixelDescriptor::GRAYAF32, PixelFormat::GrayAF32),
+            (PixelDescriptor::BGRA8, PixelFormat::Bgra8),
+            (PixelDescriptor::RGBX8, PixelFormat::Rgbx8),
+            (PixelDescriptor::BGRX8, PixelFormat::Bgrx8),
+        ];
+        for (desc, expected_fmt) in cases {
+            let fmt = desc.pixel_format();
+            assert_eq!(fmt, Some(*expected_fmt), "pixel_format() for {desc}");
+            // Round-trip: format → descriptor → layout_compatible with original
+            let base = expected_fmt.descriptor();
+            assert!(
+                base.layout_compatible(desc),
+                "descriptor from {expected_fmt} not layout-compatible with {desc}"
+            );
+        }
+    }
+
+    #[test]
+    fn pixel_format_srgb_variants() {
+        // sRGB-tagged variants should also resolve to the same PixelFormat
+        assert_eq!(
+            PixelDescriptor::RGB8_SRGB.pixel_format(),
+            Some(PixelFormat::Rgb8)
+        );
+        assert_eq!(
+            PixelDescriptor::RGBA8_SRGB.pixel_format(),
+            Some(PixelFormat::Rgba8)
+        );
+        assert_eq!(
+            PixelDescriptor::GRAY8_SRGB.pixel_format(),
+            Some(PixelFormat::Gray8)
+        );
+    }
+
+    #[test]
+    fn pixel_format_none_for_exotic() {
+        // I16 Rgb — no PixelFormat variant for this
+        let exotic = PixelDescriptor::new(
+            ChannelType::I16,
+            ChannelLayout::Rgb,
+            AlphaMode::None,
+            TransferFunction::Unknown,
+        );
+        assert_eq!(exotic.pixel_format(), None);
+    }
+
+    // --- Display snapshots ---
+
+    #[test]
+    fn display_channel_type() {
+        assert_eq!(format!("{}", ChannelType::U8), "U8");
+        assert_eq!(format!("{}", ChannelType::U16), "U16");
+        assert_eq!(format!("{}", ChannelType::F32), "F32");
+        assert_eq!(format!("{}", ChannelType::F16), "F16");
+        assert_eq!(format!("{}", ChannelType::I16), "I16");
+    }
+
+    #[test]
+    fn display_channel_layout() {
+        assert_eq!(format!("{}", ChannelLayout::Rgb), "RGB");
+        assert_eq!(format!("{}", ChannelLayout::Rgba), "RGBA");
+        assert_eq!(format!("{}", ChannelLayout::Gray), "Gray");
+        assert_eq!(format!("{}", ChannelLayout::GrayAlpha), "GrayAlpha");
+        assert_eq!(format!("{}", ChannelLayout::Bgra), "BGRA");
+    }
+
+    #[test]
+    fn display_alpha_mode() {
+        assert_eq!(format!("{}", AlphaMode::None), "none");
+        assert_eq!(format!("{}", AlphaMode::Straight), "straight");
+        assert_eq!(format!("{}", AlphaMode::Premultiplied), "premultiplied");
+    }
+
+    #[test]
+    fn display_transfer_function() {
+        assert_eq!(format!("{}", TransferFunction::Linear), "linear");
+        assert_eq!(format!("{}", TransferFunction::Srgb), "sRGB");
+        assert_eq!(format!("{}", TransferFunction::Bt709), "BT.709");
+        assert_eq!(format!("{}", TransferFunction::Pq), "PQ");
+        assert_eq!(format!("{}", TransferFunction::Hlg), "HLG");
+        assert_eq!(format!("{}", TransferFunction::Unknown), "unknown");
+    }
+
+    #[test]
+    fn display_color_primaries() {
+        assert_eq!(format!("{}", ColorPrimaries::Bt709), "BT.709");
+        assert_eq!(format!("{}", ColorPrimaries::Bt2020), "BT.2020");
+        assert_eq!(format!("{}", ColorPrimaries::DisplayP3), "Display P3");
+        assert_eq!(format!("{}", ColorPrimaries::Unknown), "unknown");
+    }
+
+    #[test]
+    fn display_signal_range() {
+        assert_eq!(format!("{}", SignalRange::Full), "full");
+        assert_eq!(format!("{}", SignalRange::Narrow), "narrow");
+    }
+
+    #[test]
+    fn display_pixel_descriptor() {
+        // Transfer-agnostic (Unknown) — no transfer shown
+        assert_eq!(format!("{}", PixelDescriptor::RGB8), "RGB8");
+        // sRGB transfer shown
+        assert_eq!(format!("{}", PixelDescriptor::RGB8_SRGB), "RGB8/sRGB");
+        // Linear + non-default primaries
+        let pq_bt2020 = PixelDescriptor::RGBA16
+            .with_transfer(TransferFunction::Pq)
+            .with_primaries(ColorPrimaries::Bt2020);
+        assert_eq!(format!("{pq_bt2020}"), "RGBA16/PQ/BT.2020");
+        // Narrow range shown
+        let narrow = pq_bt2020.with_signal_range(SignalRange::Narrow);
+        assert_eq!(format!("{narrow}"), "RGBA16/PQ/BT.2020/narrow");
+        // Linear gray
+        assert_eq!(
+            format!("{}", PixelDescriptor::GRAYF32_LINEAR),
+            "GrayF32/linear"
+        );
+        // Exotic format (no PixelFormat variant) — fallback to layout/channel_type
+        let exotic = PixelDescriptor::new(
+            ChannelType::I16,
+            ChannelLayout::Rgb,
+            AlphaMode::None,
+            TransferFunction::Linear,
+        );
+        assert_eq!(format!("{exotic}"), "RGB/I16/linear");
+    }
+
+    // --- ChannelType predicates ---
+
+    #[test]
+    fn channel_type_predicates() {
+        assert!(ChannelType::U8.is_u8());
+        assert!(!ChannelType::U8.is_u16());
+        assert!(ChannelType::U16.is_u16());
+        assert!(ChannelType::F32.is_f32());
+        assert!(ChannelType::F16.is_f16());
+        assert!(ChannelType::I16.is_i16());
+        // Integer vs float
+        assert!(ChannelType::U8.is_integer());
+        assert!(ChannelType::U16.is_integer());
+        assert!(ChannelType::I16.is_integer());
+        assert!(!ChannelType::F32.is_integer());
+        assert!(!ChannelType::F16.is_integer());
+        assert!(ChannelType::F32.is_float());
+        assert!(ChannelType::F16.is_float());
+        assert!(!ChannelType::U8.is_float());
+    }
+
+    // --- with_descriptor assertion ---
+
+    #[test]
+    fn with_descriptor_metadata_change_succeeds() {
+        let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGB8_SRGB);
+        // Changing transfer function is metadata-only — should succeed
+        let buf2 = buf.with_descriptor(PixelDescriptor::RGB8);
+        assert_eq!(buf2.descriptor(), PixelDescriptor::RGB8);
+    }
+
+    #[test]
+    #[should_panic(expected = "with_descriptor() cannot change physical layout")]
+    fn with_descriptor_layout_change_panics() {
+        let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGB8);
+        // Trying to change from RGB8 to RGBA8 — different layout, should panic
+        let _ = buf.with_descriptor(PixelDescriptor::RGBA8);
+    }
+
+    #[test]
+    fn with_descriptor_slice_assertion() {
+        let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGB8_SRGB);
+        let slice = buf.as_slice();
+        // Metadata change OK
+        let s2 = slice.with_descriptor(PixelDescriptor::RGB8);
+        assert_eq!(s2.descriptor(), PixelDescriptor::RGB8);
+    }
+
+    #[test]
+    #[should_panic(expected = "with_descriptor() cannot change physical layout")]
+    fn with_descriptor_slice_layout_change_panics() {
+        let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGB8);
+        let slice = buf.as_slice();
+        let _ = slice.with_descriptor(PixelDescriptor::RGBA8);
+    }
+
+    // --- reinterpret ---
+
+    #[test]
+    fn reinterpret_same_bpp_succeeds() {
+        // RGBA8 → BGRA8: same 4 bpp, different layout
+        let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGBA8);
+        let buf2 = buf.reinterpret(PixelDescriptor::BGRA8).unwrap();
+        assert_eq!(buf2.descriptor().layout, ChannelLayout::Bgra);
+    }
+
+    #[test]
+    fn reinterpret_different_bpp_fails() {
+        // RGB8 (3 bpp) → RGBA8 (4 bpp): different bytes_per_pixel
+        let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGB8);
+        let err = buf.reinterpret(PixelDescriptor::RGBA8);
+        assert_eq!(err.unwrap_err(), BufferError::IncompatibleDescriptor);
+    }
+
+    #[test]
+    fn reinterpret_rgbx_to_rgba() {
+        // RGBX8 → RGBA8: same bpp (4), reinterpret padding as alpha
+        let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGBX8);
+        let buf2 = buf.reinterpret(PixelDescriptor::RGBA8).unwrap();
+        assert!(buf2.descriptor().has_alpha());
+    }
+
+    // --- Per-field metadata setters ---
+
+    #[test]
+    fn per_field_setters() {
+        let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGB8);
+        let buf = buf.with_transfer(TransferFunction::Srgb);
+        assert_eq!(buf.descriptor().transfer, TransferFunction::Srgb);
+        let buf = buf.with_primaries(ColorPrimaries::DisplayP3);
+        assert_eq!(buf.descriptor().primaries, ColorPrimaries::DisplayP3);
+        let buf = buf.with_signal_range(SignalRange::Narrow);
+        assert!(buf.descriptor().is_narrow_range());
+        let buf = buf.with_alpha_mode(AlphaMode::Premultiplied);
+        assert_eq!(buf.descriptor().alpha, AlphaMode::Premultiplied);
+    }
+
+    // --- copy_to_contiguous_bytes ---
+
+    #[test]
+    fn copy_to_contiguous_bytes_tight() {
+        let mut buf = PixelBuffer::new(2, 2, PixelDescriptor::RGB8_SRGB);
+        {
+            let mut s = buf.as_slice_mut();
+            s.row_mut(0).copy_from_slice(&[1, 2, 3, 4, 5, 6]);
+            s.row_mut(1).copy_from_slice(&[7, 8, 9, 10, 11, 12]);
+        }
+        let bytes = buf.copy_to_contiguous_bytes();
+        assert_eq!(bytes, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    }
+
+    #[test]
+    fn copy_to_contiguous_bytes_padded() {
+        // Use SIMD-aligned buffer which will have stride padding for small widths
+        let mut buf = PixelBuffer::new_simd_aligned(2, 2, PixelDescriptor::RGB8_SRGB, 16);
+        let stride = buf.stride();
+        // Stride should be >= 6 (2 pixels * 3 bytes) and aligned to lcm(3, 16) = 48
+        assert!(stride >= 6);
+        {
+            let mut s = buf.as_slice_mut();
+            s.row_mut(0).copy_from_slice(&[1, 2, 3, 4, 5, 6]);
+            s.row_mut(1).copy_from_slice(&[7, 8, 9, 10, 11, 12]);
+        }
+        let bytes = buf.copy_to_contiguous_bytes();
+        // Should only contain the actual pixel data, no padding
+        assert_eq!(bytes.len(), 12);
+        assert_eq!(bytes, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    }
+
+    // --- PixelFormat Display ---
+
+    #[test]
+    fn pixel_format_display() {
+        assert_eq!(format!("{}", PixelFormat::Rgb8), "RGB8");
+        assert_eq!(format!("{}", PixelFormat::Rgba16), "RGBA16");
+        assert_eq!(format!("{}", PixelFormat::GrayA8), "GrayA8");
+        assert_eq!(format!("{}", PixelFormat::Bgra8), "BGRA8");
+    }
+
+    // --- PixelFormat properties ---
+
+    #[test]
+    fn pixel_format_properties() {
+        assert_eq!(PixelFormat::Rgb8.bytes_per_pixel(), 3);
+        assert_eq!(PixelFormat::Rgba8.bytes_per_pixel(), 4);
+        assert_eq!(PixelFormat::Gray8.bytes_per_pixel(), 1);
+        assert_eq!(PixelFormat::Rgb16.bytes_per_pixel(), 6);
+        assert!(!PixelFormat::Rgb8.has_alpha());
+        assert!(PixelFormat::Rgba8.has_alpha());
+        assert!(!PixelFormat::Rgbx8.has_alpha());
+        assert!(PixelFormat::Bgra8.has_alpha());
+        assert!(PixelFormat::Gray8.is_grayscale());
+        assert!(PixelFormat::GrayA8.is_grayscale());
+        assert!(!PixelFormat::Rgb8.is_grayscale());
+        assert_eq!(PixelFormat::Rgb8.channel_type(), ChannelType::U8);
+        assert_eq!(PixelFormat::RgbF32.channel_type(), ChannelType::F32);
+    }
 }
 
 #[cfg(all(test, feature = "codec"))]
@@ -3711,8 +4553,16 @@ mod codec_tests {
     #[test]
     fn convert_rgb8_to_rgba8() {
         let pixels: Vec<Rgb<u8>> = vec![
-            Rgb { r: 10, g: 20, b: 30 },
-            Rgb { r: 40, g: 50, b: 60 },
+            Rgb {
+                r: 10,
+                g: 20,
+                b: 30,
+            },
+            Rgb {
+                r: 40,
+                g: 50,
+                b: 60,
+            },
         ];
         let buf = PixelBuffer::from_pixels(pixels, 2, 1).unwrap();
         let erased: PixelBuffer = buf.into();
@@ -3725,7 +4575,12 @@ mod codec_tests {
 
     #[test]
     fn convert_rgba8_to_rgb8() {
-        let pixels: Vec<Rgba<u8>> = vec![Rgba { r: 10, g: 20, b: 30, a: 128 }];
+        let pixels: Vec<Rgba<u8>> = vec![Rgba {
+            r: 10,
+            g: 20,
+            b: 30,
+            a: 128,
+        }];
         let buf = PixelBuffer::from_pixels(pixels, 1, 1).unwrap();
         let erased: PixelBuffer = buf.into();
         let rgb = erased.to_rgb8();
@@ -3755,7 +4610,12 @@ mod codec_tests {
 
     #[test]
     fn convert_bgra8_to_rgb8() {
-        let pixels: Vec<BGRA<u8>> = vec![BGRA { b: 10, g: 20, r: 30, a: 255 }];
+        let pixels: Vec<BGRA<u8>> = vec![BGRA {
+            b: 10,
+            g: 20,
+            r: 30,
+            a: 255,
+        }];
         let buf = PixelBuffer::from_pixels(pixels, 1, 1).unwrap();
         let erased: PixelBuffer = buf.into();
         let rgb = erased.to_rgb8();
@@ -3766,7 +4626,12 @@ mod codec_tests {
 
     #[test]
     fn convert_bgra8_to_rgba8() {
-        let pixels: Vec<BGRA<u8>> = vec![BGRA { b: 10, g: 20, r: 30, a: 128 }];
+        let pixels: Vec<BGRA<u8>> = vec![BGRA {
+            b: 10,
+            g: 20,
+            r: 30,
+            a: 128,
+        }];
         let buf = PixelBuffer::from_pixels(pixels, 1, 1).unwrap();
         let erased: PixelBuffer = buf.into();
         let rgba = erased.to_rgba8();
@@ -3788,7 +4653,11 @@ mod codec_tests {
 
     #[test]
     fn convert_rgb8_to_bgra8() {
-        let pixels: Vec<Rgb<u8>> = vec![Rgb { r: 10, g: 20, b: 30 }];
+        let pixels: Vec<Rgb<u8>> = vec![Rgb {
+            r: 10,
+            g: 20,
+            b: 30,
+        }];
         let buf = PixelBuffer::from_pixels(pixels, 1, 1).unwrap();
         let erased: PixelBuffer = buf.into();
         let bgra = erased.to_bgra8();
@@ -3799,7 +4668,12 @@ mod codec_tests {
 
     #[test]
     fn convert_rgba8_to_bgra8() {
-        let pixels: Vec<Rgba<u8>> = vec![Rgba { r: 10, g: 20, b: 30, a: 128 }];
+        let pixels: Vec<Rgba<u8>> = vec![Rgba {
+            r: 10,
+            g: 20,
+            b: 30,
+            a: 128,
+        }];
         let buf = PixelBuffer::from_pixels(pixels, 1, 1).unwrap();
         let erased: PixelBuffer = buf.into();
         let bgra = erased.to_bgra8();
@@ -3810,28 +4684,37 @@ mod codec_tests {
     #[test]
     fn convert_u16_to_rgb8() {
         // u16 65535 → u8 255, u16 0 → u8 0
-        let pixels: Vec<Rgb<u16>> = vec![Rgb { r: 65535, g: 0, b: 32768 }];
+        let pixels: Vec<Rgb<u16>> = vec![Rgb {
+            r: 65535,
+            g: 0,
+            b: 32768,
+        }];
         let buf = PixelBuffer::from_pixels(pixels, 1, 1).unwrap();
         let erased: PixelBuffer = buf.into();
         let rgb = erased.to_rgb8();
         let s = rgb.as_slice();
         let row = s.row(0);
         assert_eq!(row[0], 255); // 65535 → 255
-        assert_eq!(row[1], 0);   // 0 → 0
+        assert_eq!(row[1], 0); // 0 → 0
         // 32768 → (32768*255+32768)>>16 = (8388608)>>16 = 128
         assert_eq!(row[2], 128);
     }
 
     #[test]
     fn convert_f32_to_rgba8() {
-        let pixels: Vec<Rgba<f32>> = vec![Rgba { r: 1.0, g: 0.0, b: 0.5, a: 0.75 }];
+        let pixels: Vec<Rgba<f32>> = vec![Rgba {
+            r: 1.0,
+            g: 0.0,
+            b: 0.5,
+            a: 0.75,
+        }];
         let buf = PixelBuffer::from_pixels(pixels, 1, 1).unwrap();
         let erased: PixelBuffer = buf.into();
         let rgba = erased.to_rgba8();
         let s = rgba.as_slice();
         let row = s.row(0);
         assert_eq!(row[0], 255); // 1.0
-        assert_eq!(row[1], 0);   // 0.0
+        assert_eq!(row[1], 0); // 0.0
         assert_eq!(row[2], 127); // 0.5 * 255 = 127.5 → 127
         assert_eq!(row[3], 191); // 0.75 * 255 = 191.25 → 191
     }
@@ -3854,10 +4737,26 @@ mod codec_tests {
     #[test]
     fn convert_preserves_multirow() {
         let pixels: Vec<Rgb<u8>> = vec![
-            Rgb { r: 10, g: 20, b: 30 },
-            Rgb { r: 40, g: 50, b: 60 },
-            Rgb { r: 70, g: 80, b: 90 },
-            Rgb { r: 100, g: 110, b: 120 },
+            Rgb {
+                r: 10,
+                g: 20,
+                b: 30,
+            },
+            Rgb {
+                r: 40,
+                g: 50,
+                b: 60,
+            },
+            Rgb {
+                r: 70,
+                g: 80,
+                b: 90,
+            },
+            Rgb {
+                r: 100,
+                g: 110,
+                b: 120,
+            },
         ];
         let buf = PixelBuffer::from_pixels(pixels, 2, 2).unwrap();
         let erased: PixelBuffer = buf.into();
@@ -3882,12 +4781,53 @@ mod codec_tests {
     #[test]
     fn convert_f32_rgb_to_gray8() {
         // Pure white → 255 via luma
-        let pixels: Vec<Rgb<f32>> = vec![Rgb { r: 1.0, g: 1.0, b: 1.0 }];
+        let pixels: Vec<Rgb<f32>> = vec![Rgb {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+        }];
         let buf = PixelBuffer::from_pixels(pixels, 1, 1).unwrap();
         let erased: PixelBuffer = buf.into();
         let gray = erased.to_gray8();
         let s = gray.as_slice();
         // luma of (255,255,255) = (77*255+150*255+29*255)>>8 = (65280)>>8 = 255
         assert_eq!(s.row(0), &[255]);
+    }
+
+    // --- from_pixels_erased ---
+
+    #[test]
+    fn from_pixels_erased_matches_manual() {
+        let pixels1: Vec<Rgb<u8>> = vec![
+            Rgb {
+                r: 10,
+                g: 20,
+                b: 30,
+            },
+            Rgb {
+                r: 40,
+                g: 50,
+                b: 60,
+            },
+        ];
+        let pixels2 = pixels1.clone();
+
+        // Manual: from_pixels + into
+        let manual: PixelBuffer = PixelBuffer::from_pixels(pixels1, 2, 1).unwrap().into();
+
+        // Erased: from_pixels_erased
+        let erased = PixelBuffer::from_pixels_erased(pixels2, 2, 1).unwrap();
+
+        assert_eq!(manual.width(), erased.width());
+        assert_eq!(manual.height(), erased.height());
+        assert_eq!(manual.descriptor(), erased.descriptor());
+        assert_eq!(manual.as_slice().row(0), erased.as_slice().row(0));
+    }
+
+    #[test]
+    fn from_pixels_erased_dimension_mismatch() {
+        let pixels: Vec<Rgb<u8>> = vec![Rgb { r: 1, g: 2, b: 3 }];
+        let err = PixelBuffer::from_pixels_erased(pixels, 2, 1);
+        assert_eq!(err.unwrap_err(), BufferError::InvalidDimensions);
     }
 }
