@@ -143,15 +143,21 @@ impl ChannelLayout {
 }
 
 /// Alpha channel interpretation.
+///
+/// Used inside `Option<AlphaMode>` on [`PixelDescriptor`]:
+/// - `None` (the `Option`) means no alpha-position channel exists (RGB, Gray).
+/// - `Some(AlphaMode::Undefined)` means padding bytes exist but have no semantic
+///   value (RGBX, BGRX).
+/// - `Some(AlphaMode::Straight | Premultiplied | Opaque)` means a real alpha channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 #[repr(u8)]
 pub enum AlphaMode {
-    /// No alpha channel (or padding byte with undefined value).
+    /// Alpha bytes exist but values are undefined padding.
     ///
-    /// Used for RGB, Gray, RGBX, BGRX formats. The fourth byte in RGBX/BGRX
-    /// is padding — its value is unspecified and should not be read.
-    None = 0,
+    /// Used for RGBX/BGRX — the 4th byte is in memory but should not be
+    /// interpreted as alpha. Algorithms must not read or blend these bytes.
+    Undefined = 0,
     /// Straight (unassociated) alpha — may contain transparent pixels.
     Straight = 1,
     /// Premultiplied (associated) alpha — may contain transparent pixels.
@@ -163,9 +169,10 @@ pub enum AlphaMode {
     /// This is an optimization hint: the alpha bytes are valid and readable,
     /// but algorithms can skip alpha handling because no pixel has transparency.
     ///
-    /// Unlike [`None`](Self::None), the alpha channel contains actual 255 values
-    /// (not undefined padding). Data can be safely reinterpreted as RGBA without
-    /// modification, and algorithms may read alpha to confirm opaqueness.
+    /// Unlike [`Undefined`](Self::Undefined), the alpha channel contains actual
+    /// 255 values (not undefined padding). Data can be safely reinterpreted as
+    /// RGBA without modification, and algorithms may read alpha to confirm
+    /// opaqueness.
     ///
     /// Use cases:
     /// - JPEG decodes to RGBA with `a=255` — mark as `Opaque` so downstream
@@ -174,8 +181,8 @@ pub enum AlphaMode {
     ///   result by setting `Opaque` to avoid re-scanning.
     ///
     /// **Caller responsibility:** If you mutate alpha bytes in an `Opaque` buffer,
-    /// you must clear the flag via `with_alpha_mode(AlphaMode::Straight)` before
-    /// passing the buffer to other code.
+    /// you must clear the flag via `with_alpha_mode(Some(AlphaMode::Straight))`
+    /// before passing the buffer to other code.
     Opaque = 3,
 }
 
@@ -360,7 +367,7 @@ impl fmt::Display for ChannelLayout {
 impl fmt::Display for AlphaMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::None => f.write_str("none"),
+            Self::Undefined => f.write_str("undefined"),
             Self::Straight => f.write_str("straight"),
             Self::Premultiplied => f.write_str("premultiplied"),
             Self::Opaque => f.write_str("opaque"),
@@ -577,7 +584,12 @@ pub struct PixelDescriptor {
     /// Channel layout (gray, RGB, RGBA, etc.).
     pub layout: ChannelLayout,
     /// Alpha interpretation.
-    pub alpha: AlphaMode,
+    ///
+    /// - `None` — layout has no alpha-position channel (RGB, Gray).
+    /// - `Some(AlphaMode::Undefined)` — padding bytes exist but values are
+    ///   unspecified (RGBX, BGRX).
+    /// - `Some(AlphaMode::Straight | Premultiplied | Opaque)` — real alpha.
+    pub alpha: Option<AlphaMode>,
     /// Transfer function (sRGB, linear, PQ, etc.).
     pub transfer: TransferFunction,
     /// Color primaries (gamut). Defaults to BT.709/sRGB.
@@ -601,7 +613,7 @@ impl PixelDescriptor {
     pub const fn new(
         channel_type: ChannelType,
         layout: ChannelLayout,
-        alpha: AlphaMode,
+        alpha: Option<AlphaMode>,
         transfer: TransferFunction,
     ) -> Self {
         Self {
@@ -618,7 +630,7 @@ impl PixelDescriptor {
     pub const fn new_full(
         channel_type: ChannelType,
         layout: ChannelLayout,
-        alpha: AlphaMode,
+        alpha: Option<AlphaMode>,
         transfer: TransferFunction,
         primaries: ColorPrimaries,
     ) -> Self {
@@ -638,7 +650,7 @@ impl PixelDescriptor {
     pub const RGB8_SRGB: Self = Self {
         channel_type: ChannelType::U8,
         layout: ChannelLayout::Rgb,
-        alpha: AlphaMode::None,
+        alpha: None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -648,7 +660,7 @@ impl PixelDescriptor {
     pub const RGBA8_SRGB: Self = Self {
         channel_type: ChannelType::U8,
         layout: ChannelLayout::Rgba,
-        alpha: AlphaMode::Straight,
+        alpha: Some(AlphaMode::Straight),
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -658,7 +670,7 @@ impl PixelDescriptor {
     pub const RGB16_SRGB: Self = Self {
         channel_type: ChannelType::U16,
         layout: ChannelLayout::Rgb,
-        alpha: AlphaMode::None,
+        alpha: None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -668,7 +680,7 @@ impl PixelDescriptor {
     pub const RGBA16_SRGB: Self = Self {
         channel_type: ChannelType::U16,
         layout: ChannelLayout::Rgba,
-        alpha: AlphaMode::Straight,
+        alpha: Some(AlphaMode::Straight),
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -678,7 +690,7 @@ impl PixelDescriptor {
     pub const RGBF32_LINEAR: Self = Self {
         channel_type: ChannelType::F32,
         layout: ChannelLayout::Rgb,
-        alpha: AlphaMode::None,
+        alpha: None,
         transfer: TransferFunction::Linear,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -688,7 +700,7 @@ impl PixelDescriptor {
     pub const RGBAF32_LINEAR: Self = Self {
         channel_type: ChannelType::F32,
         layout: ChannelLayout::Rgba,
-        alpha: AlphaMode::Straight,
+        alpha: Some(AlphaMode::Straight),
         transfer: TransferFunction::Linear,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -698,7 +710,7 @@ impl PixelDescriptor {
     pub const GRAY8_SRGB: Self = Self {
         channel_type: ChannelType::U8,
         layout: ChannelLayout::Gray,
-        alpha: AlphaMode::None,
+        alpha: None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -708,7 +720,7 @@ impl PixelDescriptor {
     pub const GRAY16_SRGB: Self = Self {
         channel_type: ChannelType::U16,
         layout: ChannelLayout::Gray,
-        alpha: AlphaMode::None,
+        alpha: None,
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -718,7 +730,7 @@ impl PixelDescriptor {
     pub const GRAYF32_LINEAR: Self = Self {
         channel_type: ChannelType::F32,
         layout: ChannelLayout::Gray,
-        alpha: AlphaMode::None,
+        alpha: None,
         transfer: TransferFunction::Linear,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -728,7 +740,7 @@ impl PixelDescriptor {
     pub const GRAYA8_SRGB: Self = Self {
         channel_type: ChannelType::U8,
         layout: ChannelLayout::GrayAlpha,
-        alpha: AlphaMode::Straight,
+        alpha: Some(AlphaMode::Straight),
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -738,7 +750,7 @@ impl PixelDescriptor {
     pub const GRAYA16_SRGB: Self = Self {
         channel_type: ChannelType::U16,
         layout: ChannelLayout::GrayAlpha,
-        alpha: AlphaMode::Straight,
+        alpha: Some(AlphaMode::Straight),
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -748,7 +760,7 @@ impl PixelDescriptor {
     pub const GRAYAF32_LINEAR: Self = Self {
         channel_type: ChannelType::F32,
         layout: ChannelLayout::GrayAlpha,
-        alpha: AlphaMode::Straight,
+        alpha: Some(AlphaMode::Straight),
         transfer: TransferFunction::Linear,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -758,35 +770,35 @@ impl PixelDescriptor {
     pub const BGRA8_SRGB: Self = Self {
         channel_type: ChannelType::U8,
         layout: ChannelLayout::Bgra,
-        alpha: AlphaMode::Straight,
+        alpha: Some(AlphaMode::Straight),
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
     };
 
-    /// 8-bit sRGB RGBX (opaque RGBA, padding byte ignored).
+    /// 8-bit sRGB RGBX (padding byte, not alpha).
     ///
     /// Same memory layout as RGBA8 but the fourth byte is padding
-    /// (`AlphaMode::None`). Useful for SIMD-friendly 32-bit RGB
+    /// (`Some(AlphaMode::Undefined)`). Useful for SIMD-friendly 32-bit RGB
     /// processing without alpha semantics.
     pub const RGBX8_SRGB: Self = Self {
         channel_type: ChannelType::U8,
         layout: ChannelLayout::Rgba,
-        alpha: AlphaMode::None,
+        alpha: Some(AlphaMode::Undefined),
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
     };
 
-    /// 8-bit sRGB BGRX (opaque BGRA, padding byte ignored).
+    /// 8-bit sRGB BGRX (padding byte, not alpha).
     ///
     /// Same memory layout as BGRA8 but the fourth byte is padding
-    /// (`AlphaMode::None`). Useful for Windows surfaces and DirectX
+    /// (`Some(AlphaMode::Undefined)`). Useful for Windows surfaces and DirectX
     /// where the alpha byte is present but meaningless.
     pub const BGRX8_SRGB: Self = Self {
         channel_type: ChannelType::U8,
         layout: ChannelLayout::Bgra,
-        alpha: AlphaMode::None,
+        alpha: Some(AlphaMode::Undefined),
         transfer: TransferFunction::Srgb,
         primaries: ColorPrimaries::Bt709,
         signal_range: SignalRange::Full,
@@ -957,9 +969,8 @@ impl PixelDescriptor {
     /// [`Opaque`](AlphaMode::Opaque) — all modes where the alpha channel
     /// contains valid, readable values.
     ///
-    /// Returns `false` for [`None`](AlphaMode::None) (padding or no alpha
-    /// channel). Use [`ChannelLayout::has_alpha()`] to check if the layout
-    /// includes an alpha-position channel regardless of whether it carries data.
+    /// Returns `false` for `None` (no alpha-position channel) and
+    /// `Some(AlphaMode::Undefined)` (padding byte).
     ///
     /// To distinguish opaque-alpha from transparent-alpha, match on
     /// [`alpha`](Self::alpha) directly:
@@ -968,26 +979,33 @@ impl PixelDescriptor {
     /// # use zencodec_types::{PixelDescriptor, AlphaMode};
     /// let desc = PixelDescriptor::RGBA8;
     /// match desc.alpha {
-    ///     AlphaMode::None => { /* no alpha channel */ }
-    ///     AlphaMode::Opaque => { /* alpha present, all 255 */ }
-    ///     AlphaMode::Straight | AlphaMode::Premultiplied => { /* transparency */ }
-    ///     _ => { /* future variants */ }
+    ///     None => { /* no alpha channel at all */ }
+    ///     Some(AlphaMode::Undefined) => { /* padding byte */ }
+    ///     Some(AlphaMode::Opaque) => { /* alpha present, all 255 */ }
+    ///     Some(AlphaMode::Straight | AlphaMode::Premultiplied) => { /* transparency */ }
+    ///     Some(_) => { /* future variants */ }
     /// }
     /// ```
     #[inline]
     pub const fn has_alpha(self) -> bool {
-        !matches!(self.alpha, AlphaMode::None)
+        matches!(
+            self.alpha,
+            Some(AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque)
+        )
     }
 
     /// Whether this format is fully opaque (no transparency possible).
     ///
-    /// Returns `true` for [`None`](AlphaMode::None) (no alpha channel)
-    /// and [`Opaque`](AlphaMode::Opaque) (alpha present but all 255).
+    /// Returns `true` when there is no alpha channel (`None`), the alpha
+    /// bytes are undefined padding (`Undefined`), or alpha is all-255 (`Opaque`).
     ///
     /// Use this to decide whether alpha handling can be skipped entirely.
     #[inline]
     pub const fn is_opaque(self) -> bool {
-        matches!(self.alpha, AlphaMode::None | AlphaMode::Opaque)
+        matches!(
+            self.alpha,
+            None | Some(AlphaMode::Undefined | AlphaMode::Opaque)
+        )
     }
 
     /// Whether this format may contain transparent pixels.
@@ -995,12 +1013,23 @@ impl PixelDescriptor {
     /// Returns `true` for [`Straight`](AlphaMode::Straight) and
     /// [`Premultiplied`](AlphaMode::Premultiplied).
     ///
-    /// Returns `false` for [`None`](AlphaMode::None) and
-    /// [`Opaque`](AlphaMode::Opaque).
+    /// Returns `false` for `None`, `Undefined`, and `Opaque`.
     #[inline]
     #[allow(unreachable_patterns)] // non_exhaustive: future variants
     pub const fn may_have_transparency(self) -> bool {
-        matches!(self.alpha, AlphaMode::Straight | AlphaMode::Premultiplied)
+        matches!(
+            self.alpha,
+            Some(AlphaMode::Straight | AlphaMode::Premultiplied)
+        )
+    }
+
+    /// The alpha mode, if any.
+    ///
+    /// Returns `None` for formats without an alpha-position channel (RGB, Gray).
+    /// Returns `Some(mode)` for formats with an alpha byte (including padding).
+    #[inline]
+    pub const fn alpha_mode(self) -> Option<AlphaMode> {
+        self.alpha
     }
 
     /// Whether this format is grayscale (Gray or GrayAlpha layout).
@@ -1066,51 +1095,55 @@ impl PixelDescriptor {
     #[allow(unreachable_patterns)] // non_exhaustive: future variants
     pub const fn pixel_format(&self) -> Option<PixelFormat> {
         match (self.channel_type, self.layout, self.alpha) {
-            (ChannelType::U8, ChannelLayout::Rgb, AlphaMode::None) => Some(PixelFormat::Rgb8),
+            (ChannelType::U8, ChannelLayout::Rgb, None) => Some(PixelFormat::Rgb8),
             (
                 ChannelType::U8,
                 ChannelLayout::Rgba,
-                AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque,
+                Some(AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque),
             ) => Some(PixelFormat::Rgba8),
-            (ChannelType::U16, ChannelLayout::Rgb, AlphaMode::None) => Some(PixelFormat::Rgb16),
+            (ChannelType::U16, ChannelLayout::Rgb, None) => Some(PixelFormat::Rgb16),
             (
                 ChannelType::U16,
                 ChannelLayout::Rgba,
-                AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque,
+                Some(AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque),
             ) => Some(PixelFormat::Rgba16),
-            (ChannelType::F32, ChannelLayout::Rgb, AlphaMode::None) => Some(PixelFormat::RgbF32),
+            (ChannelType::F32, ChannelLayout::Rgb, None) => Some(PixelFormat::RgbF32),
             (
                 ChannelType::F32,
                 ChannelLayout::Rgba,
-                AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque,
+                Some(AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque),
             ) => Some(PixelFormat::RgbaF32),
-            (ChannelType::U8, ChannelLayout::Gray, AlphaMode::None) => Some(PixelFormat::Gray8),
-            (ChannelType::U16, ChannelLayout::Gray, AlphaMode::None) => Some(PixelFormat::Gray16),
-            (ChannelType::F32, ChannelLayout::Gray, AlphaMode::None) => Some(PixelFormat::GrayF32),
+            (ChannelType::U8, ChannelLayout::Gray, None) => Some(PixelFormat::Gray8),
+            (ChannelType::U16, ChannelLayout::Gray, None) => Some(PixelFormat::Gray16),
+            (ChannelType::F32, ChannelLayout::Gray, None) => Some(PixelFormat::GrayF32),
             (
                 ChannelType::U8,
                 ChannelLayout::GrayAlpha,
-                AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque,
+                Some(AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque),
             ) => Some(PixelFormat::GrayA8),
             (
                 ChannelType::U16,
                 ChannelLayout::GrayAlpha,
-                AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque,
+                Some(AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque),
             ) => Some(PixelFormat::GrayA16),
             (
                 ChannelType::F32,
                 ChannelLayout::GrayAlpha,
-                AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque,
+                Some(AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque),
             ) => Some(PixelFormat::GrayAF32),
             (
                 ChannelType::U8,
                 ChannelLayout::Bgra,
-                AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque,
+                Some(AlphaMode::Straight | AlphaMode::Premultiplied | AlphaMode::Opaque),
             ) => Some(PixelFormat::Bgra8),
-            // RGBX: RGBA layout with no alpha semantics
-            (ChannelType::U8, ChannelLayout::Rgba, AlphaMode::None) => Some(PixelFormat::Rgbx8),
-            // BGRX: BGRA layout with no alpha semantics
-            (ChannelType::U8, ChannelLayout::Bgra, AlphaMode::None) => Some(PixelFormat::Bgrx8),
+            // RGBX: RGBA layout with undefined padding byte
+            (ChannelType::U8, ChannelLayout::Rgba, None | Some(AlphaMode::Undefined)) => {
+                Some(PixelFormat::Rgbx8)
+            }
+            // BGRX: BGRA layout with undefined padding byte
+            (ChannelType::U8, ChannelLayout::Bgra, None | Some(AlphaMode::Undefined)) => {
+                Some(PixelFormat::Bgrx8)
+            }
             _ => None,
         }
     }
@@ -1135,10 +1168,12 @@ impl fmt::Display for PixelDescriptor {
         if matches!(self.signal_range, SignalRange::Narrow) {
             write!(f, "/{}", self.signal_range)?;
         }
-        // Alpha mode: shown only for Opaque (Straight is default for alpha formats,
-        // None/Premultiplied are structural — reflected in base name or obvious)
-        if matches!(self.alpha, AlphaMode::Opaque) {
-            write!(f, "/{}", self.alpha)?;
+        // Alpha mode: shown for Undefined and Opaque (Straight is default for alpha
+        // formats, None means no alpha channel — both obvious from base name)
+        match self.alpha {
+            Some(AlphaMode::Undefined) => f.write_str("/undefined")?,
+            Some(AlphaMode::Opaque) => f.write_str("/opaque")?,
+            _ => {}
         }
         Ok(())
     }
@@ -1496,7 +1531,7 @@ impl<'a, P> PixelSlice<'a, P> {
 
     /// Return a copy with a different alpha mode.
     #[inline]
-    pub fn with_alpha_mode(mut self, am: AlphaMode) -> Self {
+    pub fn with_alpha_mode(mut self, am: Option<AlphaMode>) -> Self {
         self.descriptor.alpha = am;
         self
     }
@@ -2144,7 +2179,7 @@ impl<'a, P> PixelSliceMut<'a, P> {
 
     /// Return a copy with a different alpha mode.
     #[inline]
-    pub fn with_alpha_mode(mut self, am: AlphaMode) -> Self {
+    pub fn with_alpha_mode(mut self, am: Option<AlphaMode>) -> Self {
         self.descriptor.alpha = am;
         self
     }
@@ -2758,7 +2793,7 @@ impl<P> PixelBuffer<P> {
 
     /// Return a copy with a different alpha mode.
     #[inline]
-    pub fn with_alpha_mode(mut self, am: AlphaMode) -> Self {
+    pub fn with_alpha_mode(mut self, am: Option<AlphaMode>) -> Self {
         self.descriptor.alpha = am;
         self
     }
@@ -3964,10 +3999,10 @@ mod tests {
         assert_eq!(PixelDescriptor::RGBA8_SRGB.channels(), 4);
         assert!(PixelDescriptor::RGBA8_SRGB.has_alpha());
         assert!(PixelDescriptor::BGRA8_SRGB.has_alpha());
-        // BGRX8 has Bgra layout (4 channels) but AlphaMode::None
+        // BGRX8 has Bgra layout (4 channels) but alpha is Undefined padding
         assert_eq!(PixelDescriptor::BGRX8_SRGB.channels(), 4);
         assert!(PixelDescriptor::BGRX8_SRGB.layout.has_alpha()); // layout says yes
-        assert_eq!(PixelDescriptor::BGRX8_SRGB.alpha, AlphaMode::None); // but alpha is None
+        assert_eq!(PixelDescriptor::BGRX8_SRGB.alpha, Some(AlphaMode::Undefined)); // padding
     }
 
     #[test]
@@ -4221,7 +4256,7 @@ mod tests {
         let d = PixelDescriptor::BGRX8_SRGB;
         assert_eq!(d.channel_type, ChannelType::U8);
         assert_eq!(d.layout, ChannelLayout::Bgra);
-        assert_eq!(d.alpha, AlphaMode::None);
+        assert_eq!(d.alpha, Some(AlphaMode::Undefined));
         assert_eq!(d.transfer, TransferFunction::Srgb);
         assert_eq!(d.bytes_per_pixel(), 4);
         assert_eq!(d.min_alignment(), 1);
@@ -4316,7 +4351,7 @@ mod tests {
         let exotic = PixelDescriptor::new(
             ChannelType::I16,
             ChannelLayout::Rgb,
-            AlphaMode::None,
+            None,
             TransferFunction::Unknown,
         );
         assert_eq!(exotic.pixel_format(), None);
@@ -4344,7 +4379,7 @@ mod tests {
 
     #[test]
     fn display_alpha_mode() {
-        assert_eq!(format!("{}", AlphaMode::None), "none");
+        assert_eq!(format!("{}", AlphaMode::Undefined), "undefined");
         assert_eq!(format!("{}", AlphaMode::Straight), "straight");
         assert_eq!(format!("{}", AlphaMode::Premultiplied), "premultiplied");
         assert_eq!(format!("{}", AlphaMode::Opaque), "opaque");
@@ -4397,7 +4432,7 @@ mod tests {
         let exotic = PixelDescriptor::new(
             ChannelType::I16,
             ChannelLayout::Rgb,
-            AlphaMode::None,
+            None,
             TransferFunction::Linear,
         );
         assert_eq!(format!("{exotic}"), "RGB/I16/linear");
@@ -4496,8 +4531,8 @@ mod tests {
         assert_eq!(buf.descriptor().primaries, ColorPrimaries::DisplayP3);
         let buf = buf.with_signal_range(SignalRange::Narrow);
         assert!(buf.descriptor().is_narrow_range());
-        let buf = buf.with_alpha_mode(AlphaMode::Premultiplied);
-        assert_eq!(buf.descriptor().alpha, AlphaMode::Premultiplied);
+        let buf = buf.with_alpha_mode(Some(AlphaMode::Premultiplied));
+        assert_eq!(buf.descriptor().alpha, Some(AlphaMode::Premultiplied));
     }
 
     // --- copy_to_contiguous_bytes ---
@@ -4561,10 +4596,10 @@ mod tests {
         assert_eq!(PixelFormat::RgbF32.channel_type(), ChannelType::F32);
     }
 
-    // --- AlphaMode::Opaque ---
+    // --- AlphaMode tests ---
 
     /// Helper: set alpha mode on a descriptor copy.
-    fn set_alpha(mut desc: PixelDescriptor, alpha: AlphaMode) -> PixelDescriptor {
+    fn set_alpha(mut desc: PixelDescriptor, alpha: Option<AlphaMode>) -> PixelDescriptor {
         desc.alpha = alpha;
         desc
     }
@@ -4572,54 +4607,70 @@ mod tests {
     #[test]
     fn alpha_mode_opaque_has_alpha() {
         // Opaque means alpha channel IS present (with valid 255 values)
-        let desc = set_alpha(PixelDescriptor::RGBA8_SRGB, AlphaMode::Opaque);
+        let desc = set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Opaque));
         assert!(desc.has_alpha());
     }
 
     #[test]
+    fn alpha_mode_undefined_no_has_alpha() {
+        // Undefined means padding byte — not meaningful alpha
+        assert!(!PixelDescriptor::RGBX8_SRGB.has_alpha());
+        assert!(!PixelDescriptor::BGRX8_SRGB.has_alpha());
+    }
+
+    #[test]
+    fn alpha_mode_none_no_has_alpha() {
+        // None (Option) means no alpha-position channel
+        assert!(!PixelDescriptor::RGB8_SRGB.has_alpha());
+        assert!(!PixelDescriptor::GRAY8_SRGB.has_alpha());
+    }
+
+    #[test]
     fn alpha_mode_opaque_is_opaque() {
-        // Both None and Opaque are "opaque" (no transparency)
+        // None, Undefined, and Opaque are all "opaque" (no transparency)
         assert!(PixelDescriptor::RGB8_SRGB.is_opaque()); // None — no alpha channel
-        let opaque_rgba = set_alpha(PixelDescriptor::RGBA8_SRGB, AlphaMode::Opaque);
+        assert!(PixelDescriptor::RGBX8_SRGB.is_opaque()); // Undefined — padding
+        let opaque_rgba = set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Opaque));
         assert!(opaque_rgba.is_opaque()); // Opaque — alpha present but all 255
 
         // Straight and Premultiplied are NOT opaque
         assert!(!PixelDescriptor::RGBA8_SRGB.is_opaque());
-        assert!(!set_alpha(PixelDescriptor::RGBA8_SRGB, AlphaMode::Premultiplied).is_opaque());
+        assert!(!set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Premultiplied)).is_opaque());
     }
 
     #[test]
     fn alpha_mode_opaque_may_have_transparency() {
         // Opaque should NOT report "may have transparency"
-        let opaque_rgba = set_alpha(PixelDescriptor::RGBA8_SRGB, AlphaMode::Opaque);
+        let opaque_rgba = set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Opaque));
         assert!(!opaque_rgba.may_have_transparency());
 
         // Straight and Premultiplied DO may have transparency
         assert!(PixelDescriptor::RGBA8_SRGB.may_have_transparency());
-        assert!(set_alpha(PixelDescriptor::RGBA8_SRGB, AlphaMode::Premultiplied)
+        assert!(set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Premultiplied))
             .may_have_transparency());
 
-        // None also does not have transparency
+        // None and Undefined do not have transparency
         assert!(!PixelDescriptor::RGB8_SRGB.may_have_transparency());
+        assert!(!PixelDescriptor::RGBX8_SRGB.may_have_transparency());
     }
 
     #[test]
     fn alpha_mode_opaque_pixel_format_roundtrip() {
         // RGBA8 with Opaque should still resolve to PixelFormat::Rgba8
         assert_eq!(
-            set_alpha(PixelDescriptor::RGBA8_SRGB, AlphaMode::Opaque).pixel_format(),
+            set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Opaque)).pixel_format(),
             Some(PixelFormat::Rgba8),
         );
 
         // BGRA8 with Opaque → Bgra8
         assert_eq!(
-            set_alpha(PixelDescriptor::BGRA8_SRGB, AlphaMode::Opaque).pixel_format(),
+            set_alpha(PixelDescriptor::BGRA8_SRGB, Some(AlphaMode::Opaque)).pixel_format(),
             Some(PixelFormat::Bgra8),
         );
 
         // GrayA8 with Opaque → GrayA8
         assert_eq!(
-            set_alpha(PixelDescriptor::GRAYA8, AlphaMode::Opaque).pixel_format(),
+            set_alpha(PixelDescriptor::GRAYA8, Some(AlphaMode::Opaque)).pixel_format(),
             Some(PixelFormat::GrayA8),
         );
     }
@@ -4628,17 +4679,24 @@ mod tests {
     fn alpha_mode_opaque_with_descriptor_compatible() {
         // Changing alpha mode from Straight to Opaque is a metadata change — should succeed
         let buf = PixelBuffer::new(2, 2, PixelDescriptor::RGBA8_SRGB);
-        let opaque_desc = set_alpha(PixelDescriptor::RGBA8_SRGB, AlphaMode::Opaque);
+        let opaque_desc = set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Opaque));
         let buf = buf.with_descriptor(opaque_desc);
-        assert_eq!(buf.descriptor().alpha, AlphaMode::Opaque);
+        assert_eq!(buf.descriptor().alpha, Some(AlphaMode::Opaque));
     }
 
     #[test]
     fn alpha_mode_opaque_display() {
-        let desc = set_alpha(PixelDescriptor::RGBA8_SRGB, AlphaMode::Opaque);
+        let desc = set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Opaque));
         let s = format!("{desc}");
         // Should show "RGBA8/sRGB/opaque"
         assert_eq!(s, "RGBA8/sRGB/opaque");
+    }
+
+    #[test]
+    fn alpha_mode_undefined_display() {
+        // RGBX8 with Undefined should show "/undefined"
+        let s = format!("{}", PixelDescriptor::RGBX8_SRGB);
+        assert_eq!(s, "RGBX8/sRGB/undefined");
     }
 
     #[test]
@@ -4646,6 +4704,13 @@ mod tests {
         // Straight is the default for alpha formats — should NOT show "/straight"
         let s = format!("{}", PixelDescriptor::RGBA8_SRGB);
         assert_eq!(s, "RGBA8/sRGB");
+    }
+
+    #[test]
+    fn alpha_mode_accessor() {
+        assert_eq!(PixelDescriptor::RGB8_SRGB.alpha_mode(), None);
+        assert_eq!(PixelDescriptor::RGBA8_SRGB.alpha_mode(), Some(AlphaMode::Straight));
+        assert_eq!(PixelDescriptor::RGBX8_SRGB.alpha_mode(), Some(AlphaMode::Undefined));
     }
 }
 
