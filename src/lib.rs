@@ -35,6 +35,7 @@ extern crate alloc;
 mod buffer;
 mod capabilities;
 mod color;
+mod convert;
 mod format;
 mod gainmap;
 mod info;
@@ -58,6 +59,7 @@ pub use buffer::{
 };
 pub use capabilities::{CodecCapabilities, HasUnsupportedOperation, UnsupportedOperation};
 pub use color::{ColorContext, ColorProfileSource, NamedProfile, WorkingColorSpace};
+pub use convert::{ConvertError, GrayExpand};
 pub use format::ImageFormat;
 pub use gainmap::GainMapMetadata;
 pub use info::{

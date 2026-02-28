@@ -4082,7 +4082,10 @@ mod tests {
         // BGRX8 has Bgra layout (4 channels) but alpha is Undefined padding
         assert_eq!(PixelDescriptor::BGRX8_SRGB.channels(), 4);
         assert!(PixelDescriptor::BGRX8_SRGB.layout.has_alpha()); // layout says yes
-        assert_eq!(PixelDescriptor::BGRX8_SRGB.alpha, Some(AlphaMode::Undefined)); // padding
+        assert_eq!(
+            PixelDescriptor::BGRX8_SRGB.alpha,
+            Some(AlphaMode::Undefined)
+        ); // padding
     }
 
     #[test]
@@ -4715,7 +4718,9 @@ mod tests {
 
         // Straight and Premultiplied are NOT opaque
         assert!(!PixelDescriptor::RGBA8_SRGB.is_opaque());
-        assert!(!set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Premultiplied)).is_opaque());
+        assert!(
+            !set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Premultiplied)).is_opaque()
+        );
     }
 
     #[test]
@@ -4726,8 +4731,10 @@ mod tests {
 
         // Straight and Premultiplied DO may have transparency
         assert!(PixelDescriptor::RGBA8_SRGB.may_have_transparency());
-        assert!(set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Premultiplied))
-            .may_have_transparency());
+        assert!(
+            set_alpha(PixelDescriptor::RGBA8_SRGB, Some(AlphaMode::Premultiplied))
+                .may_have_transparency()
+        );
 
         // None and Undefined do not have transparency
         assert!(!PixelDescriptor::RGB8_SRGB.may_have_transparency());
@@ -4789,8 +4796,14 @@ mod tests {
     #[test]
     fn alpha_mode_accessor() {
         assert_eq!(PixelDescriptor::RGB8_SRGB.alpha_mode(), None);
-        assert_eq!(PixelDescriptor::RGBA8_SRGB.alpha_mode(), Some(AlphaMode::Straight));
-        assert_eq!(PixelDescriptor::RGBX8_SRGB.alpha_mode(), Some(AlphaMode::Undefined));
+        assert_eq!(
+            PixelDescriptor::RGBA8_SRGB.alpha_mode(),
+            Some(AlphaMode::Straight)
+        );
+        assert_eq!(
+            PixelDescriptor::RGBX8_SRGB.alpha_mode(),
+            Some(AlphaMode::Undefined)
+        );
     }
 }
 
@@ -5135,5 +5148,4 @@ mod codec_tests {
         let err = PixelBuffer::from_pixels_erased(pixels, 2, 1);
         assert_eq!(err.unwrap_err(), BufferError::InvalidDimensions);
     }
-
 }

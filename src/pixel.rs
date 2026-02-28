@@ -64,7 +64,6 @@ impl GrayAlphaF32 {
     }
 }
 
-
 /// Decoded pixel data in a typed buffer.
 ///
 /// # Deprecated
