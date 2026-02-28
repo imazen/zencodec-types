@@ -1996,6 +1996,28 @@ impl PixelBuffer {
         ))
     }
 
+    /// Zero-copy access to the pixel data as a typed slice.
+    ///
+    /// Returns `Some(&[P])` if the descriptor is layout-compatible with `P`
+    /// and rows are tightly packed (no stride padding). Returns `None` otherwise.
+    ///
+    /// This is a convenience for the common case where you just need a flat
+    /// pixel slice without imgref metadata. For strided access, use
+    /// [`try_as_imgref()`](Self::try_as_imgref).
+    pub fn as_contiguous_pixels<P: Pixel + bytemuck::AnyBitPattern>(&self) -> Option<&[P]> {
+        if !self.descriptor.layout_compatible(&P::DESCRIPTOR) {
+            return None;
+        }
+        let pixel_size = core::mem::size_of::<P>();
+        let row_bytes = self.width as usize * pixel_size;
+        if pixel_size == 0 || self.stride != row_bytes {
+            return None;
+        }
+        let total = row_bytes * self.height as usize;
+        let data = &self.data[self.offset..self.offset + total];
+        Some(bytemuck::cast_slice(data))
+    }
+
     /// Try to borrow the buffer as a typed mutable [`ImgRefMut`](imgref::ImgRefMut).
     ///
     /// Returns `None` if the descriptor is not layout-compatible with `P`.
@@ -2024,6 +2046,48 @@ impl PixelBuffer {
             self.height as usize,
             stride_px,
         ))
+    }
+
+    /// Consume the buffer and return the pixels as a typed `Vec<P>`.
+    ///
+    /// Returns `None` if the descriptor is not layout-compatible with `P`.
+    /// Strips stride padding if present. Zero-copy when the buffer is
+    /// tightly packed and `P` has alignment 1 (u8-component types like
+    /// `Rgb<u8>`, `Rgba<u8>`); copies otherwise.
+    pub fn into_contiguous_pixels<P: Pixel + bytemuck::AnyBitPattern>(self) -> Option<Vec<P>> {
+        if !self.descriptor.layout_compatible(&P::DESCRIPTOR) {
+            return None;
+        }
+        let pixel_size = core::mem::size_of::<P>();
+        if pixel_size == 0 {
+            return None;
+        }
+        let row_bytes = self.width as usize * pixel_size;
+        let total_pixels = self.width as usize * self.height as usize;
+
+        if self.stride == row_bytes && self.offset == 0 {
+            // Fast path: tightly packed, no offset — try zero-copy reinterpret
+            let mut data = self.data;
+            data.truncate(total_pixels * pixel_size);
+            match bytemuck::try_cast_vec(data) {
+                Ok(pixels) => return Some(pixels),
+                Err((_err, data)) => {
+                    // Alignment mismatch — copy
+                    return Some(
+                        bytemuck::cast_slice::<u8, P>(&data[..total_pixels * pixel_size]).to_vec(),
+                    );
+                }
+            }
+        }
+
+        // Slow path: has offset or stride padding — copy row by row
+        let mut out = Vec::with_capacity(total_pixels);
+        for y in 0..self.height as usize {
+            let row_start = self.offset + y * self.stride;
+            let row_data = &self.data[row_start..row_start + row_bytes];
+            out.extend_from_slice(bytemuck::cast_slice(row_data));
+        }
+        Some(out)
     }
 }
 
@@ -2813,6 +2877,22 @@ impl<P> PixelBuffer<P> {
     /// Consume the buffer and return the backing `Vec<u8>` for pool reuse.
     pub fn into_vec(self) -> Vec<u8> {
         self.data
+    }
+
+    /// Zero-copy access to the raw pixel bytes when rows are tightly packed.
+    ///
+    /// Returns `Some(&[u8])` if `stride == width * bpp` (no padding),
+    /// `None` if rows have stride padding.
+    #[inline]
+    pub fn as_contiguous_bytes(&self) -> Option<&[u8]> {
+        let bpp = self.descriptor.bytes_per_pixel();
+        let row_bytes = self.width as usize * bpp;
+        if self.stride == row_bytes {
+            let total = row_bytes * self.height as usize;
+            Some(&self.data[self.offset..self.offset + total])
+        } else {
+            None
+        }
     }
 
     /// Copy pixel data to a new contiguous byte `Vec` without stride padding.

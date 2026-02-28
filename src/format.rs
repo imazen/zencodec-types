@@ -10,6 +10,7 @@ pub enum ImageFormat {
     Png,
     Avif,
     Jxl,
+    Heic,
     Pnm,
     Bmp,
     Farbfeld,
@@ -43,11 +44,50 @@ impl ImageFormat {
             return Some(ImageFormat::WebP);
         }
 
-        // AVIF: ftyp box with avif/avis brand
+        // ISOBMFF ftyp box: AVIF and HEIC share the same container structure
+        // ftyp layout: [4 bytes size][ftyp][4 bytes major_brand][4 bytes minor_version][compatible_brands...]
         if data.len() >= 12 && &data[4..8] == b"ftyp" {
-            let brand = &data[8..12];
-            if brand == b"avif" || brand == b"avis" {
+            let major = &data[8..12];
+
+            // AVIF: avif/avis major brand
+            if major == b"avif" || major == b"avis" {
                 return Some(ImageFormat::Avif);
+            }
+
+            // HEIC: heic/heix/hevc/hevx/heim/heis/hevm/hevs major brand
+            const HEIC_BRANDS: &[&[u8; 4]] = &[
+                b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs",
+            ];
+            if HEIC_BRANDS.iter().any(|b| major == *b) {
+                return Some(ImageFormat::Heic);
+            }
+
+            // mif1 is ambiguous — scan compatible brands to disambiguate
+            if major == b"mif1" {
+                // Read ftyp box size to bound the compatible brand scan
+                let box_size = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
+                let end = box_size.min(data.len());
+                // Compatible brands start at offset 16 (after size + ftyp + major + minor_version)
+                let mut offset = 16;
+                let mut found_avif = false;
+                let mut found_heic = false;
+                while offset + 4 <= end {
+                    let compat = &data[offset..offset + 4];
+                    if compat == b"avif" || compat == b"avis" {
+                        found_avif = true;
+                    }
+                    if HEIC_BRANDS.iter().any(|b| compat == *b) {
+                        found_heic = true;
+                    }
+                    offset += 4;
+                }
+                // AVIF takes priority over HEIC when both present
+                if found_avif {
+                    return Some(ImageFormat::Avif);
+                }
+                if found_heic {
+                    return Some(ImageFormat::Heic);
+                }
             }
         }
 
@@ -106,6 +146,7 @@ impl ImageFormat {
             b"png" => Some(ImageFormat::Png),
             b"avif" => Some(ImageFormat::Avif),
             b"jxl" => Some(ImageFormat::Jxl),
+            b"heic" | b"heif" | b"hif" => Some(ImageFormat::Heic),
             b"pnm" | b"ppm" | b"pgm" | b"pbm" | b"pam" | b"pfm" => Some(ImageFormat::Pnm),
             b"bmp" => Some(ImageFormat::Bmp),
             b"ff" => Some(ImageFormat::Farbfeld),
@@ -122,6 +163,7 @@ impl ImageFormat {
             ImageFormat::Png => "image/png",
             ImageFormat::Avif => "image/avif",
             ImageFormat::Jxl => "image/jxl",
+            ImageFormat::Heic => "image/heic",
             ImageFormat::Pnm => "image/x-portable-anymap",
             ImageFormat::Bmp => "image/bmp",
             ImageFormat::Farbfeld => "image/x-farbfeld",
@@ -137,6 +179,7 @@ impl ImageFormat {
             ImageFormat::Png => &["png"],
             ImageFormat::Avif => &["avif"],
             ImageFormat::Jxl => &["jxl"],
+            ImageFormat::Heic => &["heic", "heif", "hif"],
             ImageFormat::Pnm => &["pnm", "ppm", "pgm", "pbm", "pam", "pfm"],
             ImageFormat::Bmp => &["bmp"],
             ImageFormat::Farbfeld => &["ff"],
@@ -147,7 +190,11 @@ impl ImageFormat {
     pub fn supports_lossy(self) -> bool {
         matches!(
             self,
-            ImageFormat::Jpeg | ImageFormat::WebP | ImageFormat::Avif | ImageFormat::Jxl
+            ImageFormat::Jpeg
+                | ImageFormat::WebP
+                | ImageFormat::Avif
+                | ImageFormat::Jxl
+                | ImageFormat::Heic
         )
     }
 
@@ -191,6 +238,7 @@ impl ImageFormat {
             ImageFormat::WebP => 30,     // RIFF(12) + chunk header + VP8X dims
             ImageFormat::Jpeg => 2048,   // SOF can follow large EXIF/APP segments
             ImageFormat::Avif => 512,    // ISOBMFF box traversal (ftyp + meta)
+            ImageFormat::Heic => 512,    // ISOBMFF box traversal (ftyp + meta)
             ImageFormat::Jxl => 256,     // codestream header or container + jxlc
             ImageFormat::Pnm => 20,      // magic + ASCII dimensions
             ImageFormat::Bmp => 54,      // 14 file header + 40 info header
@@ -213,6 +261,7 @@ impl core::fmt::Display for ImageFormat {
             ImageFormat::Png => "PNG",
             ImageFormat::Avif => "AVIF",
             ImageFormat::Jxl => "JPEG XL",
+            ImageFormat::Heic => "HEIC",
             ImageFormat::Pnm => "PNM",
             ImageFormat::Bmp => "BMP",
             ImageFormat::Farbfeld => "farbfeld",
@@ -223,6 +272,7 @@ impl core::fmt::Display for ImageFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn detect_jpeg() {
@@ -524,5 +574,130 @@ mod tests {
     #[test]
     fn farbfeld_extensions() {
         assert_eq!(ImageFormat::Farbfeld.extensions(), &["ff"]);
+    }
+
+    // --- HEIC tests ---
+
+    #[test]
+    fn detect_heic() {
+        // ftyp box with heic major brand: [size=20][ftyp][heic][minor][no compat brands]
+        let mut data = vec![0u8; 20];
+        data[0..4].copy_from_slice(&20u32.to_be_bytes()); // box size
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"heic");
+        data[12..16].copy_from_slice(&[0, 0, 0, 0]); // minor version
+        assert_eq!(ImageFormat::detect(&data), Some(ImageFormat::Heic));
+    }
+
+    #[test]
+    fn detect_heic_heix_brand() {
+        let mut data = vec![0u8; 20];
+        data[0..4].copy_from_slice(&20u32.to_be_bytes());
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"heix");
+        data[12..16].copy_from_slice(&[0, 0, 0, 0]);
+        assert_eq!(ImageFormat::detect(&data), Some(ImageFormat::Heic));
+    }
+
+    #[test]
+    fn detect_heic_hevc_brand() {
+        let mut data = vec![0u8; 20];
+        data[0..4].copy_from_slice(&20u32.to_be_bytes());
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"hevc");
+        data[12..16].copy_from_slice(&[0, 0, 0, 0]);
+        assert_eq!(ImageFormat::detect(&data), Some(ImageFormat::Heic));
+    }
+
+    #[test]
+    fn detect_avif_still_works() {
+        // Regression: AVIF detection must still work after HEIC addition
+        let mut data = vec![0u8; 20];
+        data[0..4].copy_from_slice(&20u32.to_be_bytes());
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"avif");
+        data[12..16].copy_from_slice(&[0, 0, 0, 0]);
+        assert_eq!(ImageFormat::detect(&data), Some(ImageFormat::Avif));
+
+        data[8..12].copy_from_slice(b"avis");
+        assert_eq!(ImageFormat::detect(&data), Some(ImageFormat::Avif));
+    }
+
+    #[test]
+    fn detect_mif1_with_heic_compat() {
+        // mif1 major brand + heic compatible brand → Heic
+        let mut data = vec![0u8; 24];
+        data[0..4].copy_from_slice(&24u32.to_be_bytes()); // box size = 24
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"mif1"); // major brand
+        data[12..16].copy_from_slice(&[0, 0, 0, 0]); // minor version
+        data[16..20].copy_from_slice(b"heic"); // compatible brand
+        data[20..24].copy_from_slice(b"hevx"); // another compatible brand
+        assert_eq!(ImageFormat::detect(&data), Some(ImageFormat::Heic));
+    }
+
+    #[test]
+    fn detect_mif1_with_avif_compat() {
+        // mif1 major brand + avif compatible brand → Avif
+        let mut data = vec![0u8; 24];
+        data[0..4].copy_from_slice(&24u32.to_be_bytes());
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"mif1");
+        data[12..16].copy_from_slice(&[0, 0, 0, 0]);
+        data[16..20].copy_from_slice(b"avif"); // compatible brand
+        data[20..24].copy_from_slice(b"heic"); // also heic — but avif takes priority
+        assert_eq!(ImageFormat::detect(&data), Some(ImageFormat::Avif));
+    }
+
+    #[test]
+    fn detect_mif1_no_known_compat() {
+        // mif1 with no recognized compatible brands → None
+        let mut data = vec![0u8; 20];
+        data[0..4].copy_from_slice(&20u32.to_be_bytes());
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"mif1");
+        data[12..16].copy_from_slice(&[0, 0, 0, 0]);
+        data[16..20].copy_from_slice(b"xxxx"); // unknown brand
+        assert_eq!(ImageFormat::detect(&data), None);
+    }
+
+    #[test]
+    fn from_extension_heic() {
+        assert_eq!(ImageFormat::from_extension("heic"), Some(ImageFormat::Heic));
+        assert_eq!(ImageFormat::from_extension("heif"), Some(ImageFormat::Heic));
+        assert_eq!(ImageFormat::from_extension("hif"), Some(ImageFormat::Heic));
+        assert_eq!(ImageFormat::from_extension("HEIC"), Some(ImageFormat::Heic));
+        assert_eq!(ImageFormat::from_extension("HEIF"), Some(ImageFormat::Heic));
+    }
+
+    #[test]
+    fn heic_capabilities() {
+        assert!(ImageFormat::Heic.supports_lossy());
+        assert!(!ImageFormat::Heic.supports_lossless());
+        assert!(!ImageFormat::Heic.supports_animation());
+        assert!(ImageFormat::Heic.supports_alpha());
+    }
+
+    #[test]
+    fn heic_display() {
+        assert_eq!(alloc::format!("{}", ImageFormat::Heic), "HEIC");
+    }
+
+    #[test]
+    fn heic_mime_type() {
+        assert_eq!(ImageFormat::Heic.mime_type(), "image/heic");
+    }
+
+    #[test]
+    fn heic_extensions() {
+        let exts = ImageFormat::Heic.extensions();
+        assert!(exts.contains(&"heic"));
+        assert!(exts.contains(&"heif"));
+        assert!(exts.contains(&"hif"));
+    }
+
+    #[test]
+    fn heic_min_probe_bytes() {
+        assert_eq!(ImageFormat::Heic.min_probe_bytes(), 512);
     }
 }

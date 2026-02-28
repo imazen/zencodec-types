@@ -760,12 +760,16 @@ mod tests {
 #[cfg(all(test, feature = "codec"))]
 mod codec_tests {
     use super::*;
-    use alloc::vec;
     use crate::PixelBuffer;
+    use alloc::vec;
     use imgref::ImgVec;
 
     fn make_rgb8_buf(w: u32, h: u32) -> PixelBuffer {
-        let img = ImgVec::new(vec![Rgb { r: 0u8, g: 0, b: 0 }; (w * h) as usize], w as usize, h as usize);
+        let img = ImgVec::new(
+            vec![Rgb { r: 0u8, g: 0, b: 0 }; (w * h) as usize],
+            w as usize,
+            h as usize,
+        );
         PixelBuffer::from_imgvec(img).into()
     }
 
@@ -776,7 +780,14 @@ mod codec_tests {
     #[test]
     fn decode_output() {
         let img = ImgVec::new(
-            vec![Rgb { r: 10u8, g: 20, b: 30 }; 4],
+            vec![
+                Rgb {
+                    r: 10u8,
+                    g: 20,
+                    b: 30
+                };
+                4
+            ],
             2,
             2,
         );
@@ -806,7 +817,15 @@ mod codec_tests {
     #[test]
     fn decode_frame() {
         let img = ImgVec::new(
-            vec![Rgba { r: 1u8, g: 2, b: 3, a: 4 }; 4],
+            vec![
+                Rgba {
+                    r: 1u8,
+                    g: 2,
+                    b: 3,
+                    a: 4
+                };
+                4
+            ],
             2,
             2,
         );
