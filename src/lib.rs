@@ -61,6 +61,7 @@ pub use capabilities::{CodecCapabilities, HasUnsupportedOperation, UnsupportedOp
 pub use color::{ColorContext, ColorProfileSource, NamedProfile, WorkingColorSpace};
 pub use convert::{
     AlphaPolicy, ConvertError, ConvertOptions, DepthPolicy, GrayExpand, LumaCoefficients,
+    PixelSliceConvertExt,
 };
 pub use format::ImageFormat;
 pub use gainmap::GainMapMetadata;

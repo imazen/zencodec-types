@@ -1,13 +1,17 @@
 //! Pixel format conversion for [`PixelSlice`].
 //!
 //! Supports lossless and well-defined conversions between pixel formats:
-//! - **Depth**: U8 ↔ U16 (scale by ×257 / rounded ÷65536)
-//! - **Add alpha**: Gray→GrayAlpha, Rgb→Rgba (opaque alpha)
-//! - **Drop alpha**: GrayAlpha→Gray, Rgba→Rgb
-//! - **Gray→RGB**: broadcast `v → (v, v, v)` via [`GrayExpand`]
+//! - **Depth**: U8 <-> U16 (scale by x257 / rounded /65536)
+//! - **Add alpha**: Gray->GrayAlpha, Rgb->Rgba (opaque alpha)
+//! - **Drop alpha**: GrayAlpha->Gray, Rgba->Rgb
+//! - **Gray->RGB**: broadcast `v -> (v, v, v)` via [`GrayExpand`]
 //! - Any combination of the above in a single pass
 //!
-//! RGB→Gray is **not** supported (requires explicit luma coefficients).
+//! RGB->Gray is **not** supported (requires explicit luma coefficients).
+//!
+//! Policy types are re-exported from [`zenpixels`]. The conversion extension
+//! trait and error type are local to this crate because they have a different
+//! API signature than zenpixels' format negotiation system.
 
 use alloc::sync::Arc;
 
@@ -15,77 +19,10 @@ use crate::buffer::{
     AlphaMode, ChannelLayout, ChannelType, PixelBuffer, PixelDescriptor, PixelSlice,
 };
 
-/// How to expand grayscale channels to RGB.
-///
-/// Used by [`PixelSlice::convert()`] when the source layout is grayscale
-/// and the target layout is RGB or RGBA.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum GrayExpand {
-    /// Channel broadcast: `v → (v, v, v)`. Lossless.
-    Broadcast,
-}
+// Re-export policy types from zenpixels (identical definitions).
+pub use zenpixels::{AlphaPolicy, ConvertOptions, DepthPolicy, GrayExpand, LumaCoefficients};
 
-/// Policy for alpha channel removal. Required when converting
-/// from a layout with alpha to one without.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum AlphaPolicy {
-    /// Discard only if every pixel is fully opaque. Returns error otherwise.
-    DiscardIfOpaque,
-    /// Discard unconditionally. Caller acknowledges data loss.
-    DiscardUnchecked,
-    /// Composite onto solid background (values in source range, 0–255 for U8).
-    CompositeOnto {
-        /// Red background value.
-        r: u8,
-        /// Green background value.
-        g: u8,
-        /// Blue background value.
-        b: u8,
-    },
-    /// Return error rather than dropping alpha.
-    Forbid,
-}
-
-/// Policy for bit depth reduction (U16→U8, etc.).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum DepthPolicy {
-    /// Round to nearest value.
-    Round,
-    /// Truncate (floor). Faster, biased toward lower values.
-    Truncate,
-    /// Return error rather than reducing depth.
-    Forbid,
-}
-
-/// Luma coefficients for RGB→Gray conversion.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum LumaCoefficients {
-    /// BT.709: `0.2126R + 0.7152G + 0.0722B` (HDTV, sRGB).
-    Bt709,
-    /// BT.601: `0.299R + 0.587G + 0.114B` (SDTV, JPEG).
-    Bt601,
-}
-
-/// Explicit options for pixel format conversion. All lossy
-/// operations require a policy choice — no silent defaults.
-#[derive(Clone, Copy, Debug)]
-pub struct ConvertOptions {
-    /// How to expand grayscale to RGB.
-    pub gray_expand: GrayExpand,
-    /// How to handle alpha removal.
-    pub alpha_policy: AlphaPolicy,
-    /// How to handle depth reduction.
-    pub depth_policy: DepthPolicy,
-    /// Luma coefficients for RGB→Gray conversion. `None` means
-    /// RGB→Gray is forbidden (returns `ConvertError::RgbToGray`).
-    pub luma: Option<LumaCoefficients>,
-}
-
-/// Error from [`PixelSlice::convert()`].
+/// Error from [`PixelSliceConvertExt::convert()`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ConvertError {
@@ -150,7 +87,7 @@ fn validate_conversion(
     {
         return Err(ConvertError::UnsupportedLayout);
     }
-    // RGB → Gray requires explicit luma coefficients
+    // RGB -> Gray requires explicit luma coefficients
     let src_is_rgb = matches!(
         src_layout,
         ChannelLayout::Rgb | ChannelLayout::Rgba | ChannelLayout::Bgra
@@ -162,10 +99,10 @@ fn validate_conversion(
     Ok(())
 }
 
-// ── Channel I/O helpers ─────────────────────────────────────────────────
+// -- Channel I/O helpers --
 
 /// Read one channel from `src` at byte `offset` as a raw u16.
-/// For U8: 0–255. For U16: 0–65535.
+/// For U8: 0-255. For U16: 0-65535.
 #[inline(always)]
 fn read_ch(src: &[u8], offset: usize, ty: ChannelType) -> u16 {
     match ty {
@@ -185,11 +122,11 @@ fn write_ch(dst: &mut [u8], offset: usize, v: u16, src_ty: ChannelType, dst_ty: 
         }
         (ChannelType::U16, ChannelType::U8) => {
             // Correct rounding: (v * 255 + 32768) / 65536
-            // This is the exact inverse of U8→U16 scaling (×257).
+            // This is the exact inverse of U8->U16 scaling (x257).
             dst[offset] = ((v as u32 * 255 + 32768) >> 16) as u8;
         }
         _ => {
-            // U16→U16 (and any other same-depth)
+            // U16->U16 (and any other same-depth)
             dst[offset..offset + 2].copy_from_slice(&v.to_ne_bytes());
         }
     }
@@ -204,7 +141,7 @@ fn max_value(ty: ChannelType) -> u16 {
     }
 }
 
-// ── Per-pixel conversion ────────────────────────────────────────────────
+// -- Per-pixel conversion --
 
 /// Read a source pixel as (c0, c1, c2, alpha) in the source depth range.
 ///
@@ -320,7 +257,7 @@ fn convert_row(
     }
 }
 
-// ── Alpha channel scanning ─────────────────────────────────────────────
+// -- Alpha channel scanning --
 
 /// Check if all alpha values in the source are fully opaque.
 fn is_fully_opaque(src: &[u8], width: usize, height: usize, desc: &PixelDescriptor) -> bool {
@@ -342,7 +279,7 @@ fn is_fully_opaque(src: &[u8], width: usize, height: usize, desc: &PixelDescript
     true
 }
 
-// ── Policy validation ─────────────────────────────────────────────────
+// -- Policy validation --
 
 /// Check that the requested conversion is allowed by the given policies.
 fn validate_policies(
@@ -366,12 +303,78 @@ fn validate_policies(
     Ok(())
 }
 
-// ── PixelSlice conversion methods ───────────────────────────────────────
+/// Build a target descriptor from source, target layout, and target depth.
+fn build_target_descriptor(
+    src_desc: &PixelDescriptor,
+    target_layout: ChannelLayout,
+    target_depth: ChannelType,
+) -> PixelDescriptor {
+    let alpha = if target_layout.has_alpha() {
+        if src_desc.layout.has_alpha() {
+            src_desc.alpha
+        } else {
+            Some(AlphaMode::Straight)
+        }
+    } else {
+        None
+    };
 
-impl<P> PixelSlice<'_, P> {
+    PixelDescriptor::new(target_depth, target_layout, alpha, src_desc.transfer)
+        .with_primaries(src_desc.primaries)
+        .with_signal_range(src_desc.signal_range)
+}
+
+/// Perform the conversion from src PixelSlice to a new PixelBuffer.
+fn convert_impl<P>(
+    src: &PixelSlice<'_, P>,
+    target_layout: ChannelLayout,
+    target_depth: ChannelType,
+    gray_expand: GrayExpand,
+) -> Result<PixelBuffer, ConvertError> {
+    let src_desc = src.descriptor();
+    let w = src.width() as usize;
+    let h = src.rows() as usize;
+
+    // Build target descriptor, preserving color metadata
+    let dst_desc = build_target_descriptor(&src_desc, target_layout, target_depth);
+
+    // Allocate output buffer (handles alignment internally)
+    let mut buf = PixelBuffer::new(src.width(), src.rows(), dst_desc)
+        .with_working_space(src.working_space());
+    if let Some(ctx) = src.color_context() {
+        buf = buf.with_color_context(Arc::clone(ctx));
+    }
+
+    // Write pixel data
+    if h > 0 && w > 0 {
+        let is_identity =
+            src_desc.channel_type == target_depth && src_desc.layout == target_layout;
+        let mut dst = buf.as_slice_mut();
+        for y in 0..h as u32 {
+            let src_row = src.row(y);
+            let dst_row = dst.row_mut(y);
+            if is_identity {
+                dst_row.copy_from_slice(src_row);
+            } else {
+                convert_row(src_row, dst_row, w, &src_desc, &dst_desc, gray_expand);
+            }
+        }
+    }
+
+    Ok(buf)
+}
+
+// -- PixelSlice conversion extension trait --
+
+/// Extension trait for backward-compatible pixel format conversion on [`PixelSlice`].
+///
+/// These methods provide the zencodec-types-specific conversion API that takes
+/// layout and depth separately. For new code, prefer [`PixelSlice::convert_to()`]
+/// from zenpixels which takes a full [`PixelDescriptor`].
+pub trait PixelSliceConvertExt<P> {
     /// Convert pixel data to a different format in a single pass.
     ///
-    /// Supports depth conversion (U8 ↔ U16), adding/dropping alpha,
+    /// Supports depth conversion (U8 <-> U16), adding/dropping alpha,
     /// and grayscale-to-RGB expansion. RGB-to-grayscale is not supported.
     ///
     /// Returns a new tightly-packed [`PixelBuffer`] with the target format.
@@ -382,7 +385,72 @@ impl<P> PixelSlice<'_, P> {
     /// # Errors
     ///
     /// Returns [`ConvertError`] if the conversion is not supported.
-    pub fn convert(
+    fn convert(
+        &self,
+        target_layout: ChannelLayout,
+        target_depth: ChannelType,
+        gray_expand: GrayExpand,
+    ) -> Result<PixelBuffer, ConvertError>;
+
+    /// Convert with explicit policies for all lossy operations. **Allocates**.
+    ///
+    /// Unlike [`convert()`](PixelSliceConvertExt::convert), this method enforces
+    /// policies on alpha removal and depth reduction, returning errors when forbidden.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConvertError`] if:
+    /// - The conversion is structurally unsupported (same as `convert()`)
+    /// - Alpha removal is forbidden or pixels are not opaque with `DiscardIfOpaque`
+    /// - Depth reduction is forbidden
+    fn convert_explicit(
+        &self,
+        target_layout: ChannelLayout,
+        target_depth: ChannelType,
+        options: ConvertOptions,
+    ) -> Result<PixelBuffer, ConvertError>;
+
+    /// Narrow to U8 depth (lossy, rounded) with policy check. **Allocates**.
+    ///
+    /// U16 values are rounded: `(v * 255 + 32768) >> 16`.
+    /// No-op copy if already U8.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConvertError`] if the source uses an unsupported channel type,
+    /// or if depth reduction is forbidden by the given policy.
+    fn try_narrow_to_u8_with_policy(
+        &self,
+        depth: DepthPolicy,
+    ) -> Result<PixelBuffer, ConvertError>;
+
+    /// Add an alpha channel. No-op copy if already has alpha.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
+    #[deprecated(note = "use PixelSlice::try_add_alpha() which returns Result")]
+    fn to_with_alpha(&self) -> PixelBuffer;
+
+    /// Widen to U16 depth. No-op copy if already U16.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
+    #[deprecated(note = "use PixelSlice::try_widen_to_u16() which returns Result")]
+    fn to_u16(&self) -> PixelBuffer;
+
+    /// Narrow to U8 depth. No-op copy if already U8.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
+    #[deprecated(note = "use PixelSlice::try_narrow_to_u8() which returns Result")]
+    fn to_u8(&self) -> PixelBuffer;
+}
+
+impl<P> PixelSliceConvertExt<P> for PixelSlice<'_, P> {
+    fn convert(
         &self,
         target_layout: ChannelLayout,
         target_depth: ChannelType,
@@ -396,21 +464,10 @@ impl<P> PixelSlice<'_, P> {
             target_layout,
         )?;
 
-        self.convert_inner(target_layout, target_depth, gray_expand)
+        convert_impl(self, target_layout, target_depth, gray_expand)
     }
 
-    /// Convert with explicit policies for all lossy operations. **Allocates**.
-    ///
-    /// Unlike [`convert()`](Self::convert), this method enforces policies on
-    /// alpha removal and depth reduction, returning errors when forbidden.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConvertError`] if:
-    /// - The conversion is structurally unsupported (same as `convert()`)
-    /// - Alpha removal is forbidden or pixels are not opaque with `DiscardIfOpaque`
-    /// - Depth reduction is forbidden
-    pub fn convert_explicit(
+    fn convert_explicit(
         &self,
         target_layout: ChannelLayout,
         target_depth: ChannelType,
@@ -444,152 +501,41 @@ impl<P> PixelSlice<'_, P> {
             }
         }
 
-        self.convert_inner(target_layout, target_depth, options.gray_expand)
+        convert_impl(self, target_layout, target_depth, options.gray_expand)
     }
 
-    /// Add alpha channel (lossless). **Allocates** a new `PixelBuffer`.
-    ///
-    /// - Gray → GrayAlpha (opaque alpha)
-    /// - Rgb → Rgba (opaque alpha)
-    /// - Already has alpha → identity copy
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConvertError`] if the source uses an unsupported channel type.
-    pub fn try_add_alpha(&self) -> Result<PixelBuffer, ConvertError> {
+    fn try_narrow_to_u8_with_policy(
+        &self,
+        depth: DepthPolicy,
+    ) -> Result<PixelBuffer, ConvertError> {
+        let desc = self.descriptor();
+        let reduces = desc.channel_type == ChannelType::U16;
+        if reduces && depth == DepthPolicy::Forbid {
+            return Err(ConvertError::DepthReductionForbidden);
+        }
+        PixelSliceConvertExt::convert(self, desc.layout, ChannelType::U8, GrayExpand::Broadcast)
+    }
+
+    fn to_with_alpha(&self) -> PixelBuffer {
         let desc = self.descriptor();
         let target = match desc.layout {
             ChannelLayout::Gray => ChannelLayout::GrayAlpha,
             ChannelLayout::Rgb => ChannelLayout::Rgba,
             other => other,
         };
-        self.convert(target, desc.channel_type, GrayExpand::Broadcast)
-    }
-
-    /// Widen to U16 depth (lossless, ×257). **Allocates** a new `PixelBuffer`.
-    ///
-    /// No-op copy if already U16.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConvertError`] if the source uses an unsupported channel type.
-    pub fn try_widen_to_u16(&self) -> Result<PixelBuffer, ConvertError> {
-        let desc = self.descriptor();
-        self.convert(desc.layout, ChannelType::U16, GrayExpand::Broadcast)
-    }
-
-    /// Narrow to U8 depth (lossy, rounded). **Allocates** a new `PixelBuffer`.
-    ///
-    /// U16 values are rounded: `(v * 255 + 32768) >> 16`.
-    /// No-op copy if already U8.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConvertError`] if the source uses an unsupported channel type.
-    pub fn try_narrow_to_u8(&self, depth: DepthPolicy) -> Result<PixelBuffer, ConvertError> {
-        let desc = self.descriptor();
-        let reduces = desc.channel_type == ChannelType::U16;
-        if reduces && depth == DepthPolicy::Forbid {
-            return Err(ConvertError::DepthReductionForbidden);
-        }
-        self.convert(desc.layout, ChannelType::U8, GrayExpand::Broadcast)
-    }
-
-    /// Add an alpha channel. No-op copy if already has alpha.
-    ///
-    /// - Gray → GrayAlpha (opaque)
-    /// - Rgb → Rgba (opaque)
-    /// - GrayAlpha / Rgba / Bgra → identity copy
-    ///
-    /// # Panics
-    ///
-    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
-    #[deprecated(note = "use try_add_alpha() which returns Result")]
-    pub fn to_with_alpha(&self) -> PixelBuffer {
-        self.try_add_alpha()
+        PixelSliceConvertExt::convert(self, target, desc.channel_type, GrayExpand::Broadcast)
             .expect("to_with_alpha: add-alpha conversion should not fail")
     }
 
-    /// Widen to U16 depth. No-op copy if already U16.
-    ///
-    /// U8 values are scaled by ×257 (0→0, 128→32896, 255→65535).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
-    #[deprecated(note = "use try_widen_to_u16() which returns Result")]
-    pub fn to_u16(&self) -> PixelBuffer {
-        self.try_widen_to_u16()
+    fn to_u16(&self) -> PixelBuffer {
+        let desc = self.descriptor();
+        PixelSliceConvertExt::convert(self, desc.layout, ChannelType::U16, GrayExpand::Broadcast)
             .expect("to_u16: depth conversion should not fail")
     }
 
-    /// Narrow to U8 depth. No-op copy if already U8.
-    ///
-    /// U16 values are rounded: `(v * 255 + 32768) >> 16` (0→0, 32896→128, 65535→255).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
-    #[deprecated(note = "use try_narrow_to_u8() which returns Result")]
-    pub fn to_u8(&self) -> PixelBuffer {
-        self.try_narrow_to_u8(DepthPolicy::Round)
+    fn to_u8(&self) -> PixelBuffer {
+        self.try_narrow_to_u8_with_policy(DepthPolicy::Round)
             .expect("to_u8: depth conversion should not fail")
-    }
-
-    // ── Internal ────────────────────────────────────────────────────────
-
-    fn convert_inner(
-        &self,
-        target_layout: ChannelLayout,
-        target_depth: ChannelType,
-        gray_expand: GrayExpand,
-    ) -> Result<PixelBuffer, ConvertError> {
-        let src_desc = self.descriptor();
-        let w = self.width() as usize;
-        let h = self.rows() as usize;
-
-        // Build target descriptor, preserving color metadata
-        let dst_desc = PixelDescriptor {
-            channel_type: target_depth,
-            layout: target_layout,
-            transfer: src_desc.transfer,
-            primaries: src_desc.primaries,
-            signal_range: src_desc.signal_range,
-            alpha: if target_layout.has_alpha() {
-                if src_desc.layout.has_alpha() {
-                    src_desc.alpha
-                } else {
-                    Some(AlphaMode::Straight)
-                }
-            } else {
-                None
-            },
-        };
-
-        // Allocate output buffer (handles alignment internally)
-        let mut buf = PixelBuffer::new(self.width(), self.rows(), dst_desc)
-            .with_working_space(self.working_space());
-        if let Some(ctx) = self.color_context() {
-            buf = buf.with_color_context(Arc::clone(ctx));
-        }
-
-        // Write pixel data
-        if h > 0 && w > 0 {
-            let is_identity =
-                src_desc.channel_type == target_depth && src_desc.layout == target_layout;
-            let mut dst = buf.as_slice_mut();
-            for y in 0..h as u32 {
-                let src_row = self.row(y);
-                let dst_row = dst.row_mut(y);
-                if is_identity {
-                    dst_row.copy_from_slice(src_row);
-                } else {
-                    convert_row(src_row, dst_row, w, &src_desc, &dst_desc, gray_expand);
-                }
-            }
-        }
-
-        Ok(buf)
     }
 }
 
@@ -688,7 +634,7 @@ mod tests {
 
     #[test]
     fn gray_to_rgba_u16_combo() {
-        // Gray U8 → RGBA U16: broadcast + add alpha + widen depth
+        // Gray U8 -> RGBA U16: broadcast + add alpha + widen depth
         let data = [100];
         let s = make_slice(&data, 1, 1, PixelDescriptor::GRAY8);
         let buf = s
@@ -705,7 +651,7 @@ mod tests {
 
     #[test]
     fn grayalpha_to_rgba_broadcast() {
-        // GrayAlpha U8 → RGBA U8: broadcast gray, keep alpha
+        // GrayAlpha U8 -> RGBA U8: broadcast gray, keep alpha
         let data = [50, 200];
         let s = make_slice(&data, 1, 1, PixelDescriptor::GRAYA8);
         let buf = s
@@ -763,7 +709,7 @@ mod tests {
 
     #[test]
     fn bgra_depth_conversion() {
-        // Bgra→Bgra with depth change is allowed (same layout, positional copy)
+        // Bgra->Bgra with depth change is allowed (same layout, positional copy)
         let data = [10, 20, 30, 255]; // B=10, G=20, R=30, A=255
         let s = make_slice(&data, 1, 1, PixelDescriptor::BGRA8);
         let buf = s.to_u16();
@@ -810,14 +756,9 @@ mod tests {
         use crate::color::WorkingColorSpace;
 
         let data = [42];
-        let desc = PixelDescriptor {
-            channel_type: ChannelType::U8,
-            layout: ChannelLayout::Gray,
-            transfer: TransferFunction::Srgb,
-            primaries: ColorPrimaries::Bt709,
-            signal_range: SignalRange::Full,
-            alpha: None,
-        };
+        let desc = PixelDescriptor::new(ChannelType::U8, ChannelLayout::Gray, None, TransferFunction::Srgb)
+            .with_primaries(ColorPrimaries::Bt709)
+            .with_signal_range(SignalRange::Full);
         let s = make_slice(&data, 1, 1, desc).with_working_space(WorkingColorSpace::LinearSrgb);
         let buf = s.to_u16();
         assert_eq!(buf.descriptor().transfer, TransferFunction::Srgb);
@@ -839,7 +780,7 @@ mod tests {
 
     #[test]
     fn u16_roundtrip() {
-        // U8→U16→U8 should preserve values (×257 then rounded)
+        // U8->U16->U8 should preserve values (x257 then rounded)
         let data = [0, 1, 127, 128, 254, 255];
         let s = make_slice(&data, 6, 1, PixelDescriptor::GRAY8);
         let wide = s.to_u16();
@@ -850,7 +791,7 @@ mod tests {
 
     #[test]
     fn u16_roundtrip_all_u8_values() {
-        // Verify U8→U16→U8 roundtrip for all 256 values
+        // Verify U8->U16->U8 roundtrip for all 256 values
         let data: Vec<u8> = (0..=255).collect();
         let s = make_slice(&data, 256, 1, PixelDescriptor::GRAY8);
         let wide = s.to_u16();
@@ -861,11 +802,6 @@ mod tests {
 
     #[test]
     fn u16_to_u8_rounding_not_truncation() {
-        // 32767 is exactly halfway between 127 and 128 in U8 space.
-        // With truncation (>>8): 32767 >> 8 = 127
-        // With rounding: (32767 * 255 + 32768) >> 16 = 127 (correct: 32767/257 = 127.498)
-        // Value 32896 = 128*257, should map to 128 exactly.
-        // Value 32895 = 128*257 - 1, should map to 128 (rounds up from 127.996).
         let data: Vec<u8> = [32767u16, 32895, 32896, 33153]
             .iter()
             .flat_map(|v| v.to_ne_bytes())
@@ -873,17 +809,13 @@ mod tests {
         let s = make_slice(&data, 4, 1, PixelDescriptor::GRAY16);
         let buf = s.to_u8();
         let bytes = buf.as_contiguous_bytes().unwrap();
-        // 32767 / 257.0 = 127.498 → rounds to 127
         assert_eq!(bytes[0], 127);
-        // 32895 / 257.0 = 127.996 → rounds to 128
         assert_eq!(bytes[1], 128);
-        // 32896 / 257.0 = 128.0 → exactly 128
         assert_eq!(bytes[2], 128);
-        // 33153 / 257.0 = 129.0 → exactly 129
         assert_eq!(bytes[3], 129);
     }
 
-    // ── convert_explicit tests ──────────────────────────────────────────
+    // -- convert_explicit tests --
 
     #[test]
     fn convert_explicit_forbid_alpha_removal() {
@@ -1011,7 +943,9 @@ mod tests {
             .flat_map(|v| v.to_ne_bytes())
             .collect();
         let s = make_slice(&data, 2, 1, PixelDescriptor::GRAY16);
-        let buf = s.try_narrow_to_u8(DepthPolicy::Round).unwrap();
+        let buf = s
+            .try_narrow_to_u8_with_policy(DepthPolicy::Round)
+            .unwrap();
         assert_eq!(buf.as_contiguous_bytes().unwrap(), &[128, 255]);
     }
 
@@ -1019,7 +953,9 @@ mod tests {
     fn try_narrow_to_u8_forbid() {
         let data: Vec<u8> = [32896u16].iter().flat_map(|v| v.to_ne_bytes()).collect();
         let s = make_slice(&data, 1, 1, PixelDescriptor::GRAY16);
-        let err = s.try_narrow_to_u8(DepthPolicy::Forbid).unwrap_err();
+        let err = s
+            .try_narrow_to_u8_with_policy(DepthPolicy::Forbid)
+            .unwrap_err();
         assert_eq!(err, ConvertError::DepthReductionForbidden);
     }
 
@@ -1028,7 +964,9 @@ mod tests {
         let data = [42, 99];
         let s = make_slice(&data, 2, 1, PixelDescriptor::GRAY8);
         // Forbid should still succeed when no actual reduction needed
-        let buf = s.try_narrow_to_u8(DepthPolicy::Forbid).unwrap();
+        let buf = s
+            .try_narrow_to_u8_with_policy(DepthPolicy::Forbid)
+            .unwrap();
         assert_eq!(buf.as_contiguous_bytes().unwrap(), &[42, 99]);
     }
 }
