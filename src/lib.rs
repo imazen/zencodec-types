@@ -33,6 +33,7 @@ mod orientation;
 mod output;
 mod pixel;
 mod pixel_format;
+mod planar;
 mod traits;
 
 pub use buffer::{
@@ -54,6 +55,7 @@ pub use output::{
 };
 pub use pixel::{GrayAlpha, PixelData};
 pub use pixel_format::{ByteOrder, ColorModel, PixelFormat, Subsampling, YuvMatrix};
+pub use planar::{MAX_PLANES, PlanarDescriptor, PlaneMask, PlaneSemantic, PlaneSpec};
 pub use traits::{
     DecodeJob, Decoder, DecoderConfig, EncodeJob, Encoder, EncoderConfig, FrameDecoder,
     FrameEncoder,
