@@ -1,7 +1,7 @@
 //! Pixel format conversion for [`PixelSlice`].
 //!
 //! Supports lossless and well-defined conversions between pixel formats:
-//! - **Depth**: U8 ↔ U16 (scale by ×257 / >>8)
+//! - **Depth**: U8 ↔ U16 (scale by ×257 / rounded ÷65536)
 //! - **Add alpha**: Gray→GrayAlpha, Rgb→Rgba (opaque alpha)
 //! - **Drop alpha**: GrayAlpha→Gray, Rgba→Rgb
 //! - **Gray→RGB**: broadcast `v → (v, v, v)` via [`GrayExpand`]
@@ -106,7 +106,9 @@ fn write_ch(dst: &mut [u8], offset: usize, v: u16, src_ty: ChannelType, dst_ty: 
             dst[offset..offset + 2].copy_from_slice(&wide.to_ne_bytes());
         }
         (ChannelType::U16, ChannelType::U8) => {
-            dst[offset] = (v >> 8) as u8;
+            // Correct rounding: (v * 255 + 32768) / 65536
+            // This is the exact inverse of U8→U16 scaling (×257).
+            dst[offset] = ((v as u32 * 255 + 32768) >> 16) as u8;
         }
         _ => {
             // U16→U16 (and any other same-depth)
@@ -351,7 +353,7 @@ impl<P> PixelSlice<'_, P> {
 
     /// Narrow to U8 depth. No-op copy if already U8.
     ///
-    /// U16 values are scaled by >>8 (0→0, 32896→128, 65535→255).
+    /// U16 values are rounded: `(v * 255 + 32768) >> 16` (0→0, 32896→128, 65535→255).
     ///
     /// # Panics
     ///
@@ -608,12 +610,47 @@ mod tests {
 
     #[test]
     fn u16_roundtrip() {
-        // U8→U16→U8 should preserve values (×257 then >>8)
+        // U8→U16→U8 should preserve values (×257 then rounded)
         let data = [0, 1, 127, 128, 254, 255];
         let s = make_slice(&data, 6, 1, PixelDescriptor::GRAY8);
         let wide = s.to_u16();
         let narrow = wide.as_slice().to_u8();
         let bytes = narrow.as_contiguous_bytes().unwrap();
         assert_eq!(bytes, &data);
+    }
+
+    #[test]
+    fn u16_roundtrip_all_u8_values() {
+        // Verify U8→U16→U8 roundtrip for all 256 values
+        let data: Vec<u8> = (0..=255).collect();
+        let s = make_slice(&data, 256, 1, PixelDescriptor::GRAY8);
+        let wide = s.to_u16();
+        let narrow = wide.as_slice().to_u8();
+        let bytes = narrow.as_contiguous_bytes().unwrap();
+        assert_eq!(bytes, &data[..]);
+    }
+
+    #[test]
+    fn u16_to_u8_rounding_not_truncation() {
+        // 32767 is exactly halfway between 127 and 128 in U8 space.
+        // With truncation (>>8): 32767 >> 8 = 127
+        // With rounding: (32767 * 255 + 32768) >> 16 = 127 (correct: 32767/257 = 127.498)
+        // Value 32896 = 128*257, should map to 128 exactly.
+        // Value 32895 = 128*257 - 1, should map to 128 (rounds up from 127.996).
+        let data: Vec<u8> = [32767u16, 32895, 32896, 33153]
+            .iter()
+            .flat_map(|v| v.to_ne_bytes())
+            .collect();
+        let s = make_slice(&data, 4, 1, PixelDescriptor::GRAY16);
+        let buf = s.to_u8();
+        let bytes = buf.as_contiguous_bytes().unwrap();
+        // 32767 / 257.0 = 127.498 → rounds to 127
+        assert_eq!(bytes[0], 127);
+        // 32895 / 257.0 = 127.996 → rounds to 128
+        assert_eq!(bytes[1], 128);
+        // 32896 / 257.0 = 128.0 → exactly 128
+        assert_eq!(bytes[2], 128);
+        // 33153 / 257.0 = 129.0 → exactly 129
+        assert_eq!(bytes[3], 129);
     }
 }
