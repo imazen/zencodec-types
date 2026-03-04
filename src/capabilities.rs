@@ -205,7 +205,7 @@ impl CodecCapabilities {
     /// Meaningful quality range `[min, max]` on the calibrated 0.0–100.0 scale.
     ///
     /// `None` means the codec is lossless-only —
-    /// [`EncoderConfig::with_lossy_quality()`](crate::EncoderConfig::with_lossy_quality) is a no-op.
+    /// [`EncoderConfig::with_calibrated_quality()`](crate::EncoderConfig::with_calibrated_quality) is a no-op.
     /// Most lossy codecs return `Some([0.0, 100.0])`.
     pub const fn quality_range(&self) -> Option<[f32; 2]> {
         self.quality_range
