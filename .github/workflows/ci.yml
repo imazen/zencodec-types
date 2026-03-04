@@ -7,48 +7,54 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   CI: true
 
 jobs:
   # ==========================================================================
-  # Native testing
+  # Native testing (6-platform matrix)
   # ==========================================================================
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
+        include:
+          - { os: ubuntu-latest, name: Linux x64 }
+          - { os: ubuntu-24.04-arm, name: Linux aarch64 }
+          - { os: macos-latest, name: macOS arm64 }
+          - { os: macos-26-intel, name: macOS x64 }
+          - { os: windows-latest, name: Windows x64 }
+          - { os: windows-11-arm, name: Windows arm64 }
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
 
-      - name: Build
-        run: cargo build
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Patch path deps to git refs
+        shell: bash
+        run: |
+          sed \
+            -e 's|path = "\.\./zenpixels/zenpixels"|git = "https://github.com/imazen/zenpixels"|g' \
+            -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
+            Cargo.toml > Cargo.toml.ci && \
+            mv Cargo.toml.ci Cargo.toml
 
       - name: Test
         run: cargo test
 
-  # ==========================================================================
-  # WASM build check (no_std compatibility)
-  # ==========================================================================
-  wasm:
-    name: WASM (wasm32-wasip1)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --target wasm32-wasip1
+      - name: Check no_std (no codec feature)
+        run: cargo check --no-default-features
 
   # ==========================================================================
   # Cross-compiled 32-bit testing (i686 via QEMU)
@@ -58,16 +64,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: i686-unknown-linux-gnu
-      - uses: taiki-e/install-action@cross
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cross
+        uses: taiki-e/install-action@cross
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
           key: cross-i686
 
+      - name: Patch path deps to git refs
+        shell: bash
+        run: |
+          sed \
+            -e 's|path = "\.\./zenpixels/zenpixels"|git = "https://github.com/imazen/zenpixels"|g' \
+            -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
+            Cargo.toml > Cargo.toml.ci && \
+            mv Cargo.toml.ci Cargo.toml
+
       - name: Test (i686/QEMU)
         run: cross test --target i686-unknown-linux-gnu
+
+  # ==========================================================================
+  # WASM check
+  # ==========================================================================
+  wasm:
+    name: WASM (wasm32-wasip1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Patch path deps to git refs
+        shell: bash
+        run: |
+          sed \
+            -e 's|path = "\.\./zenpixels/zenpixels"|git = "https://github.com/imazen/zenpixels"|g' \
+            -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
+            Cargo.toml > Cargo.toml.ci && \
+            mv Cargo.toml.ci Cargo.toml
+
+      - name: Check WASM (no_std)
+        run: cargo check --target wasm32-wasip1 --no-default-features
 
   # ==========================================================================
   # Clippy
@@ -77,23 +127,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Patch path deps to git refs
+        shell: bash
+        run: |
+          sed \
+            -e 's|path = "\.\./zenpixels/zenpixels"|git = "https://github.com/imazen/zenpixels"|g' \
+            -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
+            Cargo.toml > Cargo.toml.ci && \
+            mv Cargo.toml.ci Cargo.toml
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
   # ==========================================================================
-  # Format
+  # Format check
   # ==========================================================================
   fmt:
     name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
@@ -101,20 +166,31 @@ jobs:
         run: cargo fmt --all -- --check
 
   # ==========================================================================
-  # MSRV
+  # MSRV check
   # ==========================================================================
   msrv:
-    name: MSRV (1.93)
+    name: MSRV
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.93"
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Patch path deps to git refs
+        shell: bash
+        run: |
+          sed \
+            -e 's|path = "\.\./zenpixels/zenpixels"|git = "https://github.com/imazen/zenpixels"|g' \
+            -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
+            Cargo.toml > Cargo.toml.ci && \
+            mv Cargo.toml.ci Cargo.toml
 
       - name: Check MSRV
-        run: cargo check
+        run: cargo hack check --rust-version
 
   # ==========================================================================
   # Semver check (API compatibility)
@@ -122,17 +198,29 @@ jobs:
   semver:
     name: Semver Check
     runs-on: ubuntu-latest
-    # Only run on PRs and pushes to main (not on initial commit with no baseline)
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-semver-checks
         uses: taiki-e/install-action@cargo-semver-checks
+
+      - name: Patch path deps to git refs
+        shell: bash
+        run: |
+          sed \
+            -e 's|path = "\.\./zenpixels/zenpixels"|git = "https://github.com/imazen/zenpixels"|g' \
+            -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
+            Cargo.toml > Cargo.toml.ci && \
+            mv Cargo.toml.ci Cargo.toml
 
       - name: Check semver
         run: cargo semver-checks check-release
@@ -146,11 +234,24 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Patch path deps to git refs
+        shell: bash
+        run: |
+          sed \
+            -e 's|path = "\.\./zenpixels/zenpixels"|git = "https://github.com/imazen/zenpixels"|g' \
+            -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
+            Cargo.toml > Cargo.toml.ci && \
+            mv Cargo.toml.ci Cargo.toml
 
       - name: Generate coverage
         run: cargo llvm-cov --lcov --output-path lcov.info
