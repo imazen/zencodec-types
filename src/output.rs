@@ -45,6 +45,12 @@ impl EncodeOutput {
     }
 
     /// Borrow the encoded bytes.
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Borrow the encoded bytes.
+    #[deprecated(note = "use data() instead")]
     pub fn bytes(&self) -> &[u8] {
         &self.data
     }
@@ -115,12 +121,18 @@ impl DecodeOutput {
         extras.downcast().ok().map(|b| *b)
     }
 
-    /// Borrow the pixel buffer.
-    pub fn pixels(&self) -> &PixelBuffer {
-        &self.pixels
+    /// Borrow the pixel data as a [`PixelSlice`].
+    pub fn pixels(&self) -> PixelSlice<'_> {
+        self.pixels.as_slice()
     }
 
     /// Take the pixel buffer, consuming this output.
+    pub fn into_buffer(self) -> PixelBuffer {
+        self.pixels
+    }
+
+    /// Take the pixel buffer, consuming this output.
+    #[deprecated(note = "use into_buffer() instead")]
     pub fn into_pixels(self) -> PixelBuffer {
         self.pixels
     }
@@ -360,12 +372,18 @@ impl DecodeFrame {
         self
     }
 
-    /// Borrow the pixel buffer.
-    pub fn pixels(&self) -> &PixelBuffer {
-        &self.pixels
+    /// Borrow the pixel data as a [`PixelSlice`].
+    pub fn pixels(&self) -> PixelSlice<'_> {
+        self.pixels.as_slice()
     }
 
     /// Take the pixel buffer, consuming this frame.
+    pub fn into_buffer(self) -> PixelBuffer {
+        self.pixels
+    }
+
+    /// Take the pixel buffer, consuming this frame.
+    #[deprecated(note = "use into_buffer() instead")]
     pub fn into_pixels(self) -> PixelBuffer {
         self.pixels
     }
@@ -420,7 +438,13 @@ impl DecodeFrame {
         self.pixels.try_as_imgref()
     }
 
+    /// Frame duration in milliseconds.
+    pub fn duration_ms(&self) -> u32 {
+        self.delay_ms
+    }
+
     /// Frame delay in milliseconds.
+    #[deprecated(note = "use duration_ms() instead")]
     pub fn delay_ms(&self) -> u32 {
         self.delay_ms
     }
@@ -714,6 +738,36 @@ impl<'a> EncodeFrame<'a> {
         self.disposal = disposal;
         self
     }
+
+    /// Borrow the pixel data.
+    pub fn pixels(&self) -> &PixelSlice<'a> {
+        &self.pixels
+    }
+
+    /// Frame duration in milliseconds.
+    pub fn duration_ms(&self) -> u32 {
+        self.duration_ms
+    }
+
+    /// Frame X offset on the canvas (0 for full-canvas frames).
+    pub fn x(&self) -> u32 {
+        self.frame_rect.map_or(0, |r| r[0])
+    }
+
+    /// Frame Y offset on the canvas (0 for full-canvas frames).
+    pub fn y(&self) -> u32 {
+        self.frame_rect.map_or(0, |r| r[1])
+    }
+
+    /// Blend mode for compositing.
+    pub fn blend(&self) -> FrameBlend {
+        self.blend
+    }
+
+    /// Disposal method after this frame is displayed.
+    pub fn disposal(&self) -> FrameDisposal {
+        self.disposal
+    }
 }
 
 impl core::fmt::Debug for EncodeFrame<'_> {
@@ -744,7 +798,7 @@ mod tests {
         let output = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
         assert_eq!(output.format(), ImageFormat::Jpeg);
         assert_eq!(output.len(), 3);
-        assert_eq!(output.bytes(), &[1, 2, 3]);
+        assert_eq!(output.data(), &[1, 2, 3]);
         assert!(!output.is_empty());
         assert_eq!(output.into_vec(), vec![1, 2, 3]);
     }
@@ -835,7 +889,7 @@ mod codec_tests {
         let buf: PixelBuffer = PixelBuffer::from_imgvec(img).into();
         let info = test_info(2, 2, ImageFormat::Png);
         let frame = DecodeFrame::new(buf, info, 100, 0);
-        assert_eq!(frame.delay_ms(), 100);
+        assert_eq!(frame.duration_ms(), 100);
         assert_eq!(frame.index(), 0);
         assert_eq!(frame.width(), 2);
         assert_eq!(frame.height(), 2);

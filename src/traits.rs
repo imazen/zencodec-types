@@ -678,7 +678,7 @@ pub trait DecodeJob<'a>: Sized {
     ) -> Result<OutputInfo, Self::Error> {
         let dec = self.decoder(data, preferred)?;
         let output = dec.decode()?;
-        let ps = output.pixels().as_slice();
+        let ps = output.pixels();
         let desc = ps.descriptor();
         let w = ps.width();
         let h = ps.rows();
@@ -830,7 +830,7 @@ pub trait FrameDecode: Sized {
             Some(f) => f,
             None => return Ok(None),
         };
-        let ps = frame.pixels().as_slice();
+        let ps = frame.pixels();
         let desc = ps.descriptor();
         let w = ps.width();
         let h = ps.rows();
