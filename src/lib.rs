@@ -89,7 +89,7 @@ pub use traits::{
     Decode, DecodeJob, DecoderConfig, EncodeGray8, EncodeGray16, EncodeGrayF32, EncodeJob,
     EncodeRgb8, EncodeRgb16, EncodeRgbF16, EncodeRgbF32, EncodeRgba8, EncodeRgba16, EncodeRgbaF16,
     EncodeRgbaF32, Encoder, EncoderConfig, FrameDecode, FrameEncodeRgb8, FrameEncodeRgba8,
-    FrameEncoder,
+    FrameEncoder, StreamingDecode,
 };
 #[cfg(feature = "codec")]
 #[allow(deprecated)]

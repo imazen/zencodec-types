@@ -568,6 +568,12 @@ pub trait DecodeJob<'a>: Sized {
     /// Single-image decoder type.
     type Dec: Decode<Error = Self::Error>;
 
+    /// Streaming decoder type.
+    ///
+    /// Implements [`StreamingDecode`] for batch/scanline-level decode.
+    /// Set to `()` if the codec does not support streaming decode.
+    type StreamDec: StreamingDecode<Error = Self::Error>;
+
     /// Animation decoder type.
     type FrameDec: FrameDecode<Error = Self::Error>;
 
@@ -633,6 +639,15 @@ pub trait DecodeJob<'a>: Sized {
     /// Create a one-shot decoder.
     fn decoder(self) -> Result<Self::Dec, Self::Error>;
 
+    /// Create a streaming decoder that yields scanline batches.
+    ///
+    /// Binds `data` — the decoder borrows the input for the duration
+    /// of streaming. Returns an error if the codec does not support
+    /// streaming decode.
+    ///
+    /// See [`StreamingDecode`] for the batch pull API.
+    fn streaming_decoder(self, data: &'a [u8]) -> Result<Self::StreamDec, Self::Error>;
+
     /// Create a frame-by-frame animation decoder.
     ///
     /// Binds `data` — the decoder parses the container upfront.
@@ -658,28 +673,64 @@ pub trait Decode: Sized {
         data: &[u8],
         preferred: &[PixelDescriptor],
     ) -> Result<DecodeOutput, Self::Error>;
+}
 
-    /// Decode in batches, yielding strips of scanlines.
+/// Streaming scanline-batch decode.
+///
+/// The decoder yields strips of scanlines at whatever height it prefers:
+/// MCU height for JPEG, full image for simple formats, single scanline
+/// for PNG, etc. The caller pulls batches until `None` is returned.
+///
+/// Created by [`DecodeJob::streaming_decoder()`]. Borrows the input data
+/// for the lifetime of the decoder.
+///
+/// # Usage
+///
+/// ```text
+/// let job = config.job();
+/// let info = job.output_info(data)?;
+/// let mut dec = job.streaming_decoder(data)?;
+/// while let Some((y, strip)) = dec.next_batch(&[])? {
+///     // process strip.rows() scanlines starting at row y
+/// }
+/// ```
+pub trait StreamingDecode {
+    /// The codec-specific error type.
+    type Error: core::error::Error + Send + Sync + 'static;
+
+    /// Pull the next batch of scanlines.
     ///
-    /// The decoder chooses the batch height — MCU height for JPEG, full
-    /// image for simple formats, single scanline, etc. Each callback
-    /// receives `(y_offset, strip)` where `strip` is a borrowed
-    /// [`PixelSlice`] valid only for the duration of the call.
+    /// Returns `Ok(Some((y, strip)))` with the row offset and pixel data,
+    /// or `Ok(None)` when the image is fully decoded.
     ///
-    /// Returns [`ImageInfo`] with full image metadata.
-    ///
-    /// Default: falls back to [`decode()`](Decode::decode) and yields
-    /// the entire image as a single batch.
-    fn decode_batch(
-        self,
-        data: &[u8],
+    /// `preferred` is a ranked list of desired output formats (same
+    /// semantics as [`Decode::decode()`]). Pass `&[]` for native format.
+    /// The format must remain consistent across all batches.
+    fn next_batch(
+        &mut self,
         preferred: &[PixelDescriptor],
-        on_rows: &mut dyn FnMut(u32, PixelSlice<'_>),
-    ) -> Result<ImageInfo, Self::Error> {
-        let output = self.decode(data, preferred)?;
-        let info = output.info().clone();
-        on_rows(0, output.pixels().as_slice());
-        Ok(info)
+    ) -> Result<Option<(u32, PixelSlice<'_>)>, Self::Error>;
+
+    /// Image metadata, available after construction.
+    fn info(&self) -> &ImageInfo;
+}
+
+/// Trivial rejection impl — codecs that don't support streaming set
+/// `type StreamDec = ()` and `streaming_decoder()` returns an error.
+impl StreamingDecode for () {
+    type Error = crate::UnsupportedOperation;
+
+    fn next_batch(
+        &mut self,
+        _preferred: &[PixelDescriptor],
+    ) -> Result<Option<(u32, PixelSlice<'_>)>, Self::Error> {
+        Err(crate::UnsupportedOperation::RowLevelDecode)
+    }
+
+    fn info(&self) -> &ImageInfo {
+        // This is unreachable — streaming_decoder() returns Err before
+        // the caller can call info(). But we need the impl for Sized.
+        panic!("StreamingDecode not supported");
     }
 }
 
