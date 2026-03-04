@@ -52,6 +52,8 @@ jobs:
             -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
             Cargo.toml > Cargo.toml.ci && \
             mv Cargo.toml.ci Cargo.toml
+          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels" }\nzenpixels-convert = { git = "https://github.com/imazen/zenpixels" }\n' >> Cargo.toml
+          rm -f Cargo.lock
 
       - name: Test
         run: cargo test
@@ -92,6 +94,8 @@ jobs:
             -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
             Cargo.toml > Cargo.toml.ci && \
             mv Cargo.toml.ci Cargo.toml
+          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels" }\nzenpixels-convert = { git = "https://github.com/imazen/zenpixels" }\n' >> Cargo.toml
+          rm -f Cargo.lock
 
       - name: Test (i686/QEMU)
         run: cross test --target i686-unknown-linux-gnu
@@ -124,6 +128,8 @@ jobs:
             -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
             Cargo.toml > Cargo.toml.ci && \
             mv Cargo.toml.ci Cargo.toml
+          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels" }\nzenpixels-convert = { git = "https://github.com/imazen/zenpixels" }\n' >> Cargo.toml
+          rm -f Cargo.lock
 
       - name: Check WASM (no_std)
         run: cargo check --target wasm32-wasip1 --no-default-features
@@ -156,6 +162,8 @@ jobs:
             -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
             Cargo.toml > Cargo.toml.ci && \
             mv Cargo.toml.ci Cargo.toml
+          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels" }\nzenpixels-convert = { git = "https://github.com/imazen/zenpixels" }\n' >> Cargo.toml
+          rm -f Cargo.lock
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
@@ -203,6 +211,8 @@ jobs:
             -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
             Cargo.toml > Cargo.toml.ci && \
             mv Cargo.toml.ci Cargo.toml
+          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels" }\nzenpixels-convert = { git = "https://github.com/imazen/zenpixels" }\n' >> Cargo.toml
+          rm -f Cargo.lock
 
       - name: Check MSRV
         run: cargo hack check --rust-version
@@ -239,6 +249,8 @@ jobs:
             -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
             Cargo.toml > Cargo.toml.ci && \
             mv Cargo.toml.ci Cargo.toml
+          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels" }\nzenpixels-convert = { git = "https://github.com/imazen/zenpixels" }\n' >> Cargo.toml
+          rm -f Cargo.lock
 
       - name: Check semver
         run: cargo semver-checks check-release
@@ -273,6 +285,8 @@ jobs:
             -e 's|path = "\.\./zenpixels/zenpixels-convert"|git = "https://github.com/imazen/zenpixels"|g' \
             Cargo.toml > Cargo.toml.ci && \
             mv Cargo.toml.ci Cargo.toml
+          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels" }\nzenpixels-convert = { git = "https://github.com/imazen/zenpixels" }\n' >> Cargo.toml
+          rm -f Cargo.lock
 
       - name: Generate coverage
         run: cargo llvm-cov --lcov --output-path lcov.info
