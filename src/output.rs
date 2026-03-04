@@ -817,9 +817,9 @@ mod tests {
 #[cfg(all(test, feature = "codec"))]
 mod codec_tests {
     use super::*;
-    use zenpixels::PixelBuffer;
     use alloc::vec;
     use imgref::ImgVec;
+    use zenpixels::PixelBuffer;
 
     fn make_rgb8_buf(w: u32, h: u32) -> PixelBuffer {
         let img = ImgVec::new(

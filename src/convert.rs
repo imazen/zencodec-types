@@ -769,7 +769,7 @@ mod tests {
     fn empty_image() {
         let data = [];
         let desc = PixelDescriptor::RGB8;
-        let stride = desc.bytes_per_pixel() * 0;
+        let stride = 0;
         let s = PixelSlice::new(&data, 0, 0, stride, desc).unwrap();
         let buf = s.to_u16();
         assert_eq!(buf.width(), 0);

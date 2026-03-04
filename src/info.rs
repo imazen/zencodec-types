@@ -3,10 +3,10 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use zenpixels::{ColorPrimaries, PixelDescriptor, TransferFunction};
 use crate::color::{ColorContext, ColorProfileSource};
 use crate::gainmap::GainMapMetadata;
 use crate::{ImageFormat, Orientation};
+use zenpixels::{ColorPrimaries, PixelDescriptor, TransferFunction};
 
 /// Re-export CICP from zenpixels — the canonical definition.
 pub use zenpixels::Cicp;
@@ -1114,7 +1114,7 @@ mod tests {
         assert_eq!(Cicp::SRGB.transfer_characteristics, 13);
         assert_eq!(Cicp::BT2100_PQ.transfer_characteristics, 16);
         assert_eq!(Cicp::BT2100_HLG.transfer_characteristics, 18);
-        assert!(Cicp::SRGB.full_range);
+        const { assert!(Cicp::SRGB.full_range) };
     }
 
     #[test]
