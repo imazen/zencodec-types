@@ -5,18 +5,27 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ImageFormat {
     Jpeg,
-    WebP,
-    Gif,
     Png,
+    Gif,
+    WebP,
     Avif,
     Jxl,
     Heic,
-    Pnm,
     Bmp,
+    Tiff,
+    Ico,
+    Pnm,
     Farbfeld,
+    Qoi,
+    Unknown,
 }
 
 impl ImageFormat {
+    /// Detect format from magic bytes. Returns [`Unknown`](ImageFormat::Unknown) if unrecognized.
+    pub fn from_magic(data: &[u8]) -> Self {
+        Self::detect(data).unwrap_or(Self::Unknown)
+    }
+
     /// Detect format from magic bytes. Returns `None` if unrecognized.
     pub fn detect(data: &[u8]) -> Option<Self> {
         // JPEG: FF D8 FF
@@ -123,6 +132,31 @@ impl ImageFormat {
             }
         }
 
+        // TIFF: II (little-endian) or MM (big-endian) + magic number 42
+        if data.len() >= 4 {
+            if data[0] == b'I' && data[1] == b'I' && data[2] == 42 && data[3] == 0 {
+                return Some(ImageFormat::Tiff);
+            }
+            if data[0] == b'M' && data[1] == b'M' && data[2] == 0 && data[3] == 42 {
+                return Some(ImageFormat::Tiff);
+            }
+        }
+
+        // ICO: 00 00 01 00 (icon) or 00 00 02 00 (cursor)
+        if data.len() >= 4
+            && data[0] == 0
+            && data[1] == 0
+            && (data[2] == 1 || data[2] == 2)
+            && data[3] == 0
+        {
+            return Some(ImageFormat::Ico);
+        }
+
+        // QOI: "qoif"
+        if data.len() >= 4 && data[..4] == *b"qoif" {
+            return Some(ImageFormat::Qoi);
+        }
+
         None
     }
 
@@ -149,7 +183,10 @@ impl ImageFormat {
             b"heic" | b"heif" | b"hif" => Some(ImageFormat::Heic),
             b"pnm" | b"ppm" | b"pgm" | b"pbm" | b"pam" | b"pfm" => Some(ImageFormat::Pnm),
             b"bmp" => Some(ImageFormat::Bmp),
+            b"tiff" | b"tif" => Some(ImageFormat::Tiff),
+            b"ico" | b"cur" => Some(ImageFormat::Ico),
             b"ff" => Some(ImageFormat::Farbfeld),
+            b"qoi" => Some(ImageFormat::Qoi),
             _ => None,
         }
     }
@@ -158,15 +195,39 @@ impl ImageFormat {
     pub fn mime_type(self) -> &'static str {
         match self {
             ImageFormat::Jpeg => "image/jpeg",
-            ImageFormat::WebP => "image/webp",
-            ImageFormat::Gif => "image/gif",
             ImageFormat::Png => "image/png",
+            ImageFormat::Gif => "image/gif",
+            ImageFormat::WebP => "image/webp",
             ImageFormat::Avif => "image/avif",
             ImageFormat::Jxl => "image/jxl",
-            ImageFormat::Heic => "image/heic",
-            ImageFormat::Pnm => "image/x-portable-anymap",
+            ImageFormat::Heic => "image/heif",
             ImageFormat::Bmp => "image/bmp",
+            ImageFormat::Tiff => "image/tiff",
+            ImageFormat::Ico => "image/x-icon",
+            ImageFormat::Pnm => "image/x-portable-anymap",
             ImageFormat::Farbfeld => "image/x-farbfeld",
+            ImageFormat::Qoi => "image/x-qoi",
+            ImageFormat::Unknown => "application/octet-stream",
+        }
+    }
+
+    /// Primary file extension.
+    pub fn extension(self) -> &'static str {
+        match self {
+            ImageFormat::Jpeg => "jpg",
+            ImageFormat::Png => "png",
+            ImageFormat::Gif => "gif",
+            ImageFormat::WebP => "webp",
+            ImageFormat::Avif => "avif",
+            ImageFormat::Jxl => "jxl",
+            ImageFormat::Heic => "heif",
+            ImageFormat::Bmp => "bmp",
+            ImageFormat::Tiff => "tiff",
+            ImageFormat::Ico => "ico",
+            ImageFormat::Pnm => "pnm",
+            ImageFormat::Farbfeld => "ff",
+            ImageFormat::Qoi => "qoi",
+            ImageFormat::Unknown => "bin",
         }
     }
 
@@ -174,15 +235,19 @@ impl ImageFormat {
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
             ImageFormat::Jpeg => &["jpg", "jpeg", "jpe", "jfif"],
-            ImageFormat::WebP => &["webp"],
-            ImageFormat::Gif => &["gif"],
             ImageFormat::Png => &["png"],
+            ImageFormat::Gif => &["gif"],
+            ImageFormat::WebP => &["webp"],
             ImageFormat::Avif => &["avif"],
             ImageFormat::Jxl => &["jxl"],
             ImageFormat::Heic => &["heic", "heif", "hif"],
-            ImageFormat::Pnm => &["pnm", "ppm", "pgm", "pbm", "pam", "pfm"],
             ImageFormat::Bmp => &["bmp"],
+            ImageFormat::Tiff => &["tiff", "tif"],
+            ImageFormat::Ico => &["ico", "cur"],
+            ImageFormat::Pnm => &["pnm", "ppm", "pgm", "pbm", "pam", "pfm"],
             ImageFormat::Farbfeld => &["ff"],
+            ImageFormat::Qoi => &["qoi"],
+            ImageFormat::Unknown => &[],
         }
     }
 
@@ -207,9 +272,11 @@ impl ImageFormat {
                 | ImageFormat::Png
                 | ImageFormat::Avif
                 | ImageFormat::Jxl
+                | ImageFormat::Tiff
                 | ImageFormat::Pnm
                 | ImageFormat::Bmp
                 | ImageFormat::Farbfeld
+                | ImageFormat::Qoi
         )
     }
 
@@ -242,7 +309,11 @@ impl ImageFormat {
             ImageFormat::Jxl => 256,     // codestream header or container + jxlc
             ImageFormat::Pnm => 20,      // magic + ASCII dimensions
             ImageFormat::Bmp => 54,      // 14 file header + 40 info header
+            ImageFormat::Tiff => 8,      // endian marker + magic + IFD offset
+            ImageFormat::Ico => 22,      // 6 header + 16 first entry
             ImageFormat::Farbfeld => 16, // 8 magic + 4 width + 4 height
+            ImageFormat::Qoi => 14,      // 4 magic + 4 width + 4 height + 1 channels + 1 colorspace
+            ImageFormat::Unknown => 0,
         }
     }
 
@@ -256,15 +327,19 @@ impl core::fmt::Display for ImageFormat {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
             ImageFormat::Jpeg => "JPEG",
-            ImageFormat::WebP => "WebP",
-            ImageFormat::Gif => "GIF",
             ImageFormat::Png => "PNG",
+            ImageFormat::Gif => "GIF",
+            ImageFormat::WebP => "WebP",
             ImageFormat::Avif => "AVIF",
             ImageFormat::Jxl => "JPEG XL",
             ImageFormat::Heic => "HEIC",
-            ImageFormat::Pnm => "PNM",
             ImageFormat::Bmp => "BMP",
+            ImageFormat::Tiff => "TIFF",
+            ImageFormat::Ico => "ICO",
+            ImageFormat::Pnm => "PNM",
             ImageFormat::Farbfeld => "farbfeld",
+            ImageFormat::Qoi => "QOI",
+            ImageFormat::Unknown => "Unknown",
         })
     }
 }
@@ -381,7 +456,7 @@ mod tests {
     #[test]
     fn from_extension_edge_cases() {
         assert_eq!(ImageFormat::from_extension(""), None);
-        assert_eq!(ImageFormat::from_extension("tiff"), None);
+        assert_eq!(ImageFormat::from_extension("tiff"), Some(ImageFormat::Tiff));
         // Too long for buffer
         assert_eq!(ImageFormat::from_extension("very_long_extension"), None);
     }
@@ -679,13 +754,13 @@ mod tests {
     }
 
     #[test]
-    fn heic_display() {
+    fn heif_display() {
         assert_eq!(alloc::format!("{}", ImageFormat::Heic), "HEIC");
     }
 
     #[test]
-    fn heic_mime_type() {
-        assert_eq!(ImageFormat::Heic.mime_type(), "image/heic");
+    fn heif_mime_type() {
+        assert_eq!(ImageFormat::Heic.mime_type(), "image/heif");
     }
 
     #[test]
