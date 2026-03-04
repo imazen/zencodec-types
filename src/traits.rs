@@ -658,6 +658,29 @@ pub trait Decode: Sized {
         data: &[u8],
         preferred: &[PixelDescriptor],
     ) -> Result<DecodeOutput, Self::Error>;
+
+    /// Decode in batches, yielding strips of scanlines.
+    ///
+    /// The decoder chooses the batch height — MCU height for JPEG, full
+    /// image for simple formats, single scanline, etc. Each callback
+    /// receives `(y_offset, strip)` where `strip` is a borrowed
+    /// [`PixelSlice`] valid only for the duration of the call.
+    ///
+    /// Returns [`ImageInfo`] with full image metadata.
+    ///
+    /// Default: falls back to [`decode()`](Decode::decode) and yields
+    /// the entire image as a single batch.
+    fn decode_batch(
+        self,
+        data: &[u8],
+        preferred: &[PixelDescriptor],
+        on_rows: &mut dyn FnMut(u32, PixelSlice<'_>),
+    ) -> Result<ImageInfo, Self::Error> {
+        let output = self.decode(data, preferred)?;
+        let info = output.info().clone();
+        on_rows(0, output.pixels().as_slice());
+        Ok(info)
+    }
 }
 
 /// Animation decode. Returns owned frames.
