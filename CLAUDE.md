@@ -2,25 +2,42 @@
 
 Shared traits and types for zen* image codecs.
 
-See `/home/lilith/work/zencodecs/api-design.md` for the full API design.
+## API Specification
+
+**[spec.md](spec.md)** — canonical reference for the full public API surface.
+Read this before modifying any traits.
 
 ## Purpose
 
 Tiny, stable crate defining the common interface that all zen* codecs implement:
-- `Encoding` / `EncodingJob` traits for encode configs
-- `Decoding` / `DecodingJob` traits for decode configs
-- `PixelData` enum, `ImageInfo`, `ImageMetadata`, `EncodeOutput`, `DecodeOutput`, `DecodeFrame`
-- `ImageFormat` enum with magic byte detection
-- Re-exports: `imgref`, `rgb`, `enough`
+
+- **Encode**: `EncoderConfig` → `EncodeJob` → `Encoder` (type-erased) or per-format traits (`EncodeRgb8`, `EncodeRgba8`, etc.)
+- **Encode animation**: `EncodeJob` → `FrameEncoder` (type-erased) or `FrameEncodeRgba8`, etc.
+- **Decode**: `DecoderConfig` → `DecodeJob` → `Decode` (one-shot), `StreamingDecode` (scanline batches), or `FrameDecode` (animation)
+- **Pixel types**: `PixelSlice<'a, P>`, `PixelSliceMut`, `PixelBuffer`, `PixelDescriptor`, `PixelFormat`
+- **Metadata**: `ImageInfo`, `Metadata`, `MetadataView`, `OutputInfo`, `Orientation`
+- **Format detection**: `ImageFormat::from_magic()`
+- **Capabilities**: `CodecCapabilities` (const-constructible flag struct)
+- **Errors**: `UnsupportedOperation`, `HasUnsupportedOperation`, `At<E>` (via `whereat`)
+- **Re-exports**: `rgb`, `imgref`, `enough`, `whereat`, `zenpixels_convert`
 
 ## Design Rules
 
 - `#![no_std]` + `alloc` — must build on wasm32
 - `#![forbid(unsafe_code)]`
-- Minimal dependencies: `rgb`, `imgref`, `enough`
-- No codec-specific types here (those live in the codec crates)
+- Codec feature gates the trait hierarchy; pixel/metadata types always available
+- No codec-specific types here (those live in codec crates)
 - No `CodecError` here — each codec has its own error type (associated type on trait)
 - Traits use GATs for lifetime-parameterized Job types
+- `EncodeJob::Enc`/`FrameEnc` have NO trait bounds — codecs implement whichever
+  encode approach they support (type-erased `Encoder`, per-format, or both)
+
+## Key Design Decisions
+
+- **Type-erased vs per-format encode**: `Encoder` accepts `PixelSlice<'_>` (any format, runtime dispatch). Per-format traits like `EncodeRgb8` accept `PixelSlice<'_, Rgb<u8>>` (compile-time guarantee). A codec can implement either or both.
+- **`PixelSlice<'a, P = ()>`**: Default `P = ()` is type-erased. Concrete `P` is typed. `From<PixelSlice<'a, P>> for PixelSlice<'a>` converts typed → erased.
+- **`StreamingDecode`**: Pull-based scanline iterator. `impl StreamingDecode for ()` is the rejection stub for codecs that don't support streaming.
+- **Decode format negotiation**: Caller provides ranked `&[PixelDescriptor]` preference list. Decoder picks best match without lossy conversion.
 
 ## Release Requirements
 
@@ -29,7 +46,7 @@ Tiny, stable crate defining the common interface that all zen* codecs implement:
 - WASM build succeeds (wasm32-wasip1)
 - Clippy clean (no warnings)
 - Format check passes
-- MSRV 1.93 check passes
+- MSRV 1.85 check passes
 - `cargo-semver-checks` passes (no unintended breaking changes)
 
 **Before publishing:**
