@@ -580,13 +580,3 @@ pub use rgb::alt::BGRA as Bgra;
 pub use zenpixels_convert::ext::PixelBufferConvertExt;
 ```
 
----
-
-## Deprecated aliases
-
-```rust
-#[deprecated] trait Decoder: Decode {}          // use Decode
-#[deprecated] trait FrameDecoder: FrameDecode {} // use FrameDecode
-```
-
-Blanket impls: any `T: Decode` also implements `Decoder`, etc.

@@ -845,18 +845,3 @@ pub trait FrameDecode: Sized {
     }
 }
 
-// ===========================================================================
-// Deprecated aliases
-// ===========================================================================
-
-/// Deprecated alias for [`Decode`].
-#[deprecated(since = "0.2.0", note = "renamed to Decode")]
-pub trait Decoder: Decode {}
-#[allow(deprecated)]
-impl<T: Decode> Decoder for T {}
-
-/// Deprecated alias for [`FrameDecode`].
-#[deprecated(since = "0.2.0", note = "renamed to FrameDecode")]
-pub trait FrameDecoder: FrameDecode {}
-#[allow(deprecated)]
-impl<T: FrameDecode> FrameDecoder for T {}

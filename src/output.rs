@@ -49,12 +49,6 @@ impl EncodeOutput {
         &self.data
     }
 
-    /// Borrow the encoded bytes.
-    #[deprecated(note = "use data() instead")]
-    pub fn bytes(&self) -> &[u8] {
-        &self.data
-    }
-
     /// Encoded byte count.
     pub fn len(&self) -> usize {
         self.data.len()
@@ -128,12 +122,6 @@ impl DecodeOutput {
 
     /// Take the pixel buffer, consuming this output.
     pub fn into_buffer(self) -> PixelBuffer {
-        self.pixels
-    }
-
-    /// Take the pixel buffer, consuming this output.
-    #[deprecated(note = "use into_buffer() instead")]
-    pub fn into_pixels(self) -> PixelBuffer {
         self.pixels
     }
 
@@ -382,12 +370,6 @@ impl DecodeFrame {
         self.pixels
     }
 
-    /// Take the pixel buffer, consuming this frame.
-    #[deprecated(note = "use into_buffer() instead")]
-    pub fn into_pixels(self) -> PixelBuffer {
-        self.pixels
-    }
-
     /// Borrow as RGB8 if that's the native format (zero-copy).
     pub fn as_rgb8(&self) -> Option<ImgRef<'_, Rgb<u8>>> {
         self.pixels.try_as_imgref()
@@ -440,12 +422,6 @@ impl DecodeFrame {
 
     /// Frame duration in milliseconds.
     pub fn duration_ms(&self) -> u32 {
-        self.delay_ms
-    }
-
-    /// Frame delay in milliseconds.
-    #[deprecated(note = "use duration_ms() instead")]
-    pub fn delay_ms(&self) -> u32 {
         self.delay_ms
     }
 

@@ -44,8 +44,6 @@ mod output;
 
 // Modules gated behind the `codec` feature (require rgb, imgref, enough).
 #[cfg(feature = "codec")]
-mod pixel;
-#[cfg(feature = "codec")]
 mod sink;
 #[cfg(feature = "codec")]
 mod traits;
@@ -73,9 +71,6 @@ pub use output::{EncodeFrame, EncodeOutput, FrameBlend, FrameDisposal};
 #[cfg(feature = "codec")]
 pub use output::{DecodeFrame, DecodeOutput, TypedEncodeFrame};
 #[cfg(feature = "codec")]
-#[allow(deprecated)]
-pub use pixel::PixelData;
-#[cfg(feature = "codec")]
 pub use sink::DecodeRowSink;
 #[cfg(feature = "codec")]
 pub use traits::{
@@ -84,9 +79,6 @@ pub use traits::{
     EncodeRgbaF32, Encoder, EncoderConfig, FrameDecode, FrameEncodeRgb8, FrameEncodeRgba8,
     FrameEncoder, StreamingDecode,
 };
-#[cfg(feature = "codec")]
-#[allow(deprecated)]
-pub use traits::{Decoder, FrameDecoder};
 
 // Re-export PixelBufferConvertExt so codec crates get to_rgb8() etc. automatically.
 #[cfg(feature = "codec")]

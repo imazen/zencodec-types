@@ -422,29 +422,6 @@ pub trait PixelSliceConvertExt<P> {
     fn try_narrow_to_u8_with_policy(&self, depth: DepthPolicy)
     -> Result<PixelBuffer, ConvertError>;
 
-    /// Add an alpha channel. No-op copy if already has alpha.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
-    #[deprecated(note = "use PixelSlice::try_add_alpha() which returns Result")]
-    fn to_with_alpha(&self) -> PixelBuffer;
-
-    /// Widen to U16 depth. No-op copy if already U16.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
-    #[deprecated(note = "use PixelSlice::try_widen_to_u16() which returns Result")]
-    fn to_u16(&self) -> PixelBuffer;
-
-    /// Narrow to U8 depth. No-op copy if already U8.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the source uses an unsupported channel type (F32, F16, I16).
-    #[deprecated(note = "use PixelSlice::try_narrow_to_u8() which returns Result")]
-    fn to_u8(&self) -> PixelBuffer;
 }
 
 impl<P> PixelSliceConvertExt<P> for PixelSlice<'_, P> {
@@ -514,31 +491,9 @@ impl<P> PixelSliceConvertExt<P> for PixelSlice<'_, P> {
         PixelSliceConvertExt::convert(self, desc.layout(), ChannelType::U8, GrayExpand::Broadcast)
     }
 
-    fn to_with_alpha(&self) -> PixelBuffer {
-        let desc = self.descriptor();
-        let target = match desc.layout() {
-            ChannelLayout::Gray => ChannelLayout::GrayAlpha,
-            ChannelLayout::Rgb => ChannelLayout::Rgba,
-            other => other,
-        };
-        PixelSliceConvertExt::convert(self, target, desc.channel_type(), GrayExpand::Broadcast)
-            .expect("to_with_alpha: add-alpha conversion should not fail")
-    }
-
-    fn to_u16(&self) -> PixelBuffer {
-        let desc = self.descriptor();
-        PixelSliceConvertExt::convert(self, desc.layout(), ChannelType::U16, GrayExpand::Broadcast)
-            .expect("to_u16: depth conversion should not fail")
-    }
-
-    fn to_u8(&self) -> PixelBuffer {
-        self.try_narrow_to_u8_with_policy(DepthPolicy::Round)
-            .expect("to_u8: depth conversion should not fail")
-    }
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
     use alloc::vec::Vec;
 
@@ -576,7 +531,9 @@ mod tests {
     fn u8_to_u16_gray() {
         let data = [100, 200];
         let s = make_slice(&data, 2, 1, PixelDescriptor::GRAY8);
-        let buf = s.to_u16();
+        let buf = s
+            .convert(ChannelLayout::Gray, ChannelType::U16, GrayExpand::Broadcast)
+            .unwrap();
         let bytes = buf.as_contiguous_bytes().unwrap();
         let expected: Vec<u8> = [100u16 * 257, 200u16 * 257]
             .iter()
@@ -592,7 +549,9 @@ mod tests {
             .flat_map(|v| v.to_ne_bytes())
             .collect();
         let s = make_slice(&data, 2, 1, PixelDescriptor::GRAY16);
-        let buf = s.to_u8();
+        let buf = s
+            .convert(ChannelLayout::Gray, ChannelType::U8, GrayExpand::Broadcast)
+            .unwrap();
         let bytes = buf.as_contiguous_bytes().unwrap();
         assert_eq!(bytes, &[128, 255]);
     }
@@ -601,7 +560,9 @@ mod tests {
     fn rgb_to_rgba_add_alpha() {
         let data = [10, 20, 30, 40, 50, 60];
         let s = make_slice(&data, 2, 1, PixelDescriptor::RGB8);
-        let buf = s.to_with_alpha();
+        let buf = s
+            .convert(ChannelLayout::Rgba, ChannelType::U8, GrayExpand::Broadcast)
+            .unwrap();
         let bytes = buf.as_contiguous_bytes().unwrap();
         assert_eq!(bytes, &[10, 20, 30, 255, 40, 50, 60, 255]);
         assert_eq!(buf.descriptor().layout(), ChannelLayout::Rgba);
@@ -612,7 +573,9 @@ mod tests {
     fn gray_to_grayalpha_add_alpha() {
         let data = [42, 99];
         let s = make_slice(&data, 2, 1, PixelDescriptor::GRAY8);
-        let buf = s.to_with_alpha();
+        let buf = s
+            .convert(ChannelLayout::GrayAlpha, ChannelType::U8, GrayExpand::Broadcast)
+            .unwrap();
         let bytes = buf.as_contiguous_bytes().unwrap();
         assert_eq!(bytes, &[42, 255, 99, 255]);
         assert_eq!(buf.descriptor().layout(), ChannelLayout::GrayAlpha);
@@ -734,7 +697,9 @@ mod tests {
             7, 8, 9, 10, 11, 12, // row 1: pixels (7,8,9) and (10,11,12)
         ];
         let s = make_slice(&data, 2, 2, PixelDescriptor::RGB8);
-        let buf = s.to_with_alpha();
+        let buf = s
+            .convert(ChannelLayout::Rgba, ChannelType::U8, GrayExpand::Broadcast)
+            .unwrap();
         let bytes = buf.as_contiguous_bytes().unwrap();
         assert_eq!(
             bytes,
@@ -759,7 +724,9 @@ mod tests {
         .with_primaries(ColorPrimaries::Bt709)
         .with_signal_range(SignalRange::Full);
         let s = make_slice(&data, 1, 1, desc);
-        let buf = s.to_u16();
+        let buf = s
+            .convert(ChannelLayout::Gray, ChannelType::U16, GrayExpand::Broadcast)
+            .unwrap();
         assert_eq!(buf.descriptor().transfer(), TransferFunction::Srgb);
         assert_eq!(buf.descriptor().primaries, ColorPrimaries::Bt709);
         assert_eq!(buf.descriptor().signal_range, SignalRange::Full);
@@ -771,7 +738,9 @@ mod tests {
         let desc = PixelDescriptor::RGB8;
         let stride = 0;
         let s = PixelSlice::new(&data, 0, 0, stride, desc).unwrap();
-        let buf = s.to_u16();
+        let buf = s
+            .convert(ChannelLayout::Rgb, ChannelType::U16, GrayExpand::Broadcast)
+            .unwrap();
         assert_eq!(buf.width(), 0);
         assert_eq!(buf.height(), 0);
     }
@@ -781,8 +750,13 @@ mod tests {
         // U8->U16->U8 should preserve values (x257 then rounded)
         let data = [0, 1, 127, 128, 254, 255];
         let s = make_slice(&data, 6, 1, PixelDescriptor::GRAY8);
-        let wide = s.to_u16();
-        let narrow = wide.as_slice().to_u8();
+        let wide = s
+            .convert(ChannelLayout::Gray, ChannelType::U16, GrayExpand::Broadcast)
+            .unwrap();
+        let narrow = wide
+            .as_slice()
+            .convert(ChannelLayout::Gray, ChannelType::U8, GrayExpand::Broadcast)
+            .unwrap();
         let bytes = narrow.as_contiguous_bytes().unwrap();
         assert_eq!(bytes, &data);
     }
@@ -792,8 +766,13 @@ mod tests {
         // Verify U8->U16->U8 roundtrip for all 256 values
         let data: Vec<u8> = (0..=255).collect();
         let s = make_slice(&data, 256, 1, PixelDescriptor::GRAY8);
-        let wide = s.to_u16();
-        let narrow = wide.as_slice().to_u8();
+        let wide = s
+            .convert(ChannelLayout::Gray, ChannelType::U16, GrayExpand::Broadcast)
+            .unwrap();
+        let narrow = wide
+            .as_slice()
+            .convert(ChannelLayout::Gray, ChannelType::U8, GrayExpand::Broadcast)
+            .unwrap();
         let bytes = narrow.as_contiguous_bytes().unwrap();
         assert_eq!(bytes, &data[..]);
     }
@@ -805,7 +784,9 @@ mod tests {
             .flat_map(|v| v.to_ne_bytes())
             .collect();
         let s = make_slice(&data, 4, 1, PixelDescriptor::GRAY16);
-        let buf = s.to_u8();
+        let buf = s
+            .convert(ChannelLayout::Gray, ChannelType::U8, GrayExpand::Broadcast)
+            .unwrap();
         let bytes = buf.as_contiguous_bytes().unwrap();
         assert_eq!(bytes[0], 127);
         assert_eq!(bytes[1], 128);
