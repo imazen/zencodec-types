@@ -37,6 +37,7 @@ mod info;
 mod limits;
 mod orientation;
 mod output;
+mod policy;
 mod sink;
 mod traits;
 
@@ -54,6 +55,7 @@ pub use info::{
 };
 pub use limits::{LimitExceeded, ResourceLimits};
 pub use orientation::{Orientation, OrientationHint};
+pub use policy::{DecodePolicy, EncodePolicy};
 pub use output::{
     DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput, FrameBlend, FrameDisposal,
     TypedEncodeFrame,

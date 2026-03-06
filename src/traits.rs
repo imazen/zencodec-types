@@ -176,6 +176,14 @@ pub trait EncodeJob<'a>: Sized {
     /// Override resource limits for this operation.
     fn with_limits(self, limits: ResourceLimits) -> Self;
 
+    /// Set encode security policy (controls metadata embedding, etc.).
+    ///
+    /// Default no-op. Codecs that support policy check the flags in
+    /// [`EncodePolicy`](crate::EncodePolicy) to decide what to embed.
+    fn with_policy(self, _policy: crate::EncodePolicy) -> Self {
+        self
+    }
+
     /// Set metadata (ICC, EXIF, XMP) to embed in the output.
     ///
     /// The codec embeds what the format supports, silently skips the rest.
@@ -583,6 +591,14 @@ pub trait DecodeJob<'a>: Sized {
 
     /// Override resource limits for this operation.
     fn with_limits(self, limits: ResourceLimits) -> Self;
+
+    /// Set decode security policy (controls metadata extraction, parsing strictness, etc.).
+    ///
+    /// Default no-op. Codecs that support policy check the flags in
+    /// [`DecodePolicy`](crate::DecodePolicy) to decide what to extract and accept.
+    fn with_policy(self, _policy: crate::DecodePolicy) -> Self {
+        self
+    }
 
     // --- Probing (needs limits + stop context) ---
 
