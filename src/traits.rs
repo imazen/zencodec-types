@@ -39,6 +39,8 @@
 //! native pixels with ICC/CICP metadata. Encoders accept pixels as-is and
 //! embed the provided metadata. The caller handles CMS transforms.
 
+use alloc::boxed::Box;
+
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
 use crate::{
@@ -47,6 +49,25 @@ use crate::{
 };
 use rgb::{Gray, Rgb, Rgba};
 use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
+
+/// Boxed error type for type-erased codec operations.
+///
+/// Used by [`EncodeJob::dyn_encoder`], [`DecodeJob::dyn_decoder`], and
+/// related methods that erase the concrete codec type.
+pub type BoxedError = Box<dyn core::error::Error + Send + Sync>;
+
+/// Type-erased one-shot encoder: accepts any pixel format, produces encoded output.
+pub type DynEncoder<'a> = Box<dyn FnOnce(PixelSlice<'_>) -> Result<EncodeOutput, BoxedError> + 'a>;
+
+/// Type-erased frame encoder: `Some(frame)` pushes a frame, `None` finalizes.
+pub type DynFrameEncoder<'a> =
+    Box<dyn FnMut(Option<EncodeFrame<'_>>) -> Result<Option<EncodeOutput>, BoxedError> + 'a>;
+
+/// Type-erased one-shot decoder: call to get decoded pixels.
+pub type DynDecoder<'a> = Box<dyn FnOnce() -> Result<DecodeOutput, BoxedError> + 'a>;
+
+/// Type-erased frame decoder: call repeatedly until `Ok(None)`.
+pub type DynFrameDecoder<'a> = Box<dyn FnMut() -> Result<Option<DecodeFrame>, BoxedError> + 'a>;
 
 // ===========================================================================
 // Encode traits
@@ -213,6 +234,93 @@ pub trait EncodeJob<'a>: Sized {
 
     /// Create a frame-by-frame encoder for animation.
     fn frame_encoder(self) -> Result<Self::FrameEnc, Self::Error>;
+
+    // --- Type-erased convenience methods ---
+
+    /// Create a type-erased one-shot encoder.
+    ///
+    /// Returns a boxed closure that accepts any [`PixelSlice`] (type-erased)
+    /// and produces encoded output. All configuration — both universal
+    /// ([`EncoderConfig::with_generic_quality`]) and codec-specific (methods
+    /// on the concrete config type) — is applied *before* this call.
+    ///
+    /// Only available when `Enc` implements [`Encoder`].
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Codec-specific options on the concrete type
+    /// let config = JpegConfig::new()
+    ///     .set_chroma_subsampling(ChromaSubsampling::Yuv444)
+    ///     .with_generic_quality(92.0);
+    ///
+    /// // Erase the codec type
+    /// let encode = config.job()
+    ///     .with_metadata(&meta)
+    ///     .dyn_encoder()?;
+    ///
+    /// // No generics from here on
+    /// let output = encode(pixels)?;
+    /// ```
+    fn dyn_encoder(self) -> Result<DynEncoder<'a>, BoxedError>
+    where
+        Self: 'a,
+        Self::Enc: Encoder,
+    {
+        let enc = self.encoder().map_err(|e| Box::new(e) as BoxedError)?;
+        Ok(Box::new(move |pixels: PixelSlice<'_>| {
+            enc.encode(pixels).map_err(|e| Box::new(e) as BoxedError)
+        }))
+    }
+
+    /// Create a type-erased frame-by-frame encoder.
+    ///
+    /// Returns a boxed closure using an option protocol:
+    /// - `Some(frame)` — push a frame, returns `Ok(None)`
+    /// - `None` — finalize the animation, returns `Ok(Some(output))`
+    ///
+    /// Only available when `FrameEnc` implements [`FrameEncoder`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if called after finalization (`None` sent twice).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut encode_frame = config.job()
+    ///     .with_loop_count(Some(0))
+    ///     .dyn_frame_encoder()?;
+    ///
+    /// encode_frame(Some(frame1))?;
+    /// encode_frame(Some(frame2))?;
+    /// let output = encode_frame(None)?.unwrap();
+    /// ```
+    fn dyn_frame_encoder(self) -> Result<DynFrameEncoder<'a>, BoxedError>
+    where
+        Self: 'a,
+        Self::FrameEnc: FrameEncoder,
+    {
+        let enc = self
+            .frame_encoder()
+            .map_err(|e| Box::new(e) as BoxedError)?;
+        let mut enc = Some(enc);
+        Ok(Box::new(move |frame| match frame {
+            Some(frame) => {
+                enc.as_mut()
+                    .expect("frame encoder already finished")
+                    .push_encode_frame(frame)
+                    .map_err(|e| Box::new(e) as BoxedError)?;
+                Ok(None)
+            }
+            None => {
+                let enc = enc.take().expect("frame encoder already finished");
+                enc.finish()
+                    .map_err(|e| Box::new(e) as BoxedError)
+                    .map(Some)
+            }
+        }))
+    }
 }
 
 // ===========================================================================
@@ -734,6 +842,69 @@ pub trait DecodeJob<'a>: Sized {
         data: &'a [u8],
         preferred: &[PixelDescriptor],
     ) -> Result<Self::FrameDec, Self::Error>;
+
+    // --- Type-erased convenience methods ---
+
+    /// Create a type-erased one-shot decoder.
+    ///
+    /// Returns a boxed closure that decodes to owned pixels. All hints
+    /// and preferences are bound before this call.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let decode = config.job()
+    ///     .with_scale_hint(800, 600)
+    ///     .dyn_decoder(data, &[PixelDescriptor::rgb8()])?;
+    ///
+    /// let output: DecodeOutput = decode()?;
+    /// ```
+    fn dyn_decoder(
+        self,
+        data: &'a [u8],
+        preferred: &[PixelDescriptor],
+    ) -> Result<DynDecoder<'a>, BoxedError>
+    where
+        Self: 'a,
+    {
+        let dec = self
+            .decoder(data, preferred)
+            .map_err(|e| Box::new(e) as BoxedError)?;
+        Ok(Box::new(move || {
+            dec.decode().map_err(|e| Box::new(e) as BoxedError)
+        }))
+    }
+
+    /// Create a type-erased frame-by-frame decoder.
+    ///
+    /// Returns a boxed closure that yields frames. Call repeatedly
+    /// until it returns `Ok(None)`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut next_frame = config.job()
+    ///     .dyn_frame_decoder(data, &[])?;
+    ///
+    /// while let Some(frame) = next_frame()? {
+    ///     // process frame
+    /// }
+    /// ```
+    fn dyn_frame_decoder(
+        self,
+        data: &'a [u8],
+        preferred: &[PixelDescriptor],
+    ) -> Result<DynFrameDecoder<'a>, BoxedError>
+    where
+        Self: 'a,
+    {
+        let mut dec = self
+            .frame_decoder(data, preferred)
+            .map_err(|e| Box::new(e) as BoxedError)?;
+        Ok(Box::new(move || {
+            dec.next_frame().map_err(|e| Box::new(e) as BoxedError)
+        }))
+    }
 }
 
 /// Single-image decode. Returns owned pixels.

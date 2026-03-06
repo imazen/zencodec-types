@@ -35,6 +35,7 @@ mod format;
 mod gainmap;
 mod info;
 mod limits;
+mod negotiate;
 mod orientation;
 mod output;
 mod policy;
@@ -54,18 +55,20 @@ pub use info::{
     Metadata, MetadataView, OutputInfo, SourceColor,
 };
 pub use limits::{LimitExceeded, ResourceLimits};
+pub use negotiate::{best_encode_format, is_format_available, negotiate_pixel_format};
+// TODO: Add PixelPreference preset lists once real callers validate the designs
 pub use orientation::{Orientation, OrientationHint};
-pub use policy::{DecodePolicy, EncodePolicy};
 pub use output::{
     DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput, FrameBlend, FrameDisposal,
     TypedEncodeFrame,
 };
+pub use policy::{DecodePolicy, EncodePolicy};
 pub use sink::DecodeRowSink;
 pub use traits::{
-    Decode, DecodeJob, DecoderConfig, EncodeGray8, EncodeGray16, EncodeGrayF32, EncodeJob,
-    EncodeRgb8, EncodeRgb16, EncodeRgbF16, EncodeRgbF32, EncodeRgba8, EncodeRgba16, EncodeRgbaF16,
-    EncodeRgbaF32, Encoder, EncoderConfig, FrameDecode, FrameEncodeRgb8, FrameEncodeRgba8,
-    FrameEncoder, StreamingDecode,
+    BoxedError, Decode, DecodeJob, DecoderConfig, DynDecoder, DynEncoder, DynFrameDecoder,
+    DynFrameEncoder, EncodeGray8, EncodeGray16, EncodeGrayF32, EncodeJob, EncodeRgb8, EncodeRgb16,
+    EncodeRgbF16, EncodeRgbF32, EncodeRgba8, EncodeRgba16, EncodeRgbaF16, EncodeRgbaF32, Encoder,
+    EncoderConfig, FrameDecode, FrameEncodeRgb8, FrameEncodeRgba8, FrameEncoder, StreamingDecode,
 };
 
 // Re-export PixelBufferConvertExt so codec crates get to_rgb8() etc. automatically.
