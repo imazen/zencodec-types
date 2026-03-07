@@ -33,7 +33,7 @@
 /// let cost = job.estimated_cost(data)?;
 /// limits.check_decode_cost(&cost)?;
 /// ```
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ResourceLimits {
     /// Maximum total pixels (width × height).
@@ -52,10 +52,31 @@ pub struct ResourceLimits {
     pub max_frames: Option<u32>,
     /// Maximum total animation duration in milliseconds.
     pub max_duration_ms: Option<u64>,
+    /// Whether the codec may use multiple threads.
+    ///
+    /// Defaults to `true`. Set to `false` to force single-threaded operation
+    /// (useful for deterministic output or constrained environments).
+    pub allow_multithreading: bool,
+}
+
+impl Default for ResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_pixels: None,
+            max_memory_bytes: None,
+            max_output_bytes: None,
+            max_width: None,
+            max_height: None,
+            max_file_size: None,
+            max_frames: None,
+            max_duration_ms: None,
+            allow_multithreading: true,
+        }
+    }
 }
 
 impl ResourceLimits {
-    /// No limits (all fields `None`).
+    /// No limits (all fields `None`), multithreading allowed.
     pub fn none() -> Self {
         Self::default()
     }
@@ -108,7 +129,18 @@ impl ResourceLimits {
         self
     }
 
-    /// Whether any limits are set.
+    /// Set whether the codec may use multiple threads.
+    pub fn with_allow_multithreading(mut self, allow: bool) -> Self {
+        self.allow_multithreading = allow;
+        self
+    }
+
+    /// Whether multithreading is allowed.
+    pub fn allow_multithreading(&self) -> bool {
+        self.allow_multithreading
+    }
+
+    /// Whether any limits are set (including disabling multithreading).
     pub fn has_any(&self) -> bool {
         self.max_pixels.is_some()
             || self.max_memory_bytes.is_some()
@@ -118,6 +150,7 @@ impl ResourceLimits {
             || self.max_file_size.is_some()
             || self.max_frames.is_some()
             || self.max_duration_ms.is_some()
+            || !self.allow_multithreading
     }
 
     // --- Validation methods ---
