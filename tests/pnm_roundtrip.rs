@@ -58,6 +58,9 @@ fn concrete_encode_decode_rgb8_roundtrip() {
     assert_eq!(output.format(), ImageFormat::Pnm);
     assert!(!output.is_empty());
 
+    assert_eq!(output.mime_type(), "image/x-portable-anymap");
+    assert_eq!(output.extension(), "pnm");
+
     // Verify PPM header
     let encoded = output.data();
     assert!(encoded.starts_with(b"P6\n4 2\n255\n"));

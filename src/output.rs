@@ -9,17 +9,54 @@ use crate::{ImageFormat, ImageInfo, MetadataView};
 use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
 
 /// Output from an encode operation.
+///
+/// Carries the encoded bytes, the format enum, and the actual MIME type and
+/// file extension of the output. The MIME type and extension default to
+/// [`ImageFormat::mime_type()`] / [`ImageFormat::extension()`] but can be
+/// overridden with [`with_mime_type()`](EncodeOutput::with_mime_type) /
+/// [`with_extension()`](EncodeOutput::with_extension) for cases where the
+/// output differs from the base format (e.g. `image/apng` vs `image/png`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct EncodeOutput {
     data: Vec<u8>,
     format: ImageFormat,
+    mime_type: &'static str,
+    extension: &'static str,
 }
 
 impl EncodeOutput {
     /// Create a new encode output.
+    ///
+    /// MIME type and extension default to the format's primary values.
+    /// Use [`with_mime_type()`](EncodeOutput::with_mime_type) /
+    /// [`with_extension()`](EncodeOutput::with_extension) to override
+    /// (e.g. for animated PNG → `"image/apng"` / `"apng"`).
     pub fn new(data: Vec<u8>, format: ImageFormat) -> Self {
-        Self { data, format }
+        Self {
+            data,
+            mime_type: format.mime_type(),
+            extension: format.extension(),
+            format,
+        }
+    }
+
+    /// Override the MIME type for the encoded output.
+    ///
+    /// Use when the actual output differs from the base format's default,
+    /// e.g. `"image/apng"` for animated PNG.
+    pub fn with_mime_type(mut self, mime_type: &'static str) -> Self {
+        self.mime_type = mime_type;
+        self
+    }
+
+    /// Override the file extension for the encoded output.
+    ///
+    /// Use when the actual output differs from the base format's default,
+    /// e.g. `"apng"` for animated PNG.
+    pub fn with_extension(mut self, extension: &'static str) -> Self {
+        self.extension = extension;
+        self
     }
 
     /// Consume and return the encoded bytes.
@@ -45,6 +82,22 @@ impl EncodeOutput {
     /// The format that was used for encoding.
     pub fn format(&self) -> ImageFormat {
         self.format
+    }
+
+    /// MIME type of the encoded output (e.g. `"image/png"` or `"image/apng"`).
+    ///
+    /// Defaults to [`ImageFormat::mime_type()`] unless overridden by the
+    /// encoder via [`with_mime_type()`](EncodeOutput::with_mime_type).
+    pub fn mime_type(&self) -> &'static str {
+        self.mime_type
+    }
+
+    /// Suggested file extension for the encoded output (e.g. `"png"` or `"apng"`).
+    ///
+    /// Defaults to [`ImageFormat::extension()`] unless overridden by the
+    /// encoder via [`with_extension()`](EncodeOutput::with_extension).
+    pub fn extension(&self) -> &'static str {
+        self.extension
     }
 }
 
@@ -506,10 +559,22 @@ mod tests {
     fn encode_output() {
         let output = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg);
         assert_eq!(output.format(), ImageFormat::Jpeg);
+        assert_eq!(output.mime_type(), "image/jpeg");
+        assert_eq!(output.extension(), "jpg");
         assert_eq!(output.len(), 3);
         assert_eq!(output.data(), &[1, 2, 3]);
         assert!(!output.is_empty());
         assert_eq!(output.into_vec(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn encode_output_mime_extension_override() {
+        let output = EncodeOutput::new(vec![], ImageFormat::Png)
+            .with_mime_type("image/apng")
+            .with_extension("apng");
+        assert_eq!(output.format(), ImageFormat::Png);
+        assert_eq!(output.mime_type(), "image/apng");
+        assert_eq!(output.extension(), "apng");
     }
 
     #[test]
