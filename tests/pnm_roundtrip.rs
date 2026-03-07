@@ -611,7 +611,7 @@ fn sink_preallocated_buffer() {
     }
 
     impl DecodeRowSink for PreallocSink<'_> {
-        fn demand(
+        fn provide_next_buffer(
             &mut self,
             y: u32,
             height: u32,
@@ -679,39 +679,39 @@ fn sink_preallocated_buffer() {
 
 /// Use case: format-constrained sink.
 ///
-/// The sink only accepts RGBA8 but the codec produces RGB8.
-/// With the current API, the sink discovers the mismatch at the first
-/// demand() call and must reject — there's no upfront negotiation.
-///
-/// This test demonstrates the gap: the sink can't tell the decoder
-/// "please give me RGBA8 instead" at demand() time. The `preferred`
-/// parameter on decoder() is the only negotiation point, but it's
-/// on the decoder side, not the sink side.
+/// The sink only accepts RGBA8 but the codec produces RGB8. With begin(),
+/// the sink rejects the format upfront — before any strips are pushed.
+/// This is much better than discovering the mismatch at provide_next_buffer()
+/// time after decode work has already been done.
 #[test]
-fn sink_format_mismatch_rejected() {
-    let pixels = test_rgb8_pixels();
-    let config = PnmEncoderConfig::new();
-    let _encoded = config.job().encoder().unwrap().encode(pixels.as_slice()).unwrap();
-
+fn sink_format_mismatch_rejected_at_begin() {
     struct Rgba8OnlySink {
         buf: Vec<u8>,
     }
 
     impl DecodeRowSink for Rgba8OnlySink {
-        fn demand(
+        fn begin(
             &mut self,
-            _y: u32,
-            height: u32,
-            width: u32,
+            _width: u32,
+            _height: u32,
             descriptor: PixelDescriptor,
-        ) -> Result<PixelSliceMut<'_>, SinkError> {
-            // This sink only accepts RGBA8
+        ) -> Result<(), SinkError> {
             if descriptor != PixelDescriptor::RGBA8_SRGB {
                 return Err(format!(
                     "sink requires RGBA8, got {:?}",
                     descriptor
                 ).into());
             }
+            Ok(())
+        }
+
+        fn provide_next_buffer(
+            &mut self,
+            _y: u32,
+            height: u32,
+            width: u32,
+            descriptor: PixelDescriptor,
+        ) -> Result<PixelSliceMut<'_>, SinkError> {
             let bpp = descriptor.bytes_per_pixel();
             let stride = width as usize * bpp;
             let needed = height as usize * stride;
@@ -723,34 +723,23 @@ fn sink_format_mismatch_rejected() {
 
     let mut sink = Rgba8OnlySink { buf: Vec::new() };
 
-    // PNM produces RGB8, sink wants RGBA8.
-    // push_decoder's default impl decodes first, then pushes to sink.
-    // The sink rejects at demand() time — but decode already happened.
-    //
-    // Note: push_decoder's default uses FullFrameDec::wrap_sink_error,
-    // which panics for PNM (Unsupported stub). We test via manual
-    // simulation instead, which is more representative of how a real
-    // codec with streaming decode would hit this.
-    let pixels_decoded = test_rgb8_pixels();
-    let ps = pixels_decoded.as_slice();
-    let desc = ps.descriptor();
-
-    let result = sink.demand(0, ps.rows(), ps.width(), desc);
+    // RGB8 → rejected at begin(), before any strips are pushed
+    let result = sink.begin(4, 2, PixelDescriptor::RGB8_SRGB);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("RGBA8") || err_msg.contains("sink requires"), "{err_msg}");
+    assert!(err_msg.contains("RGBA8"), "{err_msg}");
+
+    // RGBA8 → accepted
+    let mut sink2 = Rgba8OnlySink { buf: Vec::new() };
+    sink2.begin(4, 2, PixelDescriptor::RGBA8_SRGB).unwrap();
 }
 
 /// Use case: row-processing pipeline sink.
 ///
 /// The sink processes each strip as it arrives (e.g., color conversion,
-/// downsampling, or writing to a file). The current API implicitly
-/// signals completion of a strip by calling demand() again, which works
-/// but means the sink can only process on the *next* demand() call.
-/// The last strip's completion is implicit when push_decoder returns.
-///
-/// This test verifies the implicit-completion pattern works and shows
-/// where an explicit rows_written() signal would help.
+/// downsampling, or writing to a file). The previous strip is processed
+/// when provide_next_buffer() is called for the next one, and the last
+/// strip is processed in finish().
 #[test]
 fn sink_row_processing_pipeline() {
     let pixels = test_rgb8_pixels(); // 4x2 RGB8
@@ -759,7 +748,6 @@ fn sink_row_processing_pipeline() {
 
     struct ProcessingSink {
         strip_buf: Vec<u8>,
-        // Accumulates processed output: sum of each row's R channel values
         row_sums: Vec<u32>,
         pending_strip: Option<(u32, u32, u32)>, // (y, height, width) of previous strip
     }
@@ -767,32 +755,30 @@ fn sink_row_processing_pipeline() {
     impl ProcessingSink {
         fn process_pending(&mut self) {
             if let Some((y, height, width)) = self.pending_strip.take() {
-                // Process the strip that was just written
                 let bpp = 3; // RGB8
                 let stride = width as usize * bpp;
                 for row_idx in 0..height {
                     let row_start = row_idx as usize * stride;
                     let mut sum = 0u32;
                     for x in 0..width as usize {
-                        sum += self.strip_buf[row_start + x * bpp] as u32; // R channel
+                        sum += self.strip_buf[row_start + x * bpp] as u32;
                     }
                     self.row_sums.push(sum);
-                    let _ = y; // would use y + row_idx for positioning
+                    let _ = y;
                 }
             }
         }
     }
 
     impl DecodeRowSink for ProcessingSink {
-        fn demand(
+        fn provide_next_buffer(
             &mut self,
             y: u32,
             height: u32,
             width: u32,
             descriptor: PixelDescriptor,
         ) -> Result<PixelSliceMut<'_>, SinkError> {
-            // Process the *previous* strip before handing out the buffer
-            // for the next one. This is the implicit completion signal.
+            // Process the *previous* strip before handing out the next buffer
             self.process_pending();
 
             self.pending_strip = Some((y, height, width));
@@ -802,6 +788,12 @@ fn sink_row_processing_pipeline() {
             self.strip_buf.resize(needed, 0);
             Ok(PixelSliceMut::new(&mut self.strip_buf, width, height, stride, descriptor)
                 .expect("valid slice"))
+        }
+
+        fn finish(&mut self) -> Result<(), SinkError> {
+            // Process the last strip
+            self.process_pending();
+            Ok(())
         }
     }
 
@@ -818,12 +810,7 @@ fn sink_row_processing_pipeline() {
         &[],
     ).expect("push_decoder");
 
-    // Process the last strip — this is the gap. The caller must know
-    // to call process_pending() after push_decoder returns. An explicit
-    // finish() method on the sink would solve this.
-    sink.process_pending();
-
-    // Verify we processed all rows
+    // finish() was called by push_decoder — no manual cleanup needed
     assert_eq!(sink.row_sums.len(), 2, "should have processed 2 rows");
 
     // Row 0: R values are 255, 0, 0, 255 → sum = 510
@@ -832,15 +819,10 @@ fn sink_row_processing_pipeline() {
     assert_eq!(sink.row_sums[1], 510);
 }
 
-/// Use case: completion-aware sink (flush to output).
+/// Use case: completion-aware sink with begin/finish lifecycle.
 ///
-/// The sink writes decoded rows to an output buffer and needs to
-/// finalize when decode completes. Currently, the sink has no
-/// way to know decode is done except by the fact that push_decoder()
-/// returned.
-///
-/// This test shows a pattern where the sink accumulates data and
-/// the caller must explicitly finalize after decode.
+/// The sink allocates in begin() and finalizes in finish(). The codec
+/// calls the full lifecycle: begin → provide_next_buffer × N → finish.
 #[test]
 fn sink_completion_aware() {
     let pixels = test_gray8_pixels(); // 3x2 Gray8
@@ -848,66 +830,68 @@ fn sink_completion_aware() {
     let encoded = config.job().encoder().unwrap().encode(pixels.as_slice()).unwrap();
 
     struct AccumulatingSink {
-        output: PixelBuffer,
+        output: Option<PixelBuffer>,
         rows_received: u32,
-    }
-
-    impl AccumulatingSink {
-        fn new(width: u32, height: u32, desc: PixelDescriptor) -> Self {
-            Self {
-                output: PixelBuffer::new(width, height, desc),
-                rows_received: 0,
-            }
-        }
-
-        fn is_complete(&self) -> bool {
-            self.rows_received == self.output.height()
-        }
+        finished: bool,
     }
 
     impl DecodeRowSink for AccumulatingSink {
-        fn demand(
+        fn begin(
+            &mut self,
+            width: u32,
+            height: u32,
+            descriptor: PixelDescriptor,
+        ) -> Result<(), SinkError> {
+            // Pre-allocate with known total dimensions from begin()
+            self.output = Some(PixelBuffer::new(width, height, descriptor));
+            Ok(())
+        }
+
+        fn provide_next_buffer(
             &mut self,
             y: u32,
             height: u32,
             width: u32,
             descriptor: PixelDescriptor,
         ) -> Result<PixelSliceMut<'_>, SinkError> {
-            if descriptor != self.output.descriptor() {
+            let output = self.output.as_mut().ok_or("begin() not called")?;
+            if descriptor != output.descriptor() {
                 return Err("format mismatch".into());
             }
-            if width != self.output.width() {
+            if width != output.width() {
                 return Err("width mismatch".into());
             }
-            // Track how many rows we've received
             self.rows_received = y + height;
+            Ok(output.rows_mut(y, height))
+        }
 
-            // Return a view into the pre-allocated buffer at the right offset
-            Ok(self.output.rows_mut(y, height))
+        fn finish(&mut self) -> Result<(), SinkError> {
+            self.finished = true;
+            Ok(())
         }
     }
 
-    // First: probe to learn dimensions and format
+    let mut sink = AccumulatingSink {
+        output: None,
+        rows_received: 0,
+        finished: false,
+    };
+
     let dec_config = PnmDecoderConfig::new();
-    let job = dec_config.job();
-    let out_info = job.output_info(encoded.data()).expect("output_info");
-
-    let mut sink = AccumulatingSink::new(out_info.width, out_info.height, out_info.native_format);
-
-    let dec_config2 = PnmDecoderConfig::new();
-    dec_config2.job().push_decoder(
+    dec_config.job().push_decoder(
         Cow::Borrowed(encoded.data()),
         &mut sink,
         &[],
     ).expect("push_decoder");
 
-    // After push_decoder returns, the sink should be complete
-    assert!(sink.is_complete(), "sink should have received all rows");
+    // push_decoder called begin(), provide_next_buffer(), finish()
+    assert!(sink.finished, "finish() should have been called");
     assert_eq!(sink.rows_received, 2);
 
     // Verify the accumulated output matches original
+    let output = sink.output.expect("begin() should have allocated");
     let orig = pixels.as_slice();
-    let result = sink.output.as_slice();
+    let result = output.as_slice();
     for y in 0..orig.rows() {
         assert_eq!(orig.row(y), result.row(y), "row {y} mismatch");
     }
@@ -956,7 +940,7 @@ fn sink_simd_aligned_decode_into() {
     }
 
     impl DecodeRowSink for AlignedDecodeIntoSink {
-        fn demand(
+        fn provide_next_buffer(
             &mut self,
             y: u32,
             height: u32,
@@ -1042,7 +1026,7 @@ fn sink_through_dyn_dispatch() {
     }
 
     impl DecodeRowSink for CollectSink {
-        fn demand(
+        fn provide_next_buffer(
             &mut self,
             y: u32,
             height: u32,
@@ -1084,16 +1068,12 @@ fn sink_through_dyn_dispatch() {
     assert_eq!(sink.dimensions, Some((4, 2)));
 }
 
-/// Use case: sink that discovers format from the first demand() call.
+/// Use case: sink that allocates in begin().
 ///
 /// When the caller doesn't know the output format upfront (e.g., the
 /// codec might produce RGB8 or Gray8 depending on the input), the
-/// sink must defer allocation until the first demand() call reveals
-/// the format.
-///
-/// This works with the current API but means the sink can't validate
-/// format compatibility before decode begins. With a negotiation step,
-/// the sink could declare acceptable formats upfront.
+/// sink can allocate in begin() when it learns the format AND total
+/// dimensions. Previously this required the caller to probe separately.
 #[test]
 fn sink_deferred_allocation() {
     let pixels = test_gray8_pixels(); // Gray8 — sink doesn't know this in advance
@@ -1105,29 +1085,25 @@ fn sink_deferred_allocation() {
     }
 
     impl DecodeRowSink for DeferredSink {
-        fn demand(
+        fn begin(
+            &mut self,
+            width: u32,
+            height: u32,
+            descriptor: PixelDescriptor,
+        ) -> Result<(), SinkError> {
+            // Allocate with known total dimensions — no guessing needed
+            self.buf = Some(PixelBuffer::new(width, height, descriptor));
+            Ok(())
+        }
+
+        fn provide_next_buffer(
             &mut self,
             y: u32,
             height: u32,
-            width: u32,
-            descriptor: PixelDescriptor,
+            _width: u32,
+            _descriptor: PixelDescriptor,
         ) -> Result<PixelSliceMut<'_>, SinkError> {
-            // Allocate on first call, when we learn the format
-            if self.buf.is_none() {
-                // Problem: we don't know total height here. We only know
-                // the current strip height. For push_decoder's default impl,
-                // the entire image comes in one strip, but a streaming codec
-                // might give us 8-row strips. We'd need output_info() or
-                // probe() results to pre-allocate correctly.
-                //
-                // Workaround: grow the buffer on each demand(). But that
-                // means we can't return a view into a pre-sized buffer.
-                // For now, assume single-strip (push_decoder default).
-                let total_h = y + height; // only correct if single-strip!
-                self.buf = Some(PixelBuffer::new(width, total_h, descriptor));
-            }
-
-            let buf = self.buf.as_mut().unwrap();
+            let buf = self.buf.as_mut().ok_or("begin() not called")?;
             Ok(buf.rows_mut(y, height))
         }
     }
@@ -1141,7 +1117,7 @@ fn sink_deferred_allocation() {
         &[],
     ).expect("push_decoder");
 
-    let buf = sink.buf.expect("should have allocated");
+    let buf = sink.buf.expect("begin() should have allocated");
     assert_eq!(buf.width(), 3);
     assert_eq!(buf.height(), 2);
     assert_eq!(buf.descriptor(), PixelDescriptor::GRAY8_SRGB);
@@ -1157,7 +1133,7 @@ fn sink_deferred_allocation() {
 /// Use case: multi-strip streaming sink.
 ///
 /// Simulates what a real streaming codec (like JPEG with MCU strips)
-/// would do: multiple demand() calls, each for a subset of rows.
+/// would do: multiple provide_next_buffer() calls, each for a subset of rows.
 /// Tests that the sink correctly handles incremental strips being
 /// written into a pre-allocated buffer.
 #[test]
@@ -1185,7 +1161,7 @@ fn sink_multi_strip_simulation() {
     }
 
     impl DecodeRowSink for MultiStripSink {
-        fn demand(
+        fn provide_next_buffer(
             &mut self,
             y: u32,
             height: u32,
@@ -1210,7 +1186,7 @@ fn sink_multi_strip_simulation() {
     let src = source.as_slice();
     for strip_y in (0..height).step_by(strip_height as usize) {
         let h = strip_height.min(height - strip_y);
-        let mut dst = sink.demand(strip_y, h, width, desc).unwrap();
+        let mut dst = sink.provide_next_buffer(strip_y, h, width, desc).unwrap();
         for row in 0..h {
             dst.row_mut(row).copy_from_slice(src.row(strip_y + row));
         }
@@ -1249,7 +1225,7 @@ fn sink_early_abort() {
     }
 
     impl DecodeRowSink for AbortAfterNSink {
-        fn demand(
+        fn provide_next_buffer(
             &mut self,
             _y: u32,
             height: u32,
@@ -1275,13 +1251,13 @@ fn sink_early_abort() {
         strips_seen: 0,
     };
 
-    // Simulate codec pushing strips — should abort on second demand()
+    // Simulate codec pushing strips — should abort on second provide_next_buffer()
     let strip_h = 8u32;
     let src = source.as_slice();
     let mut aborted = false;
     for strip_y in (0..height).step_by(strip_h as usize) {
         let h = strip_h.min(height - strip_y);
-        match sink.demand(strip_y, h, width, desc) {
+        match sink.provide_next_buffer(strip_y, h, width, desc) {
             Ok(mut dst) => {
                 for row in 0..h {
                     dst.row_mut(row).copy_from_slice(src.row(strip_y + row));

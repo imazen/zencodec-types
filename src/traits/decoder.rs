@@ -155,10 +155,13 @@ pub trait FullFrameDecoder: Sized {
         let w = ps.width();
         let h = ps.rows();
 
-        let mut dst = sink.demand(0, h, w, desc).map_err(Self::wrap_sink_error)?;
+        sink.begin(w, h, desc).map_err(Self::wrap_sink_error)?;
+        let mut dst = sink.provide_next_buffer(0, h, w, desc).map_err(Self::wrap_sink_error)?;
         for row in 0..h {
             dst.row_mut(row).copy_from_slice(ps.row(row));
         }
+        drop(dst);
+        sink.finish().map_err(Self::wrap_sink_error)?;
 
         Ok(Some(OutputInfo::full_decode(w, h, desc)))
     }

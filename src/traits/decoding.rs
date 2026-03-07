@@ -201,16 +201,17 @@ pub trait DecodeJob<'a>: Sized {
 
     /// Decode directly into a caller-owned sink (push model).
     ///
-    /// Decodes and pushes strips into `sink` via
-    /// [`crate::DecodeRowSink::demand`]. Returns [`OutputInfo`] describing
-    /// what was produced (pixels went into the sink, not a return value).
+    /// Calls [`begin()`](crate::DecodeRowSink::begin) once, then pushes
+    /// strips via [`provide_next_buffer()`](crate::DecodeRowSink::provide_next_buffer),
+    /// then calls [`finish()`](crate::DecodeRowSink::finish).
+    /// Returns [`OutputInfo`] describing what was produced.
     ///
     /// `preferred` is a ranked list of desired output formats.
     ///
     /// Default implementation creates a [`decoder()`](DecodeJob::decoder),
     /// calls [`Decode::decode()`], then copies the result into the sink
-    /// strip by strip. Codecs with native row streaming should override
-    /// this for zero-copy.
+    /// as a single strip. Codecs with native row streaming should override
+    /// for zero-copy.
     fn push_decoder(
         self,
         data: Cow<'a, [u8]>,
@@ -224,13 +225,19 @@ pub trait DecodeJob<'a>: Sized {
         let w = ps.width();
         let h = ps.rows();
 
-        // Push all rows into the sink as a single strip
+        sink.begin(w, h, desc)
+            .map_err(Self::FullFrameDec::wrap_sink_error)?;
+
         let mut dst = sink
-            .demand(0, h, w, desc)
+            .provide_next_buffer(0, h, w, desc)
             .map_err(Self::FullFrameDec::wrap_sink_error)?;
         for row in 0..h {
             dst.row_mut(row).copy_from_slice(ps.row(row));
         }
+        drop(dst);
+
+        sink.finish()
+            .map_err(Self::FullFrameDec::wrap_sink_error)?;
 
         let info = output.info();
         Ok(OutputInfo::full_decode(info.width, info.height, desc))
