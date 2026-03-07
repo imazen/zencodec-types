@@ -1,6 +1,111 @@
 //! Image format detection and metadata.
 
+/// Metadata for a format not known to zencodec-types.
+///
+/// Define as a `static` and reference via [`ImageFormat::Custom`].
+/// Identity is based on `name` — two custom formats with the same name
+/// are considered equal.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use zc::{CustomImageFormat, ImageFormat};
+///
+/// fn detect_jpeg2000(data: &[u8]) -> bool {
+///     data.len() >= 12 && data[..4] == [0x00, 0x00, 0x00, 0x0C]
+///         && &data[4..8] == b"jP  "
+/// }
+///
+/// static JPEG2000: CustomImageFormat = CustomImageFormat {
+///     name: "jpeg2000",
+///     display_name: "JPEG 2000",
+///     preferred_extension: "jp2",
+///     extensions: &["jp2", "j2k", "jpx"],
+///     preferred_mime_type: "image/jp2",
+///     mime_types: &["image/jp2", "image/jpx"],
+///     supports_alpha: true,
+///     supports_animation: false,
+///     supports_lossless: true,
+///     supports_lossy: true,
+///     magic_bytes_needed: 12,
+///     detect: detect_jpeg2000,
+/// };
+///
+/// let fmt = ImageFormat::Custom(&JPEG2000);
+/// assert_eq!(fmt.mime_type(), "image/jp2");
+/// assert_eq!(fmt.extension(), "jp2");
+/// ```
+pub struct CustomImageFormat {
+    /// Unique lowercase format identifier (e.g. `"jpeg2000"`, `"dds"`).
+    ///
+    /// Used for equality comparison and hashing. Must be unique across
+    /// all custom formats in use.
+    pub name: &'static str,
+
+    /// Human-readable format name for display (e.g. `"JPEG 2000"`, `"DDS"`).
+    pub display_name: &'static str,
+
+    /// Primary file extension without dot (e.g. `"jp2"`).
+    pub preferred_extension: &'static str,
+
+    /// All recognized file extensions (must include `preferred_extension`).
+    pub extensions: &'static [&'static str],
+
+    /// Primary MIME type (e.g. `"image/jp2"`).
+    pub preferred_mime_type: &'static str,
+
+    /// All recognized MIME types (must include `preferred_mime_type`).
+    pub mime_types: &'static [&'static str],
+
+    /// Whether this format supports alpha channel.
+    pub supports_alpha: bool,
+
+    /// Whether this format supports animation.
+    pub supports_animation: bool,
+
+    /// Whether this format supports lossless encoding.
+    pub supports_lossless: bool,
+
+    /// Whether this format supports lossy encoding.
+    pub supports_lossy: bool,
+
+    /// Minimum bytes needed for reliable magic byte detection.
+    pub magic_bytes_needed: usize,
+
+    /// Magic byte detection function.
+    ///
+    /// Returns `true` if the data appears to be this format.
+    /// The input will have at least `magic_bytes_needed` bytes.
+    pub detect: fn(&[u8]) -> bool,
+}
+
+impl PartialEq for CustomImageFormat {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for CustomImageFormat {}
+
+impl core::hash::Hash for CustomImageFormat {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+impl core::fmt::Debug for CustomImageFormat {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CustomImageFormat")
+            .field("name", &self.name)
+            .field("display_name", &self.display_name)
+            .finish()
+    }
+}
+
 /// Supported image formats.
+///
+/// Includes well-known formats as named variants and a [`Custom`](ImageFormat::Custom)
+/// variant for formats defined by downstream crates.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ImageFormat {
@@ -18,15 +123,27 @@ pub enum ImageFormat {
     Farbfeld,
     Qoi,
     Unknown,
+    /// Format not known to zencodec-types.
+    ///
+    /// Define a [`CustomImageFormat`] as a `static` and reference it here.
+    /// The custom format carries its own metadata (extensions, MIME types,
+    /// detection function, capability flags).
+    Custom(&'static CustomImageFormat),
 }
 
 impl ImageFormat {
     /// Detect format from magic bytes. Returns [`Unknown`](ImageFormat::Unknown) if unrecognized.
+    ///
+    /// Only detects built-in formats. For custom format detection, use
+    /// [`CustomImageFormat::detect`] or a codec registry.
     pub fn from_magic(data: &[u8]) -> Self {
         Self::detect(data).unwrap_or(Self::Unknown)
     }
 
     /// Detect format from magic bytes. Returns `None` if unrecognized.
+    ///
+    /// Only detects built-in formats. For custom format detection, use
+    /// [`CustomImageFormat::detect`] or a codec registry.
     pub fn detect(data: &[u8]) -> Option<Self> {
         // JPEG: FF D8 FF
         if data.len() >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
@@ -161,6 +278,9 @@ impl ImageFormat {
     }
 
     /// Detect format from file extension (case-insensitive).
+    ///
+    /// Only matches built-in formats. For custom formats, iterate your
+    /// registered [`CustomImageFormat::extensions`] or use a codec registry.
     pub fn from_extension(ext: &str) -> Option<Self> {
         // Manual case-insensitive comparison without std.
         let mut buf = [0u8; 8];
@@ -191,7 +311,7 @@ impl ImageFormat {
         }
     }
 
-    /// MIME type string.
+    /// Primary MIME type string.
     pub fn mime_type(self) -> &'static str {
         match self {
             ImageFormat::Jpeg => "image/jpeg",
@@ -208,10 +328,37 @@ impl ImageFormat {
             ImageFormat::Farbfeld => "image/x-farbfeld",
             ImageFormat::Qoi => "image/x-qoi",
             ImageFormat::Unknown => "application/octet-stream",
+            ImageFormat::Custom(fmt) => fmt.preferred_mime_type,
         }
     }
 
-    /// Primary file extension.
+    /// All recognized MIME types for this format.
+    pub fn mime_types(self) -> &'static [&'static str] {
+        match self {
+            ImageFormat::Jpeg => &["image/jpeg"],
+            ImageFormat::Png => &["image/png"],
+            ImageFormat::Gif => &["image/gif"],
+            ImageFormat::WebP => &["image/webp"],
+            ImageFormat::Avif => &["image/avif"],
+            ImageFormat::Jxl => &["image/jxl"],
+            ImageFormat::Heic => &["image/heif", "image/heic"],
+            ImageFormat::Bmp => &["image/bmp", "image/x-bmp"],
+            ImageFormat::Tiff => &["image/tiff"],
+            ImageFormat::Ico => &["image/x-icon", "image/vnd.microsoft.icon"],
+            ImageFormat::Pnm => &[
+                "image/x-portable-anymap",
+                "image/x-portable-pixmap",
+                "image/x-portable-graymap",
+                "image/x-portable-bitmap",
+            ],
+            ImageFormat::Farbfeld => &["image/x-farbfeld"],
+            ImageFormat::Qoi => &["image/x-qoi"],
+            ImageFormat::Unknown => &[],
+            ImageFormat::Custom(fmt) => fmt.mime_types,
+        }
+    }
+
+    /// Primary file extension (without dot).
     pub fn extension(self) -> &'static str {
         match self {
             ImageFormat::Jpeg => "jpg",
@@ -228,10 +375,11 @@ impl ImageFormat {
             ImageFormat::Farbfeld => "ff",
             ImageFormat::Qoi => "qoi",
             ImageFormat::Unknown => "bin",
+            ImageFormat::Custom(fmt) => fmt.preferred_extension,
         }
     }
 
-    /// Common file extensions.
+    /// All recognized file extensions.
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
             ImageFormat::Jpeg => &["jpg", "jpeg", "jpe", "jfif"],
@@ -248,61 +396,62 @@ impl ImageFormat {
             ImageFormat::Farbfeld => &["ff"],
             ImageFormat::Qoi => &["qoi"],
             ImageFormat::Unknown => &[],
+            ImageFormat::Custom(fmt) => fmt.extensions,
         }
     }
 
     /// Whether this format supports lossy encoding.
     pub fn supports_lossy(self) -> bool {
-        matches!(
-            self,
+        match self {
             ImageFormat::Jpeg
-                | ImageFormat::WebP
-                | ImageFormat::Avif
-                | ImageFormat::Jxl
-                | ImageFormat::Heic
-        )
+            | ImageFormat::WebP
+            | ImageFormat::Avif
+            | ImageFormat::Jxl
+            | ImageFormat::Heic => true,
+            ImageFormat::Custom(fmt) => fmt.supports_lossy,
+            _ => false,
+        }
     }
 
     /// Whether this format supports lossless encoding.
     pub fn supports_lossless(self) -> bool {
-        matches!(
-            self,
+        match self {
             ImageFormat::WebP
-                | ImageFormat::Gif
-                | ImageFormat::Png
-                | ImageFormat::Avif
-                | ImageFormat::Jxl
-                | ImageFormat::Tiff
-                | ImageFormat::Pnm
-                | ImageFormat::Bmp
-                | ImageFormat::Farbfeld
-                | ImageFormat::Qoi
-        )
+            | ImageFormat::Gif
+            | ImageFormat::Png
+            | ImageFormat::Avif
+            | ImageFormat::Jxl
+            | ImageFormat::Tiff
+            | ImageFormat::Pnm
+            | ImageFormat::Bmp
+            | ImageFormat::Farbfeld
+            | ImageFormat::Qoi => true,
+            ImageFormat::Custom(fmt) => fmt.supports_lossless,
+            _ => false,
+        }
     }
 
     /// Whether this format supports animation.
     pub fn supports_animation(self) -> bool {
-        matches!(
-            self,
+        match self {
             ImageFormat::Png
-                | ImageFormat::WebP
-                | ImageFormat::Gif
-                | ImageFormat::Avif
-                | ImageFormat::Jxl
-        )
+            | ImageFormat::WebP
+            | ImageFormat::Gif
+            | ImageFormat::Avif
+            | ImageFormat::Jxl => true,
+            ImageFormat::Custom(fmt) => fmt.supports_animation,
+            _ => false,
+        }
     }
 
     /// Recommended bytes to fetch for probing any format.
     ///
-    /// 4096 bytes is enough for all formats including JPEG (which may have
-    /// large EXIF/APP segments before the SOF marker).
+    /// 4096 bytes is enough for all built-in formats including JPEG (which
+    /// may have large EXIF/APP segments before the SOF marker).
     pub const RECOMMENDED_PROBE_BYTES: usize = 4096;
 
-    /// Minimum bytes needed for reliable dimension probing of this format.
-    ///
-    /// With fewer bytes, format detection may succeed but dimensions may be
-    /// missing from the probe result.
-    pub fn min_probe_bytes(self) -> usize {
+    /// Minimum bytes needed for reliable magic byte detection.
+    pub fn magic_bytes_needed(self) -> usize {
         match self {
             ImageFormat::Png => 33,      // 8 sig + 25 IHDR
             ImageFormat::Gif => 13,      // 6 header + 7 LSD
@@ -318,12 +467,17 @@ impl ImageFormat {
             ImageFormat::Farbfeld => 16, // 8 magic + 4 width + 4 height
             ImageFormat::Qoi => 14,      // 4 magic + 4 width + 4 height + 1 channels + 1 colorspace
             ImageFormat::Unknown => 0,
+            ImageFormat::Custom(fmt) => fmt.magic_bytes_needed,
         }
     }
 
     /// Whether this format supports alpha channel.
     pub fn supports_alpha(self) -> bool {
-        !matches!(self, ImageFormat::Jpeg)
+        match self {
+            ImageFormat::Jpeg => false,
+            ImageFormat::Custom(fmt) => fmt.supports_alpha,
+            _ => true,
+        }
     }
 }
 
@@ -344,6 +498,7 @@ impl core::fmt::Display for ImageFormat {
             ImageFormat::Farbfeld => "farbfeld",
             ImageFormat::Qoi => "QOI",
             ImageFormat::Unknown => "Unknown",
+            ImageFormat::Custom(fmt) => fmt.display_name,
         })
     }
 }
@@ -422,15 +577,22 @@ mod tests {
     }
 
     #[test]
-    fn mime_types() {
+    fn mime_types_primary() {
         assert_eq!(ImageFormat::Jpeg.mime_type(), "image/jpeg");
         assert_eq!(ImageFormat::Jxl.mime_type(), "image/jxl");
     }
 
     #[test]
+    fn mime_types_all() {
+        assert_eq!(ImageFormat::Jpeg.mime_types(), &["image/jpeg"]);
+        assert!(ImageFormat::Heic.mime_types().contains(&"image/heif"));
+        assert!(ImageFormat::Heic.mime_types().contains(&"image/heic"));
+    }
+
+    #[test]
     fn probe_constants() {
         assert_eq!(ImageFormat::RECOMMENDED_PROBE_BYTES, 4096);
-        assert!(ImageFormat::Jpeg.min_probe_bytes() > ImageFormat::Png.min_probe_bytes());
+        assert!(ImageFormat::Jpeg.magic_bytes_needed() > ImageFormat::Png.magic_bytes_needed());
     }
 
     #[test]
@@ -578,8 +740,8 @@ mod tests {
     }
 
     #[test]
-    fn pnm_min_probe_bytes() {
-        assert_eq!(ImageFormat::Pnm.min_probe_bytes(), 20);
+    fn pnm_magic_bytes_needed() {
+        assert_eq!(ImageFormat::Pnm.magic_bytes_needed(), 20);
     }
 
     #[test]
@@ -777,6 +939,131 @@ mod tests {
 
     #[test]
     fn heic_min_probe_bytes() {
-        assert_eq!(ImageFormat::Heic.min_probe_bytes(), 512);
+        assert_eq!(ImageFormat::Heic.magic_bytes_needed(), 512);
+    }
+
+    // --- Custom format tests ---
+
+    fn detect_test_format(data: &[u8]) -> bool {
+        data.len() >= 4 && data[..4] == *b"TEST"
+    }
+
+    static TEST_FORMAT: CustomImageFormat = CustomImageFormat {
+        name: "testformat",
+        display_name: "Test Format",
+        preferred_extension: "test",
+        extensions: &["test", "tst"],
+        preferred_mime_type: "image/x-test",
+        mime_types: &["image/x-test", "application/x-test"],
+        supports_alpha: true,
+        supports_animation: false,
+        supports_lossless: true,
+        supports_lossy: false,
+        magic_bytes_needed: 4,
+        detect: detect_test_format,
+    };
+
+    static TEST_FORMAT_2: CustomImageFormat = CustomImageFormat {
+        name: "testformat",
+        display_name: "Test Format 2",
+        preferred_extension: "tf2",
+        extensions: &["tf2"],
+        preferred_mime_type: "image/x-test2",
+        mime_types: &["image/x-test2"],
+        supports_alpha: false,
+        supports_animation: false,
+        supports_lossless: false,
+        supports_lossy: false,
+        magic_bytes_needed: 0,
+        detect: |_| false,
+    };
+
+    #[test]
+    fn custom_format_metadata() {
+        let fmt = ImageFormat::Custom(&TEST_FORMAT);
+        assert_eq!(fmt.mime_type(), "image/x-test");
+        assert_eq!(fmt.mime_types(), &["image/x-test", "application/x-test"]);
+        assert_eq!(fmt.extension(), "test");
+        assert_eq!(fmt.extensions(), &["test", "tst"]);
+        assert!(fmt.supports_alpha());
+        assert!(!fmt.supports_animation());
+        assert!(fmt.supports_lossless());
+        assert!(!fmt.supports_lossy());
+        assert_eq!(fmt.magic_bytes_needed(), 4);
+    }
+
+    #[test]
+    fn custom_format_display() {
+        let fmt = ImageFormat::Custom(&TEST_FORMAT);
+        assert_eq!(alloc::format!("{fmt}"), "Test Format");
+    }
+
+    #[test]
+    fn custom_format_detect() {
+        assert!((TEST_FORMAT.detect)(b"TESTdata"));
+        assert!(!(TEST_FORMAT.detect)(b"NOPE"));
+    }
+
+    #[test]
+    fn custom_format_equality_by_name() {
+        // Same name → equal, even though other fields differ
+        let a = ImageFormat::Custom(&TEST_FORMAT);
+        let b = ImageFormat::Custom(&TEST_FORMAT_2);
+        assert_eq!(a, b);
+
+        // Different name → not equal
+        static OTHER: CustomImageFormat = CustomImageFormat {
+            name: "other",
+            display_name: "Other",
+            preferred_extension: "oth",
+            extensions: &["oth"],
+            preferred_mime_type: "image/x-other",
+            mime_types: &["image/x-other"],
+            supports_alpha: false,
+            supports_animation: false,
+            supports_lossless: false,
+            supports_lossy: false,
+            magic_bytes_needed: 0,
+            detect: |_| false,
+        };
+        assert_ne!(a, ImageFormat::Custom(&OTHER));
+    }
+
+    #[test]
+    fn custom_format_hash() {
+        use core::hash::{Hash, Hasher};
+        struct SimpleHasher(u64);
+        impl Hasher for SimpleHasher {
+            fn finish(&self) -> u64 { self.0 }
+            fn write(&mut self, bytes: &[u8]) {
+                for &b in bytes {
+                    self.0 = self.0.wrapping_mul(31).wrapping_add(b as u64);
+                }
+            }
+        }
+        fn hash_of(fmt: ImageFormat) -> u64 {
+            let mut hasher = SimpleHasher(0);
+            fmt.hash(&mut hasher);
+            hasher.finish()
+        }
+        // Same name → same hash
+        assert_eq!(
+            hash_of(ImageFormat::Custom(&TEST_FORMAT)),
+            hash_of(ImageFormat::Custom(&TEST_FORMAT_2))
+        );
+    }
+
+    #[test]
+    fn custom_not_equal_to_builtin() {
+        let custom = ImageFormat::Custom(&TEST_FORMAT);
+        assert_ne!(custom, ImageFormat::Jpeg);
+        assert_ne!(custom, ImageFormat::Unknown);
+    }
+
+    #[test]
+    fn custom_format_is_copy() {
+        let a = ImageFormat::Custom(&TEST_FORMAT);
+        let b = a; // Copy
+        assert_eq!(a, b);
     }
 }

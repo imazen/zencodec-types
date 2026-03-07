@@ -53,7 +53,7 @@ mod traits;
 // =========================================================================
 
 pub use color::{ColorContext, ColorProfileSource, NamedProfile};
-pub use format::ImageFormat;
+pub use format::{CustomImageFormat, ImageFormat};
 pub use gainmap::GainMapMetadata;
 pub use info::{Cicp, ContentLightLevel, ImageInfo, MasteringDisplay, Metadata, MetadataView};
 pub use limits::{LimitExceeded, ResourceLimits, ThreadingPolicy};
