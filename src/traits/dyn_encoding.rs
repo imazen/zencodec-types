@@ -235,7 +235,9 @@ pub trait DynEncodeJob<'a> {
     fn into_encoder(self: Box<Self>) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>;
 
     /// Create the animation encoder (consumes this job).
-    fn into_frame_encoder(self: Box<Self>) -> Result<Box<dyn DynFrameEncoder + 'a>, BoxedError>;
+    ///
+    /// The returned encoder is `'static` — it owns its configuration.
+    fn into_frame_encoder(self: Box<Self>) -> Result<Box<dyn DynFrameEncoder>, BoxedError>;
 }
 
 struct EncodeJobShim<J>(Option<J>);
@@ -294,7 +296,7 @@ where
 
     fn into_frame_encoder(
         mut self: Box<Self>,
-    ) -> Result<Box<dyn DynFrameEncoder + 'a>, BoxedError> {
+    ) -> Result<Box<dyn DynFrameEncoder>, BoxedError> {
         let job = self.take();
         let enc = job.frame_encoder().map_err(|e| Box::new(e) as BoxedError)?;
         Ok(Box::new(FrameEncoderShim(enc)))

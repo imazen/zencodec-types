@@ -6,6 +6,8 @@
 
 mod pnm;
 
+use std::borrow::Cow;
+
 use pnm::{PnmDecoderConfig, PnmEncoderConfig};
 
 use zc::decode::{Decode, DecodeJob, DecoderConfig, DynDecoderConfig};
@@ -76,7 +78,7 @@ fn concrete_encode_decode_rgb8_roundtrip() {
     assert_eq!(info.format, ImageFormat::Pnm);
 
     // Full decode
-    let decoder = dec_job.decoder(encoded, &[]).expect("decoder creation");
+    let decoder = dec_job.decoder(Cow::Borrowed(encoded), &[]).expect("decoder creation");
     let decoded = decoder.decode().expect("decode");
 
     // Verify roundtrip
@@ -103,7 +105,7 @@ fn concrete_encode_decode_gray8_roundtrip() {
     assert!(encoded.starts_with(b"P5\n3 2\n255\n"));
 
     let dec_config = PnmDecoderConfig::new();
-    let decoder = dec_config.job().decoder(encoded, &[]).expect("decoder");
+    let decoder = dec_config.job().decoder(Cow::Borrowed(encoded), &[]).expect("decoder");
     let decoded = decoder.decode().expect("decode");
 
     let orig = pixels.as_slice();
@@ -149,7 +151,7 @@ fn dyn_encode_decode_rgb8_roundtrip() {
     assert_eq!(info.height, 2);
 
     // Decode via dyn decoder
-    let decoder = dec_job.into_decoder(&encoded, &[]).expect("dyn decoder");
+    let decoder = dec_job.into_decoder(Cow::Borrowed(&encoded), &[]).expect("dyn decoder");
     let decoded = decoder.decode().expect("dyn decode");
 
     let orig = test_rgb8_pixels();
@@ -180,7 +182,7 @@ fn dyn_encode_decode_gray8_roundtrip() {
     let dec: &dyn DynDecoderConfig = &dec_config;
     let decoded = dec
         .dyn_job()
-        .into_decoder(&encoded, &[])
+        .into_decoder(Cow::Borrowed(&encoded), &[])
         .expect("dyn decoder")
         .decode()
         .expect("dyn decode");
@@ -211,7 +213,7 @@ fn decode_with_any_codec(
     data: &[u8],
 ) -> Result<PixelBuffer, zc::decode::BoxedError> {
     let job = config.dyn_job();
-    let decoder = job.into_decoder(data, &[])?;
+    let decoder = job.into_decoder(Cow::Borrowed(data), &[])?;
     Ok(decoder.decode()?.into_buffer())
 }
 
@@ -316,7 +318,7 @@ fn decode_respects_dimension_limits() {
     let limits = ResourceLimits::none().with_max_width(2);
     let dec_config = PnmDecoderConfig::new();
     let job = dec_config.job().with_limits(limits);
-    let result = job.decoder(&encoded, &[]);
+    let result = job.decoder(Cow::Borrowed(&encoded), &[]);
 
     assert!(result.is_err(), "should reject image exceeding width limit");
 }
@@ -362,7 +364,7 @@ fn unsupported_streaming_decode() {
 
     let dec_config = PnmDecoderConfig::new();
     let job = dec_config.job();
-    let result = job.streaming_decoder(&encoded, &[]);
+    let result = job.streaming_decoder(Cow::Borrowed(&encoded), &[]);
     assert!(result.is_err(), "PNM has no streaming decode");
 }
 
@@ -380,7 +382,7 @@ fn unsupported_animation_decode() {
 
     let dec_config = PnmDecoderConfig::new();
     let job = dec_config.job();
-    let result = job.frame_decoder(&encoded, &[]);
+    let result = job.frame_decoder(Cow::Borrowed(&encoded), &[]);
     assert!(result.is_err(), "PNM has no animation decode");
 }
 
@@ -407,7 +409,7 @@ fn find_cause_limit_exceeded_through_dyn_decode() {
 
     let mut job = dyn_dec.dyn_job();
     job.set_limits(limits);
-    let result = job.into_decoder(&encoded, &[]);
+    let result = job.into_decoder(Cow::Borrowed(&encoded), &[]);
 
     let err = match result {
         Err(e) => e,
@@ -442,7 +444,7 @@ fn find_cause_unsupported_through_dyn_decode() {
     let dyn_dec: &dyn DynDecoderConfig = &dec_config;
 
     let job = dyn_dec.dyn_job();
-    let result = job.into_streaming_decoder(&encoded, &[]);
+    let result = job.into_streaming_decoder(Cow::Borrowed(&encoded), &[]);
 
     let err = match result {
         Err(e) => e,
@@ -498,7 +500,7 @@ fn concrete_error_preserves_at_wrapper() {
 
     let mut job = dyn_dec.dyn_job();
     job.set_limits(limits);
-    let err = match job.into_decoder(&encoded, &[]) {
+    let err = match job.into_decoder(Cow::Borrowed(&encoded), &[]) {
         Err(e) => e,
         Ok(_) => panic!("should fail with limit exceeded"),
     };

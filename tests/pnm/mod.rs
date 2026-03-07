@@ -6,6 +6,8 @@
 //! Uses `thiserror` + `whereat::At<E>` for error derivation and location
 //! tracking, validating that error chains and traces survive dyn dispatch.
 
+use std::borrow::Cow;
+
 use zc::decode::{Decode, DecodeCapabilities, DecodeJob, DecoderConfig};
 use zc::encode::{EncodeCapabilities, EncodeJob, EncodeOutput, Encoder, EncoderConfig};
 use zc::{ImageFormat, ImageInfo, MetadataView, ResourceLimits, Unsupported, UnsupportedOperation};
@@ -199,7 +201,7 @@ pub struct PnmDecodeJob<'a> {
 
 /// The actual PPM/PGM decoder (data bound at construction).
 pub struct PnmDec<'a> {
-    data: &'a [u8],
+    data: Cow<'a, [u8]>,
 }
 
 static PNM_DECODE_CAPS: DecodeCapabilities = DecodeCapabilities::new()
@@ -264,10 +266,10 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
 
     fn decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         _preferred: &[PixelDescriptor],
     ) -> Result<PnmDec<'a>, At<PnmError>> {
-        let (w, h, _) = parse_pnm_header(data).map_err(|e| e.start_at())?;
+        let (w, h, _) = parse_pnm_header(&data).map_err(|e| e.start_at())?;
         self.limits
             .check_dimensions(w, h)
             .map_err(|e| PnmError::from(e).start_at())?;
@@ -276,7 +278,7 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
 
     fn streaming_decoder(
         self,
-        _data: &'a [u8],
+        _data: Cow<'a, [u8]>,
         _preferred: &[PixelDescriptor],
     ) -> Result<Unsupported<At<PnmError>>, At<PnmError>> {
         Err(PnmError::from(UnsupportedOperation::RowLevelDecode).start_at())
@@ -284,7 +286,7 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
 
     fn frame_decoder(
         self,
-        _data: &'a [u8],
+        _data: Cow<'a, [u8]>,
         _preferred: &[PixelDescriptor],
     ) -> Result<Unsupported<At<PnmError>>, At<PnmError>> {
         Err(PnmError::from(UnsupportedOperation::AnimationDecode).start_at())
@@ -295,8 +297,8 @@ impl<'a> Decode for PnmDec<'a> {
     type Error = At<PnmError>;
 
     fn decode(self) -> Result<DecodeOutput, At<PnmError>> {
-        let (w, h, is_gray) = parse_pnm_header(self.data).map_err(|e| e.start_at())?;
-        let data_offset = find_data_offset(self.data).map_err(|e| e.start_at())?;
+        let (w, h, is_gray) = parse_pnm_header(&self.data).map_err(|e| e.start_at())?;
+        let data_offset = find_data_offset(&self.data).map_err(|e| e.start_at())?;
         let pixel_data = &self.data[data_offset..];
 
         if is_gray {

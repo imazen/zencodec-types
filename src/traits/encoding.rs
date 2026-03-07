@@ -130,7 +130,11 @@ pub trait EncodeJob<'a>: Sized {
     type Enc: Sized;
 
     /// Animation encoder type (implements [`FrameEncoder`]).
-    type FrameEnc: Sized;
+    ///
+    /// Must be `'static` — frame encoders own their configuration
+    /// (clone configs, convert stop tokens to owned form). This lets
+    /// callers use the encoder independently of the job's scope.
+    type FrameEnc: Sized + 'static;
 
     /// Set cooperative cancellation token.
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
@@ -228,7 +232,7 @@ pub trait EncodeJob<'a>: Sized {
     /// enc.push_encode_frame(frame2)?;
     /// let output = enc.finish()?;
     /// ```
-    fn dyn_frame_encoder(self) -> Result<Box<dyn DynFrameEncoder + 'a>, BoxedError>
+    fn dyn_frame_encoder(self) -> Result<Box<dyn DynFrameEncoder>, BoxedError>
     where
         Self: 'a,
         Self::FrameEnc: FrameEncoder,

@@ -7,6 +7,7 @@
 //! Each layer is a separate trait with blanket impls via private shim structs.
 //! Every method from the generic traits is exposed.
 
+use alloc::borrow::Cow;
 use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
@@ -152,20 +153,23 @@ pub trait DynDecodeJob<'a> {
     /// Set orientation handling strategy.
     fn set_orientation(&mut self, hint: OrientationHint);
 
+    /// Hint: seek to a specific frame before decoding.
+    fn set_frame_index(&mut self, index: u32);
+
     /// Predict what the decoder will produce given current hints.
     fn output_info(&self, data: &[u8]) -> Result<OutputInfo, BoxedError>;
 
     /// Create a one-shot decoder bound to `data` (consumes this job).
     fn into_decoder(
         self: Box<Self>,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynDecoder + 'a>, BoxedError>;
 
     /// Decode into a caller-owned sink (consumes this job).
     fn push_decode(
         self: Box<Self>,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         sink: &mut dyn crate::DecodeRowSink,
         preferred: &[PixelDescriptor],
     ) -> Result<OutputInfo, BoxedError>;
@@ -173,16 +177,19 @@ pub trait DynDecodeJob<'a> {
     /// Create a streaming decoder (consumes this job).
     fn into_streaming_decoder(
         self: Box<Self>,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError>;
 
     /// Create a frame-by-frame animation decoder (consumes this job).
+    ///
+    /// The returned decoder is `'static` — it owns all its data.
+    /// Pass `Cow::Owned(vec)` to avoid a copy.
     fn into_frame_decoder(
         self: Box<Self>,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFrameDecoder + 'a>, BoxedError>;
+    ) -> Result<Box<dyn DynFrameDecoder>, BoxedError>;
 }
 
 struct DecodeJobShim<J>(Option<J>);
@@ -247,6 +254,11 @@ where
         self.put(job.with_orientation(hint));
     }
 
+    fn set_frame_index(&mut self, index: u32) {
+        let job = self.take();
+        self.put(job.with_frame_index(index));
+    }
+
     fn output_info(&self, data: &[u8]) -> Result<OutputInfo, BoxedError> {
         self.as_ref()
             .output_info(data)
@@ -255,7 +267,7 @@ where
 
     fn into_decoder(
         mut self: Box<Self>,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynDecoder + 'a>, BoxedError> {
         let job = self.take();
@@ -267,7 +279,7 @@ where
 
     fn push_decode(
         mut self: Box<Self>,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         sink: &mut dyn crate::DecodeRowSink,
         preferred: &[PixelDescriptor],
     ) -> Result<OutputInfo, BoxedError> {
@@ -278,7 +290,7 @@ where
 
     fn into_streaming_decoder(
         mut self: Box<Self>,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError> {
         let job = self.take();
@@ -290,9 +302,9 @@ where
 
     fn into_frame_decoder(
         mut self: Box<Self>,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFrameDecoder + 'a>, BoxedError> {
+    ) -> Result<Box<dyn DynFrameDecoder>, BoxedError> {
         let job = self.take();
         let dec = job
             .frame_decoder(data, preferred)
@@ -312,7 +324,7 @@ where
 ///
 /// ```rust,ignore
 /// fn load(config: &dyn DynDecoderConfig, data: &[u8]) -> Result<DecodeOutput, BoxedError> {
-///     config.dyn_job().into_decoder(data, &[])?.decode()
+///     config.dyn_job().into_decoder(Cow::Borrowed(data), &[])?.decode()
 /// }
 ///
 /// let jpeg = JpegDecoderConfig::new();

@@ -1,5 +1,6 @@
 //! Decoder configuration and decode jobs.
 
+use alloc::borrow::Cow;
 use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
@@ -84,7 +85,11 @@ pub trait DecodeJob<'a>: Sized {
     type StreamDec: StreamingDecode<Error = Self::Error>;
 
     /// Animation decoder type.
-    type FrameDec: FrameDecode<Error = Self::Error>;
+    ///
+    /// Must be `'static` — frame decoders own their data (typically by
+    /// copying the input slice at construction time). This lets callers
+    /// drop the input buffer while still iterating frames.
+    type FrameDec: FrameDecode<Error = Self::Error> + 'static;
 
     /// Set cooperative cancellation token.
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
@@ -143,6 +148,17 @@ pub trait DecodeJob<'a>: Sized {
         self
     }
 
+    /// Hint: seek to a specific frame before decoding.
+    ///
+    /// For animation formats that support random access (e.g., AVIF),
+    /// this lets the decoder skip directly to the requested frame.
+    /// The decoder may ignore this hint if random access is not supported.
+    ///
+    /// Only meaningful before [`frame_decoder()`](DecodeJob::frame_decoder).
+    fn with_frame_index(self, _index: u32) -> Self {
+        self
+    }
+
     // --- Output prediction ---
 
     /// Predict what the decoder will produce given current hints.
@@ -162,15 +178,17 @@ pub trait DecodeJob<'a>: Sized {
 
     /// Create a one-shot decoder bound to `data`.
     ///
-    /// The returned `Dec` borrows `data` for the duration of decoding.
-    /// Call [`Decode::decode()`] on the result to get pixels.
+    /// The decoder stores the [`Cow`] and borrows from it via [`Deref`].
+    /// Pass `Cow::Borrowed(&slice)` for zero-copy slice access, or
+    /// `Cow::Owned(vec)` to donate a buffer (avoids a copy in codecs
+    /// that need owned data internally).
     ///
     /// `preferred` is a ranked list of desired output formats. The decoder
     /// picks the first it can produce without lossy conversion. Pass `&[]`
     /// for the decoder's native format.
     fn decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Self::Dec, Self::Error>;
 
@@ -188,7 +206,7 @@ pub trait DecodeJob<'a>: Sized {
     /// this for zero-copy.
     fn push_decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         sink: &mut dyn crate::DecodeRowSink,
         preferred: &[PixelDescriptor],
     ) -> Result<OutputInfo, Self::Error> {
@@ -211,27 +229,27 @@ pub trait DecodeJob<'a>: Sized {
 
     /// Create a streaming decoder that yields scanline batches.
     ///
-    /// Binds `data` — the decoder borrows the input for the duration
-    /// of streaming. Returns an error if the codec does not support
-    /// streaming decode.
+    /// Returns an error if the codec does not support streaming decode.
     ///
     /// `preferred` is a ranked list of desired output formats.
     ///
     /// See [`StreamingDecode`] for the batch pull API.
     fn streaming_decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Self::StreamDec, Self::Error>;
 
     /// Create a frame-by-frame animation decoder.
     ///
-    /// Binds `data` — the decoder parses the container upfront.
+    /// The decoder calls [`Cow::into_owned()`] to take ownership of the
+    /// data (required because `FrameDec: 'static`). When the caller
+    /// passes `Cow::Owned(vec)`, this is a free move with no copy.
     ///
     /// `preferred` is a ranked list of desired output formats.
     fn frame_decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Self::FrameDec, Self::Error>;
 
@@ -253,7 +271,7 @@ pub trait DecodeJob<'a>: Sized {
     /// ```
     fn dyn_decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynDecoder + 'a>, BoxedError>
     where
@@ -279,9 +297,9 @@ pub trait DecodeJob<'a>: Sized {
     /// ```
     fn dyn_frame_decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFrameDecoder + 'a>, BoxedError>
+    ) -> Result<Box<dyn DynFrameDecoder>, BoxedError>
     where
         Self: 'a,
     {
@@ -305,7 +323,7 @@ pub trait DecodeJob<'a>: Sized {
     /// ```
     fn dyn_streaming_decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError>
     where
