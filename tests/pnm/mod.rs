@@ -3,11 +3,12 @@
 //! Supports RGB8 and Gray8 only. Used as an integration test to exercise the
 //! full Config → Job → Executor pipeline in both concrete and dyn-dispatch modes.
 //!
-//! Credits: PNM parsing adapted from zenbitmaps (MIT/Apache-2.0/Zlib).
+//! Uses `thiserror` for error derivation, validating that error chains survive
+//! dyn dispatch and `find_cause` can walk source chains through `BoxedError`.
 
 use zc::decode::{Decode, DecodeCapabilities, DecodeJob, DecoderConfig};
 use zc::encode::{EncodeCapabilities, EncodeJob, EncodeOutput, Encoder, EncoderConfig};
-use zc::{ImageFormat, ImageInfo, MetadataView, ResourceLimits, UnsupportedOperation};
+use zc::{ImageFormat, ImageInfo, MetadataView, ResourceLimits, Unsupported, UnsupportedOperation};
 
 use enough::{Stop, StopReason};
 use zc::decode::{DecodeOutput, OutputInfo};
@@ -17,42 +18,23 @@ use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
 // Error
 // =========================================================================
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PnmError {
-    Unsupported(UnsupportedOperation),
+    #[error("unsupported: {0}")]
+    Unsupported(#[from] UnsupportedOperation),
+    #[error("invalid data: {0}")]
     InvalidData(String),
+    #[error("cancelled: {0}")]
     Cancelled(StopReason),
-    LimitExceeded(zc::LimitExceeded),
+    #[error("limit exceeded: {0}")]
+    LimitExceeded(#[from] zc::LimitExceeded),
 }
 
-impl core::fmt::Display for PnmError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Unsupported(op) => write!(f, "unsupported: {op}"),
-            Self::InvalidData(msg) => write!(f, "invalid data: {msg}"),
-            Self::Cancelled(r) => write!(f, "cancelled: {r}"),
-            Self::LimitExceeded(e) => write!(f, "limit exceeded: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for PnmError {}
-
-impl From<UnsupportedOperation> for PnmError {
-    fn from(op: UnsupportedOperation) -> Self {
-        Self::Unsupported(op)
-    }
-}
-
+/// Manual impl because `StopReason` doesn't implement `Error`,
+/// so thiserror's `#[from]` can't be used.
 impl From<StopReason> for PnmError {
     fn from(r: StopReason) -> Self {
-        Self::Cancelled(r)
-    }
-}
-
-impl From<zc::LimitExceeded> for PnmError {
-    fn from(e: zc::LimitExceeded) -> Self {
-        Self::LimitExceeded(e)
+        PnmError::Cancelled(r)
     }
 }
 
@@ -214,32 +196,6 @@ pub struct PnmDec<'a> {
     data: &'a [u8],
 }
 
-/// Stub streaming decoder — PNM doesn't support streaming.
-pub struct PnmStreamDec;
-
-impl zc::decode::StreamingDecode for PnmStreamDec {
-    type Error = PnmError;
-
-    fn next_batch(&mut self) -> Result<Option<(u32, PixelSlice<'_>)>, PnmError> {
-        Err(UnsupportedOperation::RowLevelDecode.into())
-    }
-
-    fn info(&self) -> &ImageInfo {
-        unreachable!("streaming decode not supported")
-    }
-}
-
-/// Stub frame decoder — PNM doesn't support animation.
-pub struct PnmFrameDec;
-
-impl zc::decode::FrameDecode for PnmFrameDec {
-    type Error = PnmError;
-
-    fn next_frame(&mut self) -> Result<Option<zc::decode::DecodeFrame>, PnmError> {
-        Err(UnsupportedOperation::AnimationDecode.into())
-    }
-}
-
 static PNM_DECODE_CAPS: DecodeCapabilities = DecodeCapabilities::new()
     .with_cheap_probe(true)
     .with_native_gray(true);
@@ -271,8 +227,8 @@ impl DecoderConfig for PnmDecoderConfig {
 impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
     type Error = PnmError;
     type Dec = PnmDec<'a>;
-    type StreamDec = PnmStreamDec;
-    type FrameDec = PnmFrameDec;
+    type StreamDec = Unsupported<PnmError>;
+    type FrameDec = Unsupported<PnmError>;
 
     fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
         self.stop = Some(stop);
@@ -314,7 +270,7 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
         self,
         _data: &'a [u8],
         _preferred: &[PixelDescriptor],
-    ) -> Result<PnmStreamDec, PnmError> {
+    ) -> Result<Unsupported<PnmError>, PnmError> {
         Err(UnsupportedOperation::RowLevelDecode.into())
     }
 
@@ -322,7 +278,7 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
         self,
         _data: &'a [u8],
         _preferred: &[PixelDescriptor],
-    ) -> Result<PnmFrameDec, PnmError> {
+    ) -> Result<Unsupported<PnmError>, PnmError> {
         Err(UnsupportedOperation::AnimationDecode.into())
     }
 }

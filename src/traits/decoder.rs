@@ -54,22 +54,6 @@ pub trait StreamingDecode {
     fn info(&self) -> &ImageInfo;
 }
 
-/// Trivial rejection impl — codecs that don't support streaming set
-/// `type StreamDec = ()` and `streaming_decoder()` returns an error.
-impl StreamingDecode for () {
-    type Error = crate::UnsupportedOperation;
-
-    fn next_batch(&mut self) -> Result<Option<(u32, PixelSlice<'_>)>, Self::Error> {
-        Err(crate::UnsupportedOperation::RowLevelDecode)
-    }
-
-    fn info(&self) -> &ImageInfo {
-        // This is unreachable — streaming_decoder() returns Err before
-        // the caller can call info(). But we need the impl for Sized.
-        panic!("StreamingDecode not supported");
-    }
-}
-
 /// Animation decode. Returns owned frames.
 ///
 /// Created by [`DecodeJob::frame_decoder()`](super::DecodeJob::frame_decoder)
@@ -128,12 +112,3 @@ pub trait FrameDecode: Sized {
     }
 }
 
-/// Trivial rejection impl — codecs that don't support animation set
-/// `type FrameDec = ()` and `frame_decoder()` returns an error.
-impl FrameDecode for () {
-    type Error = crate::UnsupportedOperation;
-
-    fn next_frame(&mut self) -> Result<Option<DecodeFrame>, Self::Error> {
-        Err(crate::UnsupportedOperation::AnimationDecode)
-    }
-}

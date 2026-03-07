@@ -27,6 +27,7 @@ mod dyn_decoding;
 mod dyn_encoding;
 mod encoder;
 mod encoding;
+mod unsupported;
 
 pub use decoder::{Decode, FrameDecode, StreamingDecode};
 pub use decoding::{DecodeJob, DecoderConfig};
@@ -36,6 +37,7 @@ pub use dyn_decoding::{
 pub use dyn_encoding::{DynEncodeJob, DynEncoder, DynEncoderConfig, DynFrameEncoder};
 pub use encoder::{Encoder, FrameEncoder};
 pub use encoding::{EncodeJob, EncoderConfig};
+pub use unsupported::Unsupported;
 
 use alloc::boxed::Box;
 

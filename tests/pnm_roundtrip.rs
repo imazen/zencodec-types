@@ -8,7 +8,7 @@ use pnm::{PnmDecoderConfig, PnmEncoderConfig};
 
 use zc::decode::{Decode, DecodeJob, DecoderConfig, DynDecoderConfig};
 use zc::encode::{DynEncoderConfig, EncodeJob, Encoder, EncoderConfig};
-use zc::{ImageFormat, ResourceLimits};
+use zc::{ImageFormat, ResourceLimits, UnsupportedOperation};
 use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
 
 // =========================================================================
@@ -380,4 +380,152 @@ fn unsupported_animation_decode() {
     let job = dec_config.job();
     let result = job.frame_decoder(&encoded, &[]);
     assert!(result.is_err(), "PNM has no animation decode");
+}
+
+// =========================================================================
+// Error ergonomics: find_cause through dyn dispatch
+// =========================================================================
+
+#[test]
+fn find_cause_limit_exceeded_through_dyn_decode() {
+    // Encode a valid 4x2 image
+    let pixels = test_rgb8_pixels();
+    let config = PnmEncoderConfig::new();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap()
+        .into_vec();
+
+    // Decode with limits that reject this image — through dyn dispatch
+    let limits = ResourceLimits::none().with_max_width(2);
+    let dec_config = PnmDecoderConfig::new();
+    let dyn_dec: &dyn DynDecoderConfig = &dec_config;
+
+    let mut job = dyn_dec.dyn_job();
+    job.set_limits(limits);
+    let result = job.into_decoder(&encoded, &[]);
+
+    let err = match result {
+        Err(e) => e,
+        Ok(_) => panic!("should fail with limit exceeded"),
+    };
+
+    // The error is a BoxedError containing PnmError::LimitExceeded(LimitExceeded)
+    // find_cause should walk: BoxedError → PnmError → source() → LimitExceeded
+    let limit = zc::find_cause::<zc::LimitExceeded>(&*err);
+    assert!(
+        limit.is_some(),
+        "find_cause should find LimitExceeded through BoxedError → PnmError chain"
+    );
+}
+
+#[test]
+fn find_cause_unsupported_through_dyn_decode() {
+    let pixels = test_rgb8_pixels();
+    let config = PnmEncoderConfig::new();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap()
+        .into_vec();
+
+    // Try streaming decode (unsupported) through dyn dispatch
+    let dec_config = PnmDecoderConfig::new();
+    let dyn_dec: &dyn DynDecoderConfig = &dec_config;
+
+    let job = dyn_dec.dyn_job();
+    let result = job.into_streaming_decoder(&encoded, &[]);
+
+    // Can't use expect_err because Box<dyn DynStreamingDecoder> doesn't impl Debug
+    let err = match result {
+        Err(e) => e,
+        Ok(_) => panic!("streaming decode should fail"),
+    };
+
+    let op = zc::find_cause::<UnsupportedOperation>(&*err);
+    assert!(
+        op.is_some(),
+        "find_cause should find UnsupportedOperation through BoxedError"
+    );
+    assert_eq!(op.unwrap(), &UnsupportedOperation::RowLevelDecode);
+}
+
+#[test]
+fn find_cause_unsupported_through_dyn_encode() {
+    // Try animation encode (unsupported) through dyn dispatch
+    let enc_config = PnmEncoderConfig::new();
+    let dyn_enc: &dyn DynEncoderConfig = &enc_config;
+
+    let job = dyn_enc.dyn_job();
+    let result = job.into_frame_encoder();
+
+    let err = match result {
+        Err(e) => e,
+        Ok(_) => panic!("animation encode should fail"),
+    };
+
+    let op = zc::find_cause::<UnsupportedOperation>(&*err);
+    assert!(
+        op.is_some(),
+        "find_cause should find UnsupportedOperation through BoxedError"
+    );
+    assert_eq!(op.unwrap(), &UnsupportedOperation::AnimationEncode);
+}
+
+#[test]
+fn concrete_error_downcast_preserves_type() {
+    // Verify that concrete PnmError variants are accessible through BoxedError
+    let pixels = test_rgb8_pixels();
+    let config = PnmEncoderConfig::new();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap()
+        .into_vec();
+
+    // Trigger a LimitExceeded through dyn dispatch
+    let limits = ResourceLimits::none().with_max_height(1);
+    let dec_config = PnmDecoderConfig::new();
+    let dyn_dec: &dyn DynDecoderConfig = &dec_config;
+
+    let mut job = dyn_dec.dyn_job();
+    job.set_limits(limits);
+    let err = match job.into_decoder(&encoded, &[]) {
+        Err(e) => e,
+        Ok(_) => panic!("should fail with limit exceeded"),
+    };
+
+    // Can downcast BoxedError to the concrete PnmError type
+    let pnm_err = err.downcast_ref::<pnm::PnmError>();
+    assert!(
+        pnm_err.is_some(),
+        "BoxedError should be downcastable to concrete PnmError"
+    );
+    assert!(
+        matches!(pnm_err.unwrap(), pnm::PnmError::LimitExceeded(_)),
+        "should be the LimitExceeded variant"
+    );
+}
+
+#[test]
+fn find_cause_returns_none_for_absent_type() {
+    // Verify find_cause returns None when the target type isn't in the chain
+    let dec_config = PnmDecoderConfig::new();
+    let dyn_dec: &dyn DynDecoderConfig = &dec_config;
+
+    let job = dyn_dec.dyn_job();
+    let err = job.probe(b"not a pnm").expect_err("should fail");
+
+    // InvalidData doesn't have LimitExceeded in its source chain
+    assert!(
+        zc::find_cause::<zc::LimitExceeded>(&*err).is_none(),
+        "find_cause should return None when cause type is absent"
+    );
 }

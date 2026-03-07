@@ -37,6 +37,7 @@ extern crate alloc;
 
 mod capabilities;
 mod color;
+mod error;
 mod format;
 mod gainmap;
 mod info;
@@ -61,12 +62,15 @@ pub use orientation::{Orientation, OrientationHint};
 pub use output::{FrameBlend, FrameDisposal};
 
 pub use capabilities::{HasUnsupportedOperation, UnsupportedOperation};
+pub use error::find_cause;
+pub use traits::Unsupported;
 
 // =========================================================================
 // Crate-level re-exports (qualified access, not individual types)
 // =========================================================================
 //
 pub use enough;
+pub use enough::Unstoppable;
 
 // =========================================================================
 // pub(crate) re-exports — keep internal `use crate::Foo` paths working

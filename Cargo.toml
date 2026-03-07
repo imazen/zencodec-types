@@ -16,3 +16,6 @@ name = "zc"
 [dependencies]
 zenpixels = { version = "0.1", features = ["buffer"] }
 enough = "0.4"
+
+[dev-dependencies]
+thiserror = "2"
