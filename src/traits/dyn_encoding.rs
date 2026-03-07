@@ -2,7 +2,7 @@
 //!
 //! Mirrors the generic encode hierarchy with dyn-safe traits:
 //!
-//!   DynEncoderConfig → DynEncodeJob → DynEncoder / DynFrameEncoder
+//!   DynEncoderConfig → DynEncodeJob → DynEncoder / DynFullFrameEncoder
 //!
 //! Each layer is a separate trait with blanket impls via private shim structs.
 //! Every method from the generic traits is exposed.
@@ -21,12 +21,12 @@
 use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
-use crate::{EncodeCapabilities, EncodeFrame, EncodeOutput, MetadataView, ResourceLimits};
+use crate::{EncodeCapabilities, EncodeOutput, MetadataView, ResourceLimits};
 use enough::Stop;
 use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
 
 use super::BoxedError;
-use super::encoder::{Encoder, FrameEncoder};
+use super::encoder::{Encoder, FullFrameEncoder};
 use super::encoding::{EncodeJob, EncoderConfig};
 
 // ===========================================================================
@@ -115,86 +115,28 @@ impl<E: Encoder> DynEncoder for EncoderShim<E> {
 }
 
 // ===========================================================================
-// DynFrameEncoder
+// DynFullFrameEncoder
 // ===========================================================================
 
-/// Object-safe animation encoder.
+/// Object-safe full-frame animation encoder.
 ///
-/// Wraps [`FrameEncoder`] for dyn dispatch. Produced by
-/// [`DynEncodeJob::into_frame_encoder`].
-pub trait DynFrameEncoder {
+/// Wraps [`FullFrameEncoder`] for dyn dispatch. Produced by
+/// [`DynEncodeJob::into_full_frame_encoder`].
+pub trait DynFullFrameEncoder {
     /// Push a complete full-canvas frame.
     fn push_frame(&mut self, pixels: PixelSlice<'_>, duration_ms: u32) -> Result<(), BoxedError>;
-
-    /// Push a frame with sub-canvas positioning and compositing.
-    fn push_encode_frame(&mut self, frame: EncodeFrame<'_>) -> Result<(), BoxedError>;
-
-    /// Begin a new frame (for row-level building).
-    fn begin_frame(&mut self, duration_ms: u32) -> Result<(), BoxedError>;
-
-    /// Push rows into the current frame.
-    fn push_rows(&mut self, rows: PixelSlice<'_>) -> Result<(), BoxedError>;
-
-    /// End the current frame.
-    fn end_frame(&mut self) -> Result<(), BoxedError>;
-
-    /// Encode a frame by pulling rows from a source callback.
-    fn pull_frame(
-        &mut self,
-        duration_ms: u32,
-        source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
-    ) -> Result<(), BoxedError>;
-
-    /// Set animation loop count.
-    fn set_loop_count(&mut self, count: Option<u32>);
 
     /// Finalize animation. Returns encoded output.
     fn finish(self: Box<Self>) -> Result<EncodeOutput, BoxedError>;
 }
 
-pub(super) struct FrameEncoderShim<F>(pub(super) F);
+pub(super) struct FullFrameEncoderShim<F>(pub(super) F);
 
-impl<F: FrameEncoder> DynFrameEncoder for FrameEncoderShim<F> {
+impl<F: FullFrameEncoder> DynFullFrameEncoder for FullFrameEncoderShim<F> {
     fn push_frame(&mut self, pixels: PixelSlice<'_>, duration_ms: u32) -> Result<(), BoxedError> {
         self.0
             .push_frame(pixels, duration_ms)
             .map_err(|e| Box::new(e) as BoxedError)
-    }
-
-    fn push_encode_frame(&mut self, frame: EncodeFrame<'_>) -> Result<(), BoxedError> {
-        self.0
-            .push_encode_frame(frame)
-            .map_err(|e| Box::new(e) as BoxedError)
-    }
-
-    fn begin_frame(&mut self, duration_ms: u32) -> Result<(), BoxedError> {
-        self.0
-            .begin_frame(duration_ms)
-            .map_err(|e| Box::new(e) as BoxedError)
-    }
-
-    fn push_rows(&mut self, rows: PixelSlice<'_>) -> Result<(), BoxedError> {
-        self.0
-            .push_rows(rows)
-            .map_err(|e| Box::new(e) as BoxedError)
-    }
-
-    fn end_frame(&mut self) -> Result<(), BoxedError> {
-        self.0.end_frame().map_err(|e| Box::new(e) as BoxedError)
-    }
-
-    fn pull_frame(
-        &mut self,
-        duration_ms: u32,
-        source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
-    ) -> Result<(), BoxedError> {
-        self.0
-            .pull_frame(duration_ms, source)
-            .map_err(|e| Box::new(e) as BoxedError)
-    }
-
-    fn set_loop_count(&mut self, count: Option<u32>) {
-        self.0.with_loop_count(count);
     }
 
     fn finish(self: Box<Self>) -> Result<EncodeOutput, BoxedError> {
@@ -211,7 +153,7 @@ impl<F: FrameEncoder> DynFrameEncoder for FrameEncoderShim<F> {
 /// Wraps [`EncodeJob`] for dyn dispatch. Produced by
 /// [`DynEncoderConfig::dyn_job`]. Use the `set_*` methods to configure,
 /// then call [`into_encoder`](DynEncodeJob::into_encoder) or
-/// [`into_frame_encoder`](DynEncodeJob::into_frame_encoder).
+/// [`into_full_frame_encoder`](DynEncodeJob::into_full_frame_encoder).
 pub trait DynEncodeJob<'a> {
     /// Set cooperative cancellation token.
     fn set_stop(&mut self, stop: &'a dyn Stop);
@@ -234,10 +176,10 @@ pub trait DynEncodeJob<'a> {
     /// Create the single-image encoder (consumes this job).
     fn into_encoder(self: Box<Self>) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>;
 
-    /// Create the animation encoder (consumes this job).
+    /// Create the full-frame animation encoder (consumes this job).
     ///
     /// The returned encoder is `'static` — it owns its configuration.
-    fn into_frame_encoder(self: Box<Self>) -> Result<Box<dyn DynFrameEncoder>, BoxedError>;
+    fn into_full_frame_encoder(self: Box<Self>) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError>;
 }
 
 struct EncodeJobShim<J>(Option<J>);
@@ -256,7 +198,7 @@ impl<'a, J> DynEncodeJob<'a> for EncodeJobShim<J>
 where
     J: EncodeJob<'a> + 'a,
     J::Enc: Encoder,
-    J::FrameEnc: FrameEncoder,
+    J::FullFrameEnc: FullFrameEncoder,
 {
     fn set_stop(&mut self, stop: &'a dyn Stop) {
         let job = self.take();
@@ -294,12 +236,14 @@ where
         Ok(Box::new(EncoderShim(enc)))
     }
 
-    fn into_frame_encoder(
+    fn into_full_frame_encoder(
         mut self: Box<Self>,
-    ) -> Result<Box<dyn DynFrameEncoder>, BoxedError> {
+    ) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError> {
         let job = self.take();
-        let enc = job.frame_encoder().map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(FrameEncoderShim(enc)))
+        let enc = job
+            .full_frame_encoder()
+            .map_err(|e| Box::new(e) as BoxedError)?;
+        Ok(Box::new(FullFrameEncoderShim(enc)))
     }
 }
 
@@ -310,8 +254,8 @@ where
 /// Object-safe encoder configuration.
 ///
 /// Blanket-implemented for all [`EncoderConfig`] types whose encoder
-/// implements [`Encoder`] and frame encoder implements [`FrameEncoder`].
-/// Codecs without animation support should set `type FrameEnc = ()`.
+/// implements [`Encoder`] and full-frame encoder implements [`FullFrameEncoder`].
+/// Codecs without animation support should set `type FullFrameEnc = ()`.
 ///
 /// ```rust,ignore
 /// fn save(config: &dyn DynEncoderConfig, pixels: &[u8], w: u32, h: u32) -> Result<Vec<u8>, BoxedError> {
@@ -343,7 +287,7 @@ impl<C> DynEncoderConfig for C
 where
     C: EncoderConfig,
     for<'a> <C::Job<'a> as EncodeJob<'a>>::Enc: Encoder,
-    for<'a> <C::Job<'a> as EncodeJob<'a>>::FrameEnc: FrameEncoder,
+    for<'a> <C::Job<'a> as EncodeJob<'a>>::FullFrameEnc: FullFrameEncoder,
 {
     fn format(&self) -> ImageFormat {
         C::format()

@@ -2,7 +2,7 @@
 //!
 //! Mirrors the generic decode hierarchy with dyn-safe traits:
 //!
-//!   DynDecoderConfig → DynDecodeJob → DynDecoder / DynFrameDecoder / DynStreamingDecoder
+//!   DynDecoderConfig → DynDecodeJob → DynDecoder / DynFullFrameDecoder / DynStreamingDecoder
 //!
 //! Each layer is a separate trait with blanket impls via private shim structs.
 //! Every method from the generic traits is exposed.
@@ -12,12 +12,13 @@ use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
-use crate::{DecodeCapabilities, DecodeFrame, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits};
+use crate::output::OwnedFullFrame;
+use crate::{DecodeCapabilities, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits};
 use enough::Stop;
 use zenpixels::{PixelDescriptor, PixelSlice};
 
 use super::BoxedError;
-use super::decoder::{Decode, FrameDecode, StreamingDecode};
+use super::decoder::{Decode, FullFrameDecoder, StreamingDecode};
 use super::decoding::{DecodeJob, DecoderConfig};
 
 // ===========================================================================
@@ -42,33 +43,40 @@ impl<D: Decode> DynDecoder for DecoderShim<D> {
 }
 
 // ===========================================================================
-// DynFrameDecoder
+// DynFullFrameDecoder
 // ===========================================================================
 
-/// Object-safe animation decoder.
+/// Object-safe full-frame animation decoder.
 ///
-/// Wraps [`FrameDecode`] for dyn dispatch. Produced by
-/// [`DynDecodeJob::into_frame_decoder`].
-pub trait DynFrameDecoder {
+/// Wraps [`FullFrameDecoder`] for dyn dispatch. Produced by
+/// [`DynDecodeJob::into_full_frame_decoder`].
+pub trait DynFullFrameDecoder {
+    /// Image metadata, available after construction.
+    fn info(&self) -> &ImageInfo;
+
     /// Number of frames, if known without decoding.
     fn frame_count(&self) -> Option<u32>;
 
     /// Animation loop count from the container.
     fn loop_count(&self) -> Option<u32>;
 
-    /// Pull next frame. Returns `None` when all frames consumed.
-    fn next_frame(&mut self) -> Result<Option<DecodeFrame>, BoxedError>;
+    /// Render the next frame as an owned copy.
+    fn render_next_frame_owned(&mut self) -> Result<Option<OwnedFullFrame>, BoxedError>;
 
-    /// Decode next frame directly into a caller-owned sink (push model).
-    fn next_frame_to_sink(
+    /// Render the next frame directly into a caller-owned sink.
+    fn render_next_frame_to_sink(
         &mut self,
         sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<OutputInfo>, BoxedError>;
 }
 
-pub(super) struct FrameDecoderShim<F>(pub(super) F);
+pub(super) struct FullFrameDecoderShim<F>(pub(super) F);
 
-impl<F: FrameDecode> DynFrameDecoder for FrameDecoderShim<F> {
+impl<F: FullFrameDecoder> DynFullFrameDecoder for FullFrameDecoderShim<F> {
+    fn info(&self) -> &ImageInfo {
+        self.0.info()
+    }
+
     fn frame_count(&self) -> Option<u32> {
         self.0.frame_count()
     }
@@ -77,16 +85,18 @@ impl<F: FrameDecode> DynFrameDecoder for FrameDecoderShim<F> {
         self.0.loop_count()
     }
 
-    fn next_frame(&mut self) -> Result<Option<DecodeFrame>, BoxedError> {
-        self.0.next_frame().map_err(|e| Box::new(e) as BoxedError)
+    fn render_next_frame_owned(&mut self) -> Result<Option<OwnedFullFrame>, BoxedError> {
+        self.0
+            .render_next_frame_owned()
+            .map_err(|e| Box::new(e) as BoxedError)
     }
 
-    fn next_frame_to_sink(
+    fn render_next_frame_to_sink(
         &mut self,
         sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<OutputInfo>, BoxedError> {
         self.0
-            .next_frame_to_sink(sink)
+            .render_next_frame_to_sink(sink)
             .map_err(|e| Box::new(e) as BoxedError)
     }
 }
@@ -153,8 +163,8 @@ pub trait DynDecodeJob<'a> {
     /// Set orientation handling strategy.
     fn set_orientation(&mut self, hint: OrientationHint);
 
-    /// Hint: seek to a specific frame before decoding.
-    fn set_frame_index(&mut self, index: u32);
+    /// Hint: start decoding from a specific frame (0-based).
+    fn set_start_frame_index(&mut self, index: u32);
 
     /// Predict what the decoder will produce given current hints.
     fn output_info(&self, data: &[u8]) -> Result<OutputInfo, BoxedError>;
@@ -181,15 +191,15 @@ pub trait DynDecodeJob<'a> {
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError>;
 
-    /// Create a frame-by-frame animation decoder (consumes this job).
+    /// Create a full-frame animation decoder (consumes this job).
     ///
     /// The returned decoder is `'static` — it owns all its data.
     /// Pass `Cow::Owned(vec)` to avoid a copy.
-    fn into_frame_decoder(
+    fn into_full_frame_decoder(
         self: Box<Self>,
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFrameDecoder>, BoxedError>;
+    ) -> Result<Box<dyn DynFullFrameDecoder>, BoxedError>;
 }
 
 struct DecodeJobShim<J>(Option<J>);
@@ -254,9 +264,9 @@ where
         self.put(job.with_orientation(hint));
     }
 
-    fn set_frame_index(&mut self, index: u32) {
+    fn set_start_frame_index(&mut self, index: u32) {
         let job = self.take();
-        self.put(job.with_frame_index(index));
+        self.put(job.with_start_frame_index(index));
     }
 
     fn output_info(&self, data: &[u8]) -> Result<OutputInfo, BoxedError> {
@@ -300,16 +310,16 @@ where
         Ok(Box::new(StreamingDecoderShim(dec)))
     }
 
-    fn into_frame_decoder(
+    fn into_full_frame_decoder(
         mut self: Box<Self>,
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFrameDecoder>, BoxedError> {
+    ) -> Result<Box<dyn DynFullFrameDecoder>, BoxedError> {
         let job = self.take();
         let dec = job
-            .frame_decoder(data, preferred)
+            .full_frame_decoder(data, preferred)
             .map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(FrameDecoderShim(dec)))
+        Ok(Box::new(FullFrameDecoderShim(dec)))
     }
 }
 

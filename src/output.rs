@@ -1,7 +1,6 @@
 //! Encode and decode output types.
 
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
 
@@ -211,94 +210,108 @@ impl core::fmt::Debug for DecodeOutput {
     }
 }
 
-/// How a frame is composited over the previous canvas state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
-pub enum FrameBlend {
-    /// Replace the region with this frame's pixels.
-    #[default]
-    Source,
-    /// Alpha-blend this frame over the existing canvas.
-    Over,
-}
-
-/// What happens to the canvas after displaying this frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
-pub enum FrameDisposal {
-    /// Leave the canvas as-is after this frame.
-    #[default]
-    None,
-    /// Restore the canvas region to the background color.
-    RestoreBackground,
-    /// Restore the canvas region to the state before this frame.
-    RestorePrevious,
-}
-
-/// A single frame from animation decoding.
+/// A composited full-canvas animation frame, borrowing the decoder's canvas.
 ///
-/// Carries container-level metadata via `Arc<ImageInfo>` so each frame
-/// is self-describing without duplicating metadata per frame.
-/// Pixel data is stored as a [`PixelBuffer`].
+/// Returned by [`FullFrameDecoder::render_next_frame()`](crate::decode::FullFrameDecoder::render_next_frame).
+/// The pixel data borrows the decoder's internal canvas buffer — calling
+/// `render_next_frame()` again invalidates this borrow.
+///
+/// Use [`to_owned_frame()`](FullFrame::to_owned_frame) to copy the pixel data
+/// if you need to retain the frame across calls.
 #[non_exhaustive]
-pub struct DecodeFrame {
-    pixels: PixelBuffer,
-    info: Arc<ImageInfo>,
-    delay_ms: u32,
-    index: u32,
-    /// Which previous frame this frame depends on for compositing.
-    /// `None` means this is a keyframe (fully independent).
-    required_frame: Option<u32>,
-    /// Blend mode for compositing this frame over the required frame.
-    blend: FrameBlend,
-    /// How to handle the canvas after this frame is displayed.
-    disposal: FrameDisposal,
-    /// Region of the canvas this frame updates (None = full canvas).
-    /// Format: `[x, y, width, height]`.
-    frame_rect: Option<[u32; 4]>,
+pub struct FullFrame<'a> {
+    pixels: PixelSlice<'a>,
+    duration_ms: u32,
+    frame_index: u32,
 }
 
-impl DecodeFrame {
-    /// Create a new decode frame from a [`PixelBuffer`].
-    ///
-    /// The `info` parameter carries container-level metadata (format, color space,
-    /// ICC/EXIF/XMP, orientation) shared across all frames via `Arc`.
-    pub fn new(pixels: PixelBuffer, info: Arc<ImageInfo>, delay_ms: u32, index: u32) -> Self {
+impl<'a> FullFrame<'a> {
+    /// Create a full frame borrowing pixel data.
+    pub fn new(pixels: PixelSlice<'a>, duration_ms: u32, frame_index: u32) -> Self {
         Self {
             pixels,
-            info,
-            delay_ms,
-            index,
-            required_frame: None,
-            blend: FrameBlend::Source,
-            disposal: FrameDisposal::None,
-            frame_rect: None,
+            duration_ms,
+            frame_index,
         }
     }
 
-    /// Set the required prior frame for compositing.
-    pub fn with_required_frame(mut self, frame: u32) -> Self {
-        self.required_frame = Some(frame);
-        self
+    /// Borrow the composited pixel data.
+    pub fn pixels(&self) -> &PixelSlice<'a> {
+        &self.pixels
     }
 
-    /// Set the blend mode.
-    pub fn with_blend(mut self, blend: FrameBlend) -> Self {
-        self.blend = blend;
-        self
+    /// Frame duration in milliseconds.
+    ///
+    /// Zero means platform-dependent minimum display time for most formats.
+    /// For JXL, zero-duration frames are compositing helpers and are never
+    /// yielded by [`FullFrameDecoder`](crate::decode::FullFrameDecoder).
+    pub fn duration_ms(&self) -> u32 {
+        self.duration_ms
     }
 
-    /// Set the disposal method.
-    pub fn with_disposal(mut self, disposal: FrameDisposal) -> Self {
-        self.disposal = disposal;
-        self
+    /// Displayed frame index (0-based).
+    ///
+    /// Counts only frames yielded by the decoder — internal compositing
+    /// frames (e.g. JXL zero-duration) are not counted.
+    pub fn frame_index(&self) -> u32 {
+        self.frame_index
     }
 
-    /// Set the frame rectangle (region this frame updates).
-    /// Format: `[x, y, width, height]`.
-    pub fn with_frame_rect(mut self, rect: [u32; 4]) -> Self {
-        self.frame_rect = Some(rect);
-        self
+    /// Copy pixel data to produce an owned frame.
+    pub fn to_owned_frame(&self) -> OwnedFullFrame {
+        let ps = &self.pixels;
+        let w = ps.width();
+        let h = ps.rows();
+        let desc = ps.descriptor();
+        let bpp = desc.bytes_per_pixel();
+        let row_bytes = w as usize * bpp;
+
+        // Copy rows into a tightly-packed buffer
+        let mut data = alloc::vec::Vec::with_capacity(h as usize * row_bytes);
+        for y in 0..h {
+            data.extend_from_slice(ps.row(y));
+        }
+
+        let pixels = PixelBuffer::from_vec(data, w, h, desc)
+            .expect("to_owned_frame: buffer sized correctly");
+
+        OwnedFullFrame {
+            pixels,
+            duration_ms: self.duration_ms,
+            frame_index: self.frame_index,
+        }
+    }
+}
+
+impl core::fmt::Debug for FullFrame<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FullFrame")
+            .field("pixels", &self.pixels)
+            .field("duration_ms", &self.duration_ms)
+            .field("frame_index", &self.frame_index)
+            .finish()
+    }
+}
+
+/// A composited full-canvas animation frame with owned pixel data.
+///
+/// Produced by [`FullFrame::to_owned_frame()`] or
+/// [`FullFrameDecoder::render_next_frame_owned()`](crate::decode::FullFrameDecoder::render_next_frame_owned).
+#[non_exhaustive]
+pub struct OwnedFullFrame {
+    pixels: PixelBuffer,
+    duration_ms: u32,
+    frame_index: u32,
+}
+
+impl OwnedFullFrame {
+    /// Create an owned frame from a [`PixelBuffer`].
+    pub fn new(pixels: PixelBuffer, duration_ms: u32, frame_index: u32) -> Self {
+        Self {
+            pixels,
+            duration_ms,
+            frame_index,
+        }
     }
 
     /// Borrow the pixel data as a [`PixelSlice`].
@@ -313,225 +326,27 @@ impl DecodeFrame {
 
     /// Frame duration in milliseconds.
     pub fn duration_ms(&self) -> u32 {
-        self.delay_ms
-    }
-
-    /// Frame index (0-based).
-    pub fn index(&self) -> u32 {
-        self.index
-    }
-
-    /// Which previous frame this frame depends on for compositing.
-    /// `None` means this is a keyframe (fully independent).
-    pub fn required_frame(&self) -> Option<u32> {
-        self.required_frame
-    }
-
-    /// Blend mode for compositing this frame over the required frame.
-    pub fn blend(&self) -> FrameBlend {
-        self.blend
-    }
-
-    /// How to handle the canvas after this frame is displayed.
-    pub fn disposal(&self) -> FrameDisposal {
-        self.disposal
-    }
-
-    /// Region of the canvas this frame updates, or `None` for full canvas.
-    /// Format: `[x, y, width, height]`.
-    pub fn frame_rect(&self) -> Option<[u32; 4]> {
-        self.frame_rect
-    }
-
-    /// Container-level image info (format, color space, metadata).
-    ///
-    /// Shared across all frames via `Arc` — cloning is cheap.
-    pub fn info(&self) -> &ImageInfo {
-        &self.info
-    }
-
-    /// Clone the `Arc<ImageInfo>` for sharing with other frames or consumers.
-    pub fn info_arc(&self) -> Arc<ImageInfo> {
-        Arc::clone(&self.info)
-    }
-
-    /// Borrow embedded metadata for roundtrip encode.
-    ///
-    /// Convenience for `self.info().metadata()`.
-    pub fn metadata(&self) -> MetadataView<'_> {
-        self.info.metadata()
-    }
-
-    /// Detected format (from container-level info).
-    pub fn format(&self) -> ImageFormat {
-        self.info.format
-    }
-
-    /// Frame width.
-    pub fn width(&self) -> u32 {
-        self.pixels.width()
-    }
-
-    /// Frame height.
-    pub fn height(&self) -> u32 {
-        self.pixels.height()
-    }
-
-    /// Whether this frame has an alpha channel.
-    pub fn has_alpha(&self) -> bool {
-        self.pixels.has_alpha()
-    }
-}
-
-impl core::fmt::Debug for DecodeFrame {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut s = f.debug_struct("DecodeFrame");
-        s.field("pixels", &self.pixels)
-            .field("format", &self.info.format)
-            .field("delay_ms", &self.delay_ms)
-            .field("index", &self.index);
-        if let Some(req) = self.required_frame {
-            s.field("required_frame", &req);
-        }
-        if self.blend != FrameBlend::Source {
-            s.field("blend", &self.blend);
-        }
-        if self.disposal != FrameDisposal::None {
-            s.field("disposal", &self.disposal);
-        }
-        if let Some(rect) = &self.frame_rect {
-            s.field("frame_rect", rect);
-        }
-        s.finish()
-    }
-}
-
-#[non_exhaustive]
-/// A single frame for animation encoding.
-///
-/// For full-canvas frames, use [`EncodeFrame::new()`] — `frame_rect`
-/// defaults to `None` (full canvas), blend to [`FrameBlend::Source`],
-/// disposal to [`FrameDisposal::None`].
-///
-/// For sub-canvas frames (GIF, APNG, WebP, JXL), set `frame_rect` to
-/// the region this frame occupies within the canvas, and set `blend`
-/// and `disposal` to control compositing. Use
-/// [`EncodeJob::with_canvas_size()`](crate::encode::EncodeJob::with_canvas_size)
-/// to set the canvas dimensions before pushing sub-canvas frames.
-///
-/// # Example
-///
-/// ```
-/// use zc::{FrameBlend, FrameDisposal, encode::EncodeFrame};
-/// use zenpixels::PixelSlice;
-///
-/// # fn example(full_canvas: PixelSlice<'_>, sub_region: PixelSlice<'_>) {
-/// // Full-canvas frame (simple case)
-/// let frame = EncodeFrame::new(full_canvas, 100);
-///
-/// // Sub-canvas frame at (10, 20) with alpha blending
-/// let frame = EncodeFrame::new(sub_region, 100)
-///     .with_frame_rect([10, 20, 64, 48])
-///     .with_blend(FrameBlend::Over)
-///     .with_disposal(FrameDisposal::RestoreBackground);
-/// # }
-/// ```
-pub struct EncodeFrame<'a> {
-    /// The pixel data for this frame.
-    pub pixels: PixelSlice<'a>,
-    /// Frame duration in milliseconds.
-    pub duration_ms: u32,
-    /// Canvas region `[x, y, w, h]` this frame occupies.
-    ///
-    /// `None` means the frame covers the full canvas (pixels dimensions
-    /// must match canvas dimensions). When `Some`, the pixels dimensions
-    /// must match `w` and `h`.
-    pub frame_rect: Option<[u32; 4]>,
-    /// How to composite this frame onto the canvas.
-    pub blend: FrameBlend,
-    /// What happens to the canvas region after this frame is displayed.
-    pub disposal: FrameDisposal,
-}
-
-impl<'a> EncodeFrame<'a> {
-    /// Create a full-canvas encode frame with default compositing.
-    pub fn new(pixels: PixelSlice<'a>, duration_ms: u32) -> Self {
-        Self {
-            pixels,
-            duration_ms,
-            frame_rect: None,
-            blend: FrameBlend::Source,
-            disposal: FrameDisposal::None,
-        }
-    }
-
-    /// Set the canvas region this frame occupies.
-    ///
-    /// `rect` is `[x, y, width, height]` in canvas coordinates.
-    /// The pixel data dimensions must match `width` and `height`.
-    pub fn with_frame_rect(mut self, rect: [u32; 4]) -> Self {
-        self.frame_rect = Some(rect);
-        self
-    }
-
-    /// Set the blend mode for compositing.
-    pub fn with_blend(mut self, blend: FrameBlend) -> Self {
-        self.blend = blend;
-        self
-    }
-
-    /// Set the disposal method after this frame is displayed.
-    pub fn with_disposal(mut self, disposal: FrameDisposal) -> Self {
-        self.disposal = disposal;
-        self
-    }
-
-    /// Borrow the pixel data.
-    pub fn pixels(&self) -> &PixelSlice<'a> {
-        &self.pixels
-    }
-
-    /// Frame duration in milliseconds.
-    pub fn duration_ms(&self) -> u32 {
         self.duration_ms
     }
 
-    /// Frame X offset on the canvas (0 for full-canvas frames).
-    pub fn x(&self) -> u32 {
-        self.frame_rect.map_or(0, |r| r[0])
+    /// Displayed frame index (0-based).
+    pub fn frame_index(&self) -> u32 {
+        self.frame_index
     }
 
-    /// Frame Y offset on the canvas (0 for full-canvas frames).
-    pub fn y(&self) -> u32 {
-        self.frame_rect.map_or(0, |r| r[1])
-    }
-
-    /// Blend mode for compositing.
-    pub fn blend(&self) -> FrameBlend {
-        self.blend
-    }
-
-    /// Disposal method after this frame is displayed.
-    pub fn disposal(&self) -> FrameDisposal {
-        self.disposal
+    /// Borrow as a [`FullFrame`].
+    pub fn as_full_frame(&self) -> FullFrame<'_> {
+        FullFrame::new(self.pixels.as_slice(), self.duration_ms, self.frame_index)
     }
 }
 
-impl core::fmt::Debug for EncodeFrame<'_> {
+impl core::fmt::Debug for OwnedFullFrame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut s = f.debug_struct("EncodeFrame");
-        s.field("pixels", &self.pixels)
-            .field("duration_ms", &self.duration_ms);
-        if let Some(rect) = &self.frame_rect {
-            s.field("frame_rect", rect);
-        }
-        if self.blend != FrameBlend::Source {
-            s.field("blend", &self.blend);
-        }
-        if self.disposal != FrameDisposal::None {
-            s.field("disposal", &self.disposal);
-        }
-        s.finish()
+        f.debug_struct("OwnedFullFrame")
+            .field("pixels", &self.pixels)
+            .field("duration_ms", &self.duration_ms)
+            .field("frame_index", &self.frame_index)
+            .finish()
     }
 }
 
@@ -609,63 +424,64 @@ mod tests {
     }
 
     #[test]
-    fn decode_frame() {
-        let buf = make_rgba8_buffer(2, 2);
-        let info = Arc::new(ImageInfo::new(2, 2, ImageFormat::Png));
-        let frame = DecodeFrame::new(buf, info, 100, 0);
+    fn full_frame_borrowed() {
+        let buf = make_rgba8_buffer(4, 4);
+        let ps = buf.as_slice();
+        let frame = FullFrame::new(ps, 100, 0);
         assert_eq!(frame.duration_ms(), 100);
-        assert_eq!(frame.index(), 0);
-        assert_eq!(frame.width(), 2);
-        assert_eq!(frame.height(), 2);
-        assert!(frame.has_alpha());
-        assert_eq!(frame.format(), ImageFormat::Png);
+        assert_eq!(frame.frame_index(), 0);
+        assert_eq!(frame.pixels().width(), 4);
+        assert_eq!(frame.pixels().rows(), 4);
     }
 
     #[test]
-    fn decode_frame_debug() {
+    fn full_frame_to_owned() {
+        let buf = make_rgb8_buffer(2, 2);
+        let ps = buf.as_slice();
+        let frame = FullFrame::new(ps, 50, 3);
+        let owned = frame.to_owned_frame();
+        assert_eq!(owned.duration_ms(), 50);
+        assert_eq!(owned.frame_index(), 3);
+        assert_eq!(owned.pixels().width(), 2);
+        assert_eq!(owned.pixels().rows(), 2);
+    }
+
+    #[test]
+    fn owned_full_frame_as_full_frame() {
+        let buf = make_rgb8_buffer(2, 2);
+        let owned = OwnedFullFrame::new(buf, 100, 5);
+        let borrowed = owned.as_full_frame();
+        assert_eq!(borrowed.duration_ms(), 100);
+        assert_eq!(borrowed.frame_index(), 5);
+    }
+
+    #[test]
+    fn owned_full_frame_into_buffer() {
+        let buf = make_rgb8_buffer(3, 3);
+        let owned = OwnedFullFrame::new(buf, 200, 0);
+        let recovered = owned.into_buffer();
+        assert_eq!(recovered.width(), 3);
+        assert_eq!(recovered.height(), 3);
+    }
+
+    #[test]
+    fn full_frame_debug() {
         let buf = make_gray8_buffer(2, 2);
-        let info = Arc::new(ImageInfo::new(2, 2, ImageFormat::Gif));
-        let frame = DecodeFrame::new(buf, info, 100, 3);
+        let ps = buf.as_slice();
+        let frame = FullFrame::new(ps, 100, 3);
         let s = alloc::format!("{:?}", frame);
-        assert!(s.contains("DecodeFrame"));
-        assert!(s.contains("delay_ms: 100"));
-        assert!(s.contains("index: 3"));
+        assert!(s.contains("FullFrame"));
+        assert!(s.contains("duration_ms: 100"));
+        assert!(s.contains("frame_index: 3"));
     }
 
     #[test]
-    fn decode_frame_info_accessor() {
+    fn owned_full_frame_debug() {
         let buf = make_rgb8_buffer(2, 2);
-        let info =
-            Arc::new(ImageInfo::new(2, 2, ImageFormat::WebP).with_icc_profile(vec![10, 20, 30]));
-        let frame = DecodeFrame::new(buf, Arc::clone(&info), 100, 0);
-        assert_eq!(frame.info().format, ImageFormat::WebP);
-        assert_eq!(
-            frame.info().source_color.icc_profile.as_deref(),
-            Some([10, 20, 30].as_slice())
-        );
-        assert_eq!(frame.format(), ImageFormat::WebP);
-    }
-
-    #[test]
-    fn decode_frame_metadata_accessor() {
-        let buf = make_rgb8_buffer(2, 2);
-        let info = Arc::new(
-            ImageInfo::new(2, 2, ImageFormat::Avif)
-                .with_cicp(crate::info::Cicp::SRGB)
-                .with_orientation(crate::Orientation::Rotate90),
-        );
-        let frame = DecodeFrame::new(buf, info, 50, 0);
-        let meta = frame.metadata();
-        assert_eq!(meta.cicp, Some(crate::info::Cicp::SRGB));
-        assert_eq!(meta.orientation, crate::Orientation::Rotate90);
-    }
-
-    #[test]
-    fn decode_frame_info_arc_shared() {
-        let buf = make_rgb8_buffer(2, 2);
-        let info = Arc::new(ImageInfo::new(2, 2, ImageFormat::Gif));
-        let frame = DecodeFrame::new(buf, Arc::clone(&info), 100, 0);
-        let arc2 = frame.info_arc();
-        assert!(Arc::ptr_eq(&info, &arc2));
+        let owned = OwnedFullFrame::new(buf, 50, 1);
+        let s = alloc::format!("{:?}", owned);
+        assert!(s.contains("OwnedFullFrame"));
+        assert!(s.contains("duration_ms: 50"));
+        assert!(s.contains("frame_index: 1"));
     }
 }

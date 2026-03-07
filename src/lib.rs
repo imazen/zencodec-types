@@ -59,7 +59,7 @@ pub use gainmap::GainMapMetadata;
 pub use info::{Cicp, ContentLightLevel, ImageInfo, MasteringDisplay, Metadata, MetadataView};
 pub use limits::{LimitExceeded, ResourceLimits, ThreadingPolicy};
 pub use orientation::{Orientation, OrientationHint};
-pub use output::{FrameBlend, FrameDisposal};
+pub use output::{FullFrame, OwnedFullFrame};
 
 pub use capabilities::UnsupportedOperation;
 pub use error::{find_cause, CodecErrorExt};
@@ -79,7 +79,7 @@ pub use enough::Unstoppable;
 
 pub(crate) use capabilities::{DecodeCapabilities, EncodeCapabilities};
 pub(crate) use info::{DecodeCost, EncodeCost, OutputInfo};
-pub(crate) use output::{DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput};
+pub(crate) use output::{DecodeOutput, EncodeOutput};
 pub(crate) use policy::{DecodePolicy, EncodePolicy};
 pub(crate) use sink::DecodeRowSink;
 
@@ -94,31 +94,31 @@ pub(crate) use sink::DecodeRowSink;
 /// ```text
 ///                                  ┌→ Enc (implements Encoder)
 /// EncoderConfig → EncodeJob<'a> ──┤
-///                                  └→ FrameEnc (implements FrameEncoder)
+///                                  └→ FullFrameEnc (implements FullFrameEncoder)
 /// ```
 ///
 /// # Object-safe dyn dispatch
 ///
 /// ```text
-/// DynEncoderConfig → DynEncodeJob → DynEncoder / DynFrameEncoder
+/// DynEncoderConfig → DynEncodeJob → DynEncoder / DynFullFrameEncoder
 /// ```
 ///
 /// Codec implementors implement the generic traits. Dispatch callers
 /// use the `Dyn*` variants for codec-agnostic operation.
 pub mod encode {
     // Traits — config, job, execution
-    pub use crate::traits::{EncodeJob, Encoder, EncoderConfig, FrameEncoder};
+    pub use crate::traits::{EncodeJob, Encoder, EncoderConfig, FullFrameEncoder};
 
     // Object-safe dyn dispatch
     pub use crate::traits::{
-        BoxedError, DynEncodeJob, DynEncoder, DynEncoderConfig, DynFrameEncoder,
+        BoxedError, DynEncodeJob, DynEncoder, DynEncoderConfig, DynFullFrameEncoder,
     };
 
     // Types
     pub use crate::capabilities::EncodeCapabilities;
     pub use crate::info::EncodeCost;
     pub use crate::negotiate::best_encode_format;
-    pub use crate::output::{EncodeFrame, EncodeOutput};
+    pub use crate::output::EncodeOutput;
     pub use crate::policy::EncodePolicy;
 }
 
@@ -129,33 +129,33 @@ pub mod encode {
 /// ```text
 ///                                  ┌→ Dec (implements Decode)
 /// DecoderConfig → DecodeJob<'a> ──┤→ StreamDec (implements StreamingDecode)
-///                                  └→ FrameDec (implements FrameDecode)
+///                                  └→ FullFrameDec (implements FullFrameDecoder)
 /// ```
 ///
 /// # Object-safe dyn dispatch
 ///
 /// ```text
-/// DynDecoderConfig → DynDecodeJob → DynDecoder / DynFrameDecoder / DynStreamingDecoder
+/// DynDecoderConfig → DynDecodeJob → DynDecoder / DynFullFrameDecoder / DynStreamingDecoder
 /// ```
 ///
 /// Codec implementors implement the generic traits. Dispatch callers
 /// use the `Dyn*` variants for codec-agnostic operation.
 pub mod decode {
     // Traits — config, job, execution
-    pub use crate::traits::{Decode, DecodeJob, DecoderConfig, FrameDecode, StreamingDecode};
+    pub use crate::traits::{Decode, DecodeJob, DecoderConfig, FullFrameDecoder, StreamingDecode};
 
     // Object-safe dyn dispatch
     pub use crate::traits::{
-        BoxedError, DynDecodeJob, DynDecoder, DynDecoderConfig, DynFrameDecoder,
+        BoxedError, DynDecodeJob, DynDecoder, DynDecoderConfig, DynFullFrameDecoder,
         DynStreamingDecoder,
     };
 
     // Types
     pub use crate::capabilities::DecodeCapabilities;
     pub use crate::info::{DecodeCost, OutputInfo};
-    pub use crate::output::{DecodeFrame, DecodeOutput};
+    pub use crate::output::{DecodeOutput, FullFrame, OwnedFullFrame};
     pub use crate::policy::DecodePolicy;
-    pub use crate::sink::DecodeRowSink;
+    pub use crate::sink::{DecodeRowSink, SinkError};
 
     pub use crate::negotiate::{is_format_available, negotiate_pixel_format};
 

@@ -31,22 +31,14 @@ pub enum UnsupportedOperation {
     RowLevelEncode,
     /// `Encoder::encode_from()` (pull-from-source encode).
     PullEncode,
-    /// All `FrameEncoder` methods (animation encoding).
+    /// All `FullFrameEncoder` methods (animation encoding).
     AnimationEncode,
-    /// `FrameEncoder::begin_frame` / `push_rows` / `end_frame` (row-level frame encode).
-    RowLevelFrameEncode,
-    /// `FrameEncoder::pull_frame()` (pull-from-source frame encode).
-    PullFrameEncode,
     /// `Decoder::decode_into()` (decode into caller buffer).
     DecodeInto,
     /// `Decoder::decode_rows()` (row-level decode).
     RowLevelDecode,
-    /// All `FrameDecoder` methods (animation decoding).
+    /// All `FullFrameDecoder` methods (animation decoding).
     AnimationDecode,
-    /// `FrameDecoder::next_frame_into()` (frame decode into caller buffer).
-    FrameDecodeInto,
-    /// `FrameDecoder::next_frame_rows()` (row-level frame decode).
-    RowLevelFrameDecode,
     /// A specific pixel format is not supported.
     PixelFormat,
 }
@@ -58,13 +50,9 @@ impl UnsupportedOperation {
             Self::RowLevelEncode => "row_level_encode",
             Self::PullEncode => "pull_encode",
             Self::AnimationEncode => "animation_encode",
-            Self::RowLevelFrameEncode => "row_level_frame_encode",
-            Self::PullFrameEncode => "pull_frame_encode",
             Self::DecodeInto => "decode_into",
             Self::RowLevelDecode => "row_level_decode",
             Self::AnimationDecode => "animation_decode",
-            Self::FrameDecodeInto => "frame_decode_into",
-            Self::RowLevelFrameDecode => "row_level_frame_decode",
             Self::PixelFormat => "pixel_format",
         }
     }
@@ -116,8 +104,6 @@ pub struct EncodeCapabilities {
     animation: bool,
     row_level: bool,
     pull: bool,
-    row_level_frame: bool,
-    pull_frame: bool,
     // Format capabilities
     lossy: bool,
     lossless: bool,
@@ -157,8 +143,6 @@ impl EncodeCapabilities {
             animation: false,
             row_level: false,
             pull: false,
-            row_level_frame: false,
-            pull_frame: false,
             lossy: false,
             lossless: false,
             hdr: false,
@@ -207,14 +191,6 @@ impl EncodeCapabilities {
     /// Whether `encode_from()` works (pull-from-source encode).
     pub const fn pull(&self) -> bool {
         self.pull
-    }
-    /// Whether `FrameEncoder::begin_frame` / `push_rows` / `end_frame` work.
-    pub const fn row_level_frame(&self) -> bool {
-        self.row_level_frame
-    }
-    /// Whether `pull_frame()` works (pull-from-source frame encode).
-    pub const fn pull_frame(&self) -> bool {
-        self.pull_frame
     }
     /// Whether the codec supports lossy encoding.
     pub const fn lossy(&self) -> bool {
@@ -309,14 +285,6 @@ impl EncodeCapabilities {
         self.pull = v;
         self
     }
-    pub const fn with_row_level_frame(mut self, v: bool) -> Self {
-        self.row_level_frame = v;
-        self
-    }
-    pub const fn with_pull_frame(mut self, v: bool) -> Self {
-        self.pull_frame = v;
-        self
-    }
     pub const fn with_lossy(mut self, v: bool) -> Self {
         self.lossy = v;
         self
@@ -391,8 +359,6 @@ impl fmt::Debug for EncodeCapabilities {
             .field("native_alpha", &self.native_alpha)
             .field("row_level", &self.row_level)
             .field("pull", &self.pull)
-            .field("row_level_frame", &self.row_level_frame)
-            .field("pull_frame", &self.pull_frame)
             .field("enforces_max_pixels", &self.enforces_max_pixels)
             .field("enforces_max_memory", &self.enforces_max_memory)
             .field("threads_supported_range", &self.threads_supported_range);
@@ -443,8 +409,6 @@ pub struct DecodeCapabilities {
     cheap_probe: bool,
     decode_into: bool,
     row_level: bool,
-    frame_decode_into: bool,
-    row_level_frame: bool,
     // Format capabilities
     hdr: bool,
     native_gray: bool,
@@ -481,8 +445,6 @@ impl DecodeCapabilities {
             cheap_probe: false,
             decode_into: false,
             row_level: false,
-            frame_decode_into: false,
-            row_level_frame: false,
             hdr: false,
             native_gray: false,
             native_16bit: false,
@@ -532,14 +494,6 @@ impl DecodeCapabilities {
     /// Whether streaming row-level decode works.
     pub const fn row_level(&self) -> bool {
         self.row_level
-    }
-    /// Whether `next_frame_into()` works (frame decode into caller buffer).
-    pub const fn frame_decode_into(&self) -> bool {
-        self.frame_decode_into
-    }
-    /// Whether row-level frame decode works.
-    pub const fn row_level_frame(&self) -> bool {
-        self.row_level_frame
     }
     /// Whether the codec supports HDR content.
     pub const fn hdr(&self) -> bool {
@@ -620,14 +574,6 @@ impl DecodeCapabilities {
         self.row_level = v;
         self
     }
-    pub const fn with_frame_decode_into(mut self, v: bool) -> Self {
-        self.frame_decode_into = v;
-        self
-    }
-    pub const fn with_row_level_frame(mut self, v: bool) -> Self {
-        self.row_level_frame = v;
-        self
-    }
     pub const fn with_hdr(mut self, v: bool) -> Self {
         self.hdr = v;
         self
@@ -680,8 +626,6 @@ impl fmt::Debug for DecodeCapabilities {
             .field("cheap_probe", &self.cheap_probe)
             .field("decode_into", &self.decode_into)
             .field("row_level", &self.row_level)
-            .field("frame_decode_into", &self.frame_decode_into)
-            .field("row_level_frame", &self.row_level_frame)
             .field("hdr", &self.hdr)
             .field("native_gray", &self.native_gray)
             .field("native_16bit", &self.native_16bit)
@@ -710,8 +654,6 @@ mod tests {
         assert!(!caps.animation());
         assert!(!caps.row_level());
         assert!(!caps.pull());
-        assert!(!caps.row_level_frame());
-        assert!(!caps.pull_frame());
         assert!(!caps.lossy());
         assert!(!caps.lossless());
         assert!(!caps.hdr());
@@ -738,8 +680,6 @@ mod tests {
         assert!(!caps.cheap_probe());
         assert!(!caps.decode_into());
         assert!(!caps.row_level());
-        assert!(!caps.frame_decode_into());
-        assert!(!caps.row_level_frame());
         assert!(!caps.hdr());
         assert!(!caps.native_gray());
         assert!(!caps.native_16bit());
@@ -862,28 +802,12 @@ mod tests {
             "animation_encode"
         );
         assert_eq!(
-            UnsupportedOperation::RowLevelFrameEncode.name(),
-            "row_level_frame_encode"
-        );
-        assert_eq!(
-            UnsupportedOperation::PullFrameEncode.name(),
-            "pull_frame_encode"
-        );
-        assert_eq!(
             UnsupportedOperation::RowLevelDecode.name(),
             "row_level_decode"
         );
         assert_eq!(
             UnsupportedOperation::AnimationDecode.name(),
             "animation_decode"
-        );
-        assert_eq!(
-            UnsupportedOperation::FrameDecodeInto.name(),
-            "frame_decode_into"
-        );
-        assert_eq!(
-            UnsupportedOperation::RowLevelFrameDecode.name(),
-            "row_level_frame_decode"
         );
     }
 

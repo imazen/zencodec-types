@@ -1,6 +1,8 @@
 //! Decode execution traits: one-shot, streaming, and animation.
 
-use crate::{DecodeFrame, DecodeOutput, ImageInfo, OutputInfo};
+use crate::{DecodeOutput, ImageInfo, OutputInfo};
+use crate::output::{FullFrame, OwnedFullFrame};
+use crate::sink::SinkError;
 use zenpixels::PixelSlice;
 
 /// Single-image decode. Returns owned pixels.
@@ -54,13 +56,48 @@ pub trait StreamingDecode {
     fn info(&self) -> &ImageInfo;
 }
 
-/// Animation decode. Returns owned frames.
+/// Full-frame composited animation decode.
 ///
-/// Created by [`DecodeJob::frame_decoder()`](super::DecodeJob::frame_decoder)
+/// The decoder composites internally (handling disposal, blending,
+/// sub-canvas positioning, reference slots, etc.) and yields
+/// full-canvas frames ready for display.
+///
+/// Created by [`DecodeJob::full_frame_decoder()`](super::DecodeJob::full_frame_decoder)
 /// with input data and format preferences already bound.
-pub trait FrameDecode: Sized {
+///
+/// # Frame index
+///
+/// Frame indices are 0-based and count only displayed frames. Internal
+/// compositing helper frames (e.g. JXL zero-duration frames) are consumed
+/// internally and never yielded.
+///
+/// # Borrowed vs owned
+///
+/// [`render_next_frame()`](FullFrameDecoder::render_next_frame) returns a
+/// [`FullFrame`] that borrows the decoder's internal canvas — zero-copy
+/// but invalidated by the next call.
+/// [`render_next_frame_owned()`](FullFrameDecoder::render_next_frame_owned)
+/// copies to an [`OwnedFullFrame`] for independent ownership.
+pub trait FullFrameDecoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
+
+    /// Wrap a [`SinkError`] into this decoder's error type.
+    ///
+    /// Used by default implementations of sink-based methods. Mirrors
+    /// the [`reject`](crate::encode::Encoder::reject) pattern on encoders.
+    ///
+    /// A typical implementation:
+    ///
+    /// ```rust,ignore
+    /// fn wrap_sink_error(err: SinkError) -> Self::Error {
+    ///     MyError::Sink(err) // or MyError::External(err.to_string())
+    /// }
+    /// ```
+    fn wrap_sink_error(err: SinkError) -> Self::Error;
+
+    /// Image metadata, available after construction.
+    fn info(&self) -> &ImageInfo;
 
     /// Number of frames, if known without decoding.
     fn frame_count(&self) -> Option<u32> {
@@ -76,24 +113,40 @@ pub trait FrameDecode: Sized {
         None
     }
 
-    /// Pull next frame. Returns `None` when all frames consumed.
+    /// Render the next composited full-canvas frame.
     ///
-    /// Format preferences were bound at construction.
-    fn next_frame(&mut self) -> Result<Option<DecodeFrame>, Self::Error>;
+    /// Returns `Ok(Some(frame))` with the composited frame borrowing the
+    /// decoder's internal canvas, or `Ok(None)` when all frames are consumed.
+    ///
+    /// The returned [`FullFrame`] borrows the decoder's canvas buffer.
+    /// Calling this method again invalidates the previous frame.
+    fn render_next_frame(&mut self) -> Result<Option<FullFrame<'_>>, Self::Error>;
 
-    /// Decode next frame directly into a caller-owned sink (push model).
+    /// Render the next frame as an owned copy.
+    ///
+    /// Default implementation calls [`render_next_frame()`](FullFrameDecoder::render_next_frame)
+    /// and copies the pixel data. Codecs that produce owned data natively
+    /// may override for efficiency.
+    fn render_next_frame_owned(&mut self) -> Result<Option<OwnedFullFrame>, Self::Error> {
+        match self.render_next_frame()? {
+            Some(frame) => Ok(Some(frame.to_owned_frame())),
+            None => Ok(None),
+        }
+    }
+
+    /// Render the next frame directly into a caller-owned sink (push model).
     ///
     /// Returns `Ok(Some(info))` with frame metadata, or `Ok(None)` when
     /// all frames are consumed.
     ///
-    /// Default implementation calls [`next_frame()`](FrameDecode::next_frame)
+    /// Default implementation calls [`render_next_frame()`](FullFrameDecoder::render_next_frame)
     /// and copies the result into the sink. Codecs with native row streaming
     /// should override for zero-copy.
-    fn next_frame_to_sink(
+    fn render_next_frame_to_sink(
         &mut self,
         sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<OutputInfo>, Self::Error> {
-        let frame = match self.next_frame()? {
+        let frame = match self.render_next_frame()? {
             Some(f) => f,
             None => return Ok(None),
         };
@@ -102,13 +155,11 @@ pub trait FrameDecode: Sized {
         let w = ps.width();
         let h = ps.rows();
 
-        let mut dst = sink.demand(0, h, w, desc);
+        let mut dst = sink.demand(0, h, w, desc).map_err(Self::wrap_sink_error)?;
         for row in 0..h {
             dst.row_mut(row).copy_from_slice(ps.row(row));
         }
 
-        let info = frame.info();
-        Ok(Some(OutputInfo::full_decode(info.width, info.height, desc)))
+        Ok(Some(OutputInfo::full_decode(w, h, desc)))
     }
 }
-

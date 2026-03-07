@@ -8,8 +8,8 @@ use enough::Stop;
 use zenpixels::PixelDescriptor;
 
 use super::BoxedError;
-use super::dyn_encoding::{DynEncoder, DynFrameEncoder, FrameEncoderShim};
-use super::encoder::{Encoder, FrameEncoder};
+use super::dyn_encoding::{DynEncoder, DynFullFrameEncoder, FullFrameEncoderShim};
+use super::encoder::{Encoder, FullFrameEncoder};
 
 // ===========================================================================
 // Encoder configuration
@@ -120,8 +120,8 @@ pub trait EncoderConfig: Clone + Send + Sync {
 ///
 /// Created by [`EncoderConfig::job()`]. Binds metadata, limits, and
 /// cancellation for a single encode operation. Produces either an `Enc`
-/// (single image via per-format traits) or a `FrameEnc` (animation via
-/// per-format frame traits).
+/// (single image via per-format traits) or a `FullFrameEnc` (animation
+/// via full-frame encoder).
 pub trait EncodeJob<'a>: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
@@ -129,12 +129,12 @@ pub trait EncodeJob<'a>: Sized {
     /// Single-image encoder type (implements [`Encoder`]).
     type Enc: Sized;
 
-    /// Animation encoder type (implements [`FrameEncoder`]).
+    /// Full-frame animation encoder type (implements [`FullFrameEncoder`]).
     ///
     /// Must be `'static` — frame encoders own their configuration
     /// (clone configs, convert stop tokens to owned form). This lets
     /// callers use the encoder independently of the job's scope.
-    type FrameEnc: Sized + 'static;
+    type FullFrameEnc: Sized + 'static;
 
     /// Set cooperative cancellation token.
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
@@ -157,8 +157,9 @@ pub trait EncodeJob<'a>: Sized {
 
     /// Set animation canvas dimensions.
     ///
-    /// For compositing formats (GIF, APNG, WebP), individual frames can be
-    /// smaller than the canvas. Default: canvas = first frame's dimensions.
+    /// For full-frame animation, this sets the expected frame dimensions.
+    /// All pushed frames must match these dimensions. Default: canvas =
+    /// first frame's dimensions.
     fn with_canvas_size(self, _width: u32, _height: u32) -> Self {
         self
     }
@@ -169,7 +170,8 @@ pub trait EncodeJob<'a>: Sized {
     /// - `Some(n)` = loop `n` times
     /// - `None` = format default
     ///
-    /// Default no-op. Only meaningful before `frame_encoder()`.
+    /// Must be set before [`full_frame_encoder()`](EncodeJob::full_frame_encoder)
+    /// because formats write the loop count before frame data.
     fn with_loop_count(self, _count: Option<u32>) -> Self {
         self
     }
@@ -177,8 +179,10 @@ pub trait EncodeJob<'a>: Sized {
     /// Create a one-shot encoder for a single image.
     fn encoder(self) -> Result<Self::Enc, Self::Error>;
 
-    /// Create a frame-by-frame encoder for animation.
-    fn frame_encoder(self) -> Result<Self::FrameEnc, Self::Error>;
+    /// Create a full-frame animation encoder.
+    ///
+    /// Set loop count and canvas size before calling this.
+    fn full_frame_encoder(self) -> Result<Self::FullFrameEnc, Self::Error>;
 
     // --- Type-erased convenience methods ---
 
@@ -217,29 +221,29 @@ pub trait EncodeJob<'a>: Sized {
         Ok(Box::new(super::dyn_encoding::EncoderShim(enc)))
     }
 
-    /// Create a type-erased frame-by-frame encoder.
+    /// Create a type-erased full-frame animation encoder.
     ///
-    /// Only available when `FrameEnc` implements [`FrameEncoder`].
+    /// Only available when `FullFrameEnc` implements [`FullFrameEncoder`].
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let mut enc = config.job()
     ///     .with_loop_count(Some(0))
-    ///     .dyn_frame_encoder()?;
+    ///     .dyn_full_frame_encoder()?;
     ///
-    /// enc.push_encode_frame(frame1)?;
-    /// enc.push_encode_frame(frame2)?;
+    /// enc.push_frame(frame1_pixels, 100)?;
+    /// enc.push_frame(frame2_pixels, 100)?;
     /// let output = enc.finish()?;
     /// ```
-    fn dyn_frame_encoder(self) -> Result<Box<dyn DynFrameEncoder>, BoxedError>
+    fn dyn_full_frame_encoder(self) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError>
     where
         Self: 'a,
-        Self::FrameEnc: FrameEncoder,
+        Self::FullFrameEnc: FullFrameEncoder,
     {
         let enc = self
-            .frame_encoder()
+            .full_frame_encoder()
             .map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(FrameEncoderShim(enc)))
+        Ok(Box::new(FullFrameEncoderShim(enc)))
     }
 }

@@ -10,9 +10,9 @@ use enough::Stop;
 use zenpixels::PixelDescriptor;
 
 use super::BoxedError;
-use super::decoder::{Decode, FrameDecode, StreamingDecode};
+use super::decoder::{Decode, FullFrameDecoder, StreamingDecode};
 use super::dyn_decoding::{
-    DecoderShim, DynDecoder, DynFrameDecoder, DynStreamingDecoder, FrameDecoderShim,
+    DecoderShim, DynDecoder, DynFullFrameDecoder, DynStreamingDecoder, FullFrameDecoderShim,
     StreamingDecoderShim,
 };
 
@@ -91,12 +91,12 @@ pub trait DecodeJob<'a>: Sized {
     /// Set to `()` if the codec does not support streaming decode.
     type StreamDec: StreamingDecode<Error = Self::Error>;
 
-    /// Animation decoder type.
+    /// Full-frame animation decoder type.
     ///
     /// Must be `'static` — frame decoders own their data (typically by
     /// copying the input slice at construction time). This lets callers
     /// drop the input buffer while still iterating frames.
-    type FrameDec: FrameDecode<Error = Self::Error> + 'static;
+    type FullFrameDec: FullFrameDecoder<Error = Self::Error> + 'static;
 
     /// Set cooperative cancellation token.
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
@@ -155,14 +155,14 @@ pub trait DecodeJob<'a>: Sized {
         self
     }
 
-    /// Hint: seek to a specific frame before decoding.
+    /// Hint: start decoding from a specific frame (0-based).
     ///
-    /// For animation formats that support random access (e.g., AVIF),
-    /// this lets the decoder skip directly to the requested frame.
-    /// The decoder may ignore this hint if random access is not supported.
+    /// For animation formats, the decoder seeks to the nearest keyframe
+    /// at or before `index` and composites forward to produce the
+    /// requested frame as the first yielded result.
     ///
-    /// Only meaningful before [`frame_decoder()`](DecodeJob::frame_decoder).
-    fn with_frame_index(self, _index: u32) -> Self {
+    /// Only meaningful before [`full_frame_decoder()`](DecodeJob::full_frame_decoder).
+    fn with_start_frame_index(self, _index: u32) -> Self {
         self
     }
 
@@ -178,7 +178,7 @@ pub trait DecodeJob<'a>: Sized {
     //
     // All executors bind `data` here so the DecodeJob is the single
     // place where input is provided. This keeps Decode/StreamingDecode/
-    // FrameDecode free of data parameters, and prepares for future
+    // FullFrameDecoder free of data parameters, and prepares for future
     // IO-read sources (the job can bind a reader instead of a slice).
     //
     // Consistent parameter order: data, [sink], preferred.
@@ -225,7 +225,9 @@ pub trait DecodeJob<'a>: Sized {
         let h = ps.rows();
 
         // Push all rows into the sink as a single strip
-        let mut dst = sink.demand(0, h, w, desc);
+        let mut dst = sink
+            .demand(0, h, w, desc)
+            .map_err(Self::FullFrameDec::wrap_sink_error)?;
         for row in 0..h {
             dst.row_mut(row).copy_from_slice(ps.row(row));
         }
@@ -247,18 +249,19 @@ pub trait DecodeJob<'a>: Sized {
         preferred: &[PixelDescriptor],
     ) -> Result<Self::StreamDec, Self::Error>;
 
-    /// Create a frame-by-frame animation decoder.
+    /// Create a full-frame animation decoder.
     ///
+    /// The decoder composites internally and yields full-canvas frames.
     /// The decoder calls [`Cow::into_owned()`] to take ownership of the
-    /// data (required because `FrameDec: 'static`). When the caller
+    /// data (required because `FullFrameDec: 'static`). When the caller
     /// passes `Cow::Owned(vec)`, this is a free move with no copy.
     ///
     /// `preferred` is a ranked list of desired output formats.
-    fn frame_decoder(
+    fn full_frame_decoder(
         self,
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Self::FrameDec, Self::Error>;
+    ) -> Result<Self::FullFrameDec, Self::Error>;
 
     // --- Type-erased convenience methods ---
 
@@ -290,30 +293,30 @@ pub trait DecodeJob<'a>: Sized {
         Ok(Box::new(DecoderShim(dec)))
     }
 
-    /// Create a type-erased frame-by-frame decoder.
+    /// Create a type-erased full-frame animation decoder.
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let mut dec = config.job()
-    ///     .dyn_frame_decoder(data, &[])?;
+    ///     .dyn_full_frame_decoder(data, &[])?;
     ///
-    /// while let Some(frame) = dec.next_frame()? {
+    /// while let Some(frame) = dec.render_next_frame_owned()? {
     ///     // process frame
     /// }
     /// ```
-    fn dyn_frame_decoder(
+    fn dyn_full_frame_decoder(
         self,
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFrameDecoder>, BoxedError>
+    ) -> Result<Box<dyn DynFullFrameDecoder>, BoxedError>
     where
         Self: 'a,
     {
         let dec = self
-            .frame_decoder(data, preferred)
+            .full_frame_decoder(data, preferred)
             .map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(FrameDecoderShim(dec)))
+        Ok(Box::new(FullFrameDecoderShim(dec)))
     }
 
     /// Create a type-erased streaming decoder.

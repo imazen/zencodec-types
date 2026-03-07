@@ -1,6 +1,6 @@
 //! Type-erased single-image and animation encoder traits.
 
-use crate::{EncodeFrame, EncodeOutput};
+use crate::EncodeOutput;
 use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
 
 /// Type-erased single-image encoder.
@@ -121,20 +121,18 @@ pub trait Encoder: Sized {
     }
 }
 
-/// Type-erased animation encoder.
+/// Full-frame animation encoder.
 ///
-/// Accepts any pixel format at runtime via [`PixelSlice`] (type-erased).
+/// Accepts composited full-canvas frames and handles format-specific
+/// optimization (disposal, blending, sub-canvas extraction) internally.
 ///
-/// Three mutually exclusive per-frame paths:
-/// - [`push_frame()`](FrameEncoder::push_frame) /
-///   [`push_encode_frame()`](FrameEncoder::push_encode_frame) — complete frame at once
-/// - [`begin_frame()`](FrameEncoder::begin_frame) +
-///   [`push_rows()`](FrameEncoder::push_rows) +
-///   [`end_frame()`](FrameEncoder::end_frame) — caller pushes rows
-/// - [`pull_frame()`](FrameEncoder::pull_frame) — encoder pulls rows from a callback
+/// The encoder accepts [`PixelSlice`] frames at runtime — the pixel
+/// descriptor must be consistent across all frames.
 ///
-/// The frame encoder dispatches internally based on the pixel descriptor.
-pub trait FrameEncoder: Sized {
+/// Loop count is set on the [`EncodeJob`](super::EncodeJob) before
+/// creating this encoder, because formats write the loop count before
+/// frame data.
+pub trait FullFrameEncoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
@@ -145,77 +143,13 @@ pub trait FrameEncoder: Sized {
     /// Push a complete full-canvas frame.
     fn push_frame(&mut self, pixels: PixelSlice<'_>, duration_ms: u32) -> Result<(), Self::Error>;
 
-    /// Push a frame with sub-canvas positioning and compositing.
-    ///
-    /// Default: delegates to [`push_frame()`](FrameEncoder::push_frame).
-    fn push_encode_frame(&mut self, frame: EncodeFrame<'_>) -> Result<(), Self::Error> {
-        self.push_frame(frame.pixels, frame.duration_ms)
-    }
-
-    /// Begin a new frame (for row-level building).
-    ///
-    /// # Errors
-    ///
-    /// Default returns [`UnsupportedOperation::RowLevelFrameEncode`](crate::UnsupportedOperation::RowLevelFrameEncode).
-    fn begin_frame(&mut self, _duration_ms: u32) -> Result<(), Self::Error> {
-        Err(Self::reject(
-            crate::UnsupportedOperation::RowLevelFrameEncode,
-        ))
-    }
-
-    /// Push rows into the current frame (after begin_frame).
-    ///
-    /// # Errors
-    ///
-    /// Default returns [`UnsupportedOperation::RowLevelFrameEncode`](crate::UnsupportedOperation::RowLevelFrameEncode).
-    fn push_rows(&mut self, _rows: PixelSlice<'_>) -> Result<(), Self::Error> {
-        Err(Self::reject(
-            crate::UnsupportedOperation::RowLevelFrameEncode,
-        ))
-    }
-
-    /// End the current frame (after pushing all rows).
-    ///
-    /// # Errors
-    ///
-    /// Default returns [`UnsupportedOperation::RowLevelFrameEncode`](crate::UnsupportedOperation::RowLevelFrameEncode).
-    fn end_frame(&mut self) -> Result<(), Self::Error> {
-        Err(Self::reject(
-            crate::UnsupportedOperation::RowLevelFrameEncode,
-        ))
-    }
-
-    /// Encode a frame by pulling rows from a source callback.
-    ///
-    /// # Errors
-    ///
-    /// Default returns [`UnsupportedOperation::PullFrameEncode`](crate::UnsupportedOperation::PullFrameEncode).
-    fn pull_frame(
-        &mut self,
-        _duration_ms: u32,
-        _source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
-    ) -> Result<(), Self::Error> {
-        Err(Self::reject(
-            crate::UnsupportedOperation::PullFrameEncode,
-        ))
-    }
-
-    /// Set animation loop count.
-    ///
-    /// - `Some(0)` = loop forever
-    /// - `Some(n)` = loop `n` times
-    /// - `None` = format default
-    ///
-    /// Default no-op.
-    fn with_loop_count(&mut self, _count: Option<u32>) {}
-
     /// Finalize animation. Returns encoded output.
     fn finish(self) -> Result<EncodeOutput, Self::Error>;
 }
 
 /// Trivial rejection impl — codecs that don't support animation set
-/// `type FrameEnc = ()` and `frame_encoder()` returns an error.
-impl FrameEncoder for () {
+/// `type FullFrameEnc = ()` and `full_frame_encoder()` returns an error.
+impl FullFrameEncoder for () {
     type Error = crate::UnsupportedOperation;
 
     fn reject(op: crate::UnsupportedOperation) -> Self::Error {
