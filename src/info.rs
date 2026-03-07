@@ -284,7 +284,7 @@ pub struct ImageInfo {
     /// Present when `has_gain_map` is true and the metadata was successfully
     /// parsed. Describes the mathematical relationship between the base image
     /// and the gain map image. The gain map pixel data is a separate image
-    /// accessible via [`DecodeOutput::extras`](crate::DecodeOutput).
+    /// accessible via [`DecodeOutput::extras`](crate::decode::DecodeOutput).
     pub gain_map_metadata: Option<GainMapMetadata>,
     /// Non-fatal diagnostic messages from probing or decoding.
     ///

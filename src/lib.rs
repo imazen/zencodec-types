@@ -91,7 +91,6 @@ pub use whereat;
 // =========================================================================
 
 pub(crate) use capabilities::{DecodeCapabilities, EncodeCapabilities};
-pub(crate) use enough::Stop;
 pub(crate) use info::{DecodeCost, EncodeCost, OutputInfo};
 pub(crate) use output::{DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput};
 pub(crate) use policy::{DecodePolicy, EncodePolicy};

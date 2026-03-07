@@ -10,6 +10,9 @@ keywords = ["image", "codec", "traits"]
 repository = "https://github.com/imazen/zencodec-types"
 exclude = ["CLAUDE.md", "docs/"]
 
+[lib]
+name = "zc"
+
 [dependencies]
 zenpixels = { version = "0.1", features = ["buffer"] }
 zenpixels-convert = { version = "0.1", features = ["buffer"] }

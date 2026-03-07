@@ -13,7 +13,7 @@
 //! # Usage
 //!
 //! Codecs that decode gain maps put `(PixelBuffer, GainMapMetadata)` (or a
-//! codec-specific wrapper) in [`DecodeOutput::extras`](crate::DecodeOutput).
+//! codec-specific wrapper) in [`DecodeOutput::extras`](crate::decode::DecodeOutput).
 //! Callers retrieve it via downcast. Structured trait methods for gain maps
 //! may be added in a future version after the pattern is proven across
 //! multiple codecs.
@@ -44,7 +44,7 @@
 /// # Example
 ///
 /// ```
-/// use zencodec_types::GainMapMetadata;
+/// use zc::GainMapMetadata;
 ///
 /// // Typical UltraHDR gain map: SDR base, boost up to 4x (2 stops)
 /// let meta = GainMapMetadata {

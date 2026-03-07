@@ -21,7 +21,8 @@
 use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
-use crate::{EncodeCapabilities, EncodeFrame, EncodeOutput, MetadataView, ResourceLimits, Stop};
+use crate::{EncodeCapabilities, EncodeFrame, EncodeOutput, MetadataView, ResourceLimits};
+use enough::Stop;
 use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
 
 use super::encoder::{Encoder, FrameEncoder};

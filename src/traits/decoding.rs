@@ -4,7 +4,8 @@ use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
-use crate::{DecodeCapabilities, ImageInfo, OutputInfo, ResourceLimits, Stop};
+use crate::{DecodeCapabilities, ImageInfo, OutputInfo, ResourceLimits};
+use enough::Stop;
 use zenpixels::PixelDescriptor;
 
 use super::decoder::{Decode, FrameDecode, StreamingDecode};
@@ -94,7 +95,7 @@ pub trait DecodeJob<'a>: Sized {
     /// Set decode security policy (controls metadata extraction, parsing strictness, etc.).
     ///
     /// Default no-op. Codecs that support policy check the flags in
-    /// [`DecodePolicy`](crate::DecodePolicy) to decide what to extract and accept.
+    /// [`DecodePolicy`](crate::decode::DecodePolicy) to decide what to extract and accept.
     fn with_policy(self, _policy: crate::DecodePolicy) -> Self {
         self
     }

@@ -20,7 +20,7 @@ use core::fmt;
 /// # Example
 ///
 /// ```
-/// use zencodec_types::UnsupportedOperation;
+/// use zc::UnsupportedOperation;
 ///
 /// let op = UnsupportedOperation::DecodeInto;
 /// assert_eq!(format!("{op}"), "unsupported operation: decode_into");
@@ -89,7 +89,7 @@ impl core::error::Error for UnsupportedOperation {}
 /// # Example
 ///
 /// ```
-/// use zencodec_types::{HasUnsupportedOperation, UnsupportedOperation};
+/// use zc::{HasUnsupportedOperation, UnsupportedOperation};
 ///
 /// #[derive(Debug)]
 /// enum MyCodecError {
@@ -131,7 +131,7 @@ pub trait HasUnsupportedOperation {
 /// # Example
 ///
 /// ```
-/// use zencodec_types::encode::EncodeCapabilities;
+/// use zc::encode::EncodeCapabilities;
 ///
 /// static CAPS: EncodeCapabilities = EncodeCapabilities::new()
 ///     .with_icc(true)
@@ -458,7 +458,7 @@ impl fmt::Debug for EncodeCapabilities {
 /// # Example
 ///
 /// ```
-/// use zencodec_types::decode::DecodeCapabilities;
+/// use zc::decode::DecodeCapabilities;
 ///
 /// static CAPS: DecodeCapabilities = DecodeCapabilities::new()
 ///     .with_icc(true)

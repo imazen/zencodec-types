@@ -3,7 +3,8 @@
 use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
-use crate::{EncodeCapabilities, EncodeOutput, MetadataView, ResourceLimits, Stop};
+use crate::{EncodeCapabilities, EncodeOutput, MetadataView, ResourceLimits};
+use enough::Stop;
 use rgb::{Gray, Rgb, Rgba};
 use zenpixels::{PixelDescriptor, PixelSlice};
 
@@ -146,7 +147,7 @@ pub trait EncodeJob<'a>: Sized {
     /// Set encode security policy (controls metadata embedding, etc.).
     ///
     /// Default no-op. Codecs that support policy check the flags in
-    /// [`EncodePolicy`](crate::EncodePolicy) to decide what to embed.
+    /// [`EncodePolicy`](crate::encode::EncodePolicy) to decide what to embed.
     fn with_policy(self, _policy: crate::EncodePolicy) -> Self {
         self
     }

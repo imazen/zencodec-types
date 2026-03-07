@@ -12,8 +12,9 @@ use alloc::boxed::Box;
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
 use crate::{
-    DecodeCapabilities, DecodeFrame, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits, Stop,
+    DecodeCapabilities, DecodeFrame, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits,
 };
+use enough::Stop;
 use zenpixels::{PixelDescriptor, PixelSlice};
 
 use super::decoder::{Decode, FrameDecode, StreamingDecode};

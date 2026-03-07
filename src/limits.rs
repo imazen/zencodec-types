@@ -52,7 +52,7 @@ pub enum ThreadingPolicy {
 /// # Example
 ///
 /// ```
-/// use zencodec_types::ResourceLimits;
+/// use zc::ResourceLimits;
 ///
 /// let limits = ResourceLimits::none()
 ///     .with_max_pixels(100_000_000)
@@ -284,14 +284,14 @@ impl ResourceLimits {
         Ok(())
     }
 
-    /// Check [`OutputInfo`](crate::OutputInfo) against dimension limits.
+    /// Check [`OutputInfo`](crate::decode::OutputInfo) against dimension limits.
     ///
     /// Checks: `max_width`, `max_height`, `max_pixels`.
     pub fn check_output_info(&self, info: &crate::OutputInfo) -> Result<(), LimitExceeded> {
         self.check_dimensions(info.width, info.height)
     }
 
-    /// Check [`DecodeCost`](crate::DecodeCost) against all applicable limits.
+    /// Check [`DecodeCost`](crate::decode::DecodeCost) against all applicable limits.
     ///
     /// Checks: `max_pixels` against `pixel_count`, `max_memory_bytes` against
     /// `peak_memory` (falls back to `output_bytes` if peak is unknown).
@@ -316,7 +316,7 @@ impl ResourceLimits {
         Ok(())
     }
 
-    /// Check [`EncodeCost`](crate::EncodeCost) against all applicable limits.
+    /// Check [`EncodeCost`](crate::encode::EncodeCost) against all applicable limits.
     ///
     /// Checks: `max_pixels` against `pixel_count`, `max_memory_bytes` against
     /// `peak_memory` (falls back to `input_bytes` if peak is unknown).

@@ -630,7 +630,7 @@ impl<Pixel> core::fmt::Debug for TypedEncodeFrame<'_, Pixel> {
 /// # Example
 ///
 /// ```
-/// use zencodec_types::{FrameBlend, FrameDisposal, encode::EncodeFrame};
+/// use zc::{FrameBlend, FrameDisposal, encode::EncodeFrame};
 /// use zenpixels::PixelSlice;
 ///
 /// # fn example(full_canvas: PixelSlice<'_>, sub_region: PixelSlice<'_>) {
