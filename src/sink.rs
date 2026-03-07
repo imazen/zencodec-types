@@ -172,8 +172,10 @@ mod tests {
                 let stride = width as usize * bpp;
                 let needed = height as usize * stride;
                 self.buf.resize(needed, 0);
-                Ok(PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
-                    .expect("valid buffer"))
+                Ok(
+                    PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
+                        .expect("valid buffer"),
+                )
             }
 
             fn finish(&mut self) -> Result<(), SinkError> {
@@ -237,14 +239,18 @@ mod tests {
                 let stride = width as usize * bpp;
                 let needed = height as usize * stride;
                 self.buf.resize(needed, 0);
-                Ok(PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
-                    .expect("valid buffer"))
+                Ok(
+                    PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
+                        .expect("valid buffer"),
+                )
             }
         }
 
         fn use_sink(sink: &mut dyn DecodeRowSink) {
             sink.begin(10, 8, PixelDescriptor::RGB8_SRGB).unwrap();
-            let ps = sink.provide_next_buffer(0, 8, 10, PixelDescriptor::RGB8_SRGB).unwrap();
+            let ps = sink
+                .provide_next_buffer(0, 8, 10, PixelDescriptor::RGB8_SRGB)
+                .unwrap();
             assert_eq!(ps.stride(), 30);
             assert_eq!(ps.width(), 10);
             assert_eq!(ps.rows(), 8);
@@ -275,8 +281,10 @@ mod tests {
                 let stride = width as usize * bpp;
                 let needed = height as usize * stride;
                 self.buf.resize(needed, 0);
-                Ok(PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
-                    .expect("valid buffer"))
+                Ok(
+                    PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
+                        .expect("valid buffer"),
+                )
             }
         }
 
@@ -336,15 +344,19 @@ mod tests {
                     0
                 };
                 self.buf.resize(needed, 0);
-                Ok(PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
-                    .expect("valid buffer"))
+                Ok(
+                    PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
+                        .expect("valid buffer"),
+                )
             }
         }
 
         let mut sink = AlignedSink { buf: Vec::new() };
 
         // RGBA8: width=10, bpp=4 → row_bytes=40, stride=64
-        let ps = sink.provide_next_buffer(0, 4, 10, PixelDescriptor::RGBA8_SRGB).unwrap();
+        let ps = sink
+            .provide_next_buffer(0, 4, 10, PixelDescriptor::RGBA8_SRGB)
+            .unwrap();
         assert_eq!(ps.stride(), 64);
         assert_eq!(ps.width(), 10);
         assert_eq!(ps.rows(), 4);
@@ -403,8 +415,10 @@ mod tests {
                 let stride = width as usize * bpp;
                 let needed = height as usize * stride;
                 self.buf.resize(needed, 0);
-                Ok(PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
-                    .expect("valid buffer"))
+                Ok(
+                    PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
+                        .expect("valid buffer"),
+                )
             }
         }
 

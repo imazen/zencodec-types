@@ -283,7 +283,7 @@ pub trait DecodeJob<'a>: Sized {
     /// let mut dec = config.job()
     ///     .dyn_full_frame_decoder(data, &[])?;
     ///
-    /// while let Some(frame) = dec.render_next_frame_owned()? {
+    /// while let Some(frame) = dec.render_next_frame_owned(None)? {
     ///     // process frame
     /// }
     /// ```

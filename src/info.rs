@@ -1039,13 +1039,40 @@ pub struct DecodeCost {
 }
 
 impl DecodeCost {
-    /// Create a decode cost estimate.
+    /// Create a decode cost estimate from raw values.
+    ///
+    /// Prefer [`from_output_info`](DecodeCost::from_output_info) when you have
+    /// an [`OutputInfo`] — it computes `output_bytes` and `pixel_count` for you.
     pub const fn new(output_bytes: u64, pixel_count: u64, peak_memory: Option<u64>) -> Self {
         Self {
             output_bytes,
             pixel_count,
             peak_memory,
         }
+    }
+
+    /// Create a decode cost estimate from [`OutputInfo`].
+    ///
+    /// Computes `output_bytes` and `pixel_count` from the output dimensions
+    /// and pixel format. `peak_memory` defaults to `None`; chain
+    /// [`with_peak_memory`](DecodeCost::with_peak_memory) to set it.
+    ///
+    /// ```rust,ignore
+    /// let cost = DecodeCost::from_output_info(&info)
+    ///     .with_peak_memory(info.buffer_size() * 2);
+    /// ```
+    pub fn from_output_info(info: &OutputInfo) -> Self {
+        Self {
+            output_bytes: info.buffer_size(),
+            pixel_count: info.pixel_count(),
+            peak_memory: None,
+        }
+    }
+
+    /// Set estimated peak memory (builder pattern).
+    pub const fn with_peak_memory(mut self, bytes: u64) -> Self {
+        self.peak_memory = Some(bytes);
+        self
     }
 }
 
@@ -1092,13 +1119,42 @@ pub struct EncodeCost {
 }
 
 impl EncodeCost {
-    /// Create an encode cost estimate.
+    /// Create an encode cost estimate from raw values.
+    ///
+    /// Prefer [`for_input`](EncodeCost::for_input) when you have dimensions and
+    /// a pixel descriptor — it computes `input_bytes` and `pixel_count` for you.
     pub const fn new(input_bytes: u64, pixel_count: u64, peak_memory: Option<u64>) -> Self {
         Self {
             input_bytes,
             pixel_count,
             peak_memory,
         }
+    }
+
+    /// Create an encode cost estimate from input dimensions and pixel format.
+    ///
+    /// Computes `input_bytes` and `pixel_count` automatically. `peak_memory`
+    /// defaults to `None`; chain [`with_peak_memory`](EncodeCost::with_peak_memory)
+    /// to set it.
+    ///
+    /// ```rust,ignore
+    /// let bpp = descriptor.bytes_per_pixel() as u64;
+    /// let cost = EncodeCost::for_input(width, height, descriptor)
+    ///     .with_peak_memory(width as u64 * height as u64 * bpp * 3);
+    /// ```
+    pub fn for_input(width: u32, height: u32, descriptor: PixelDescriptor) -> Self {
+        let pixels = width as u64 * height as u64;
+        Self {
+            input_bytes: pixels * descriptor.bytes_per_pixel() as u64,
+            pixel_count: pixels,
+            peak_memory: None,
+        }
+    }
+
+    /// Set estimated peak memory (builder pattern).
+    pub const fn with_peak_memory(mut self, bytes: u64) -> Self {
+        self.peak_memory = Some(bytes);
+        self
     }
 }
 
@@ -1511,5 +1567,37 @@ mod tests {
         assert_eq!(Cicp::matrix_coefficients_name(0), "Identity/RGB");
         assert_eq!(Cicp::matrix_coefficients_name(6), "BT.601");
         assert_eq!(Cicp::matrix_coefficients_name(9), "BT.2020 NCL");
+    }
+
+    #[test]
+    fn decode_cost_from_output_info() {
+        let info = OutputInfo::full_decode(10, 5, PixelDescriptor::RGBA8_SRGB);
+        let cost = DecodeCost::from_output_info(&info);
+        assert_eq!(cost.output_bytes, 200); // 10*5*4
+        assert_eq!(cost.pixel_count, 50); // 10*5
+        assert_eq!(cost.peak_memory, None);
+    }
+
+    #[test]
+    fn decode_cost_with_peak_memory() {
+        let info = OutputInfo::full_decode(10, 5, PixelDescriptor::RGBA8_SRGB);
+        let cost = DecodeCost::from_output_info(&info).with_peak_memory(400);
+        assert_eq!(cost.output_bytes, 200);
+        assert_eq!(cost.peak_memory, Some(400));
+    }
+
+    #[test]
+    fn encode_cost_for_input() {
+        let cost = EncodeCost::for_input(10, 5, PixelDescriptor::RGB8_SRGB);
+        assert_eq!(cost.input_bytes, 150); // 10*5*3
+        assert_eq!(cost.pixel_count, 50);
+        assert_eq!(cost.peak_memory, None);
+    }
+
+    #[test]
+    fn encode_cost_with_peak_memory() {
+        let cost = EncodeCost::for_input(10, 5, PixelDescriptor::RGB8_SRGB).with_peak_memory(450);
+        assert_eq!(cost.input_bytes, 150);
+        assert_eq!(cost.peak_memory, Some(450));
     }
 }

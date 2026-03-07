@@ -56,13 +56,16 @@ mod traits;
 pub use color::{ColorContext, ColorProfileSource, NamedProfile};
 pub use format::{ImageFormat, ImageFormatDefinition, ImageFormatRegistry};
 pub use gainmap::GainMapMetadata;
-pub use info::{Cicp, ContentLightLevel, ImageInfo, MasteringDisplay, Metadata, MetadataView};
+pub use info::{
+    Cicp, ContentLightLevel, ImageInfo, MasteringDisplay, Metadata, MetadataView, Resolution,
+    ResolutionUnit,
+};
 pub use limits::{LimitExceeded, ResourceLimits, ThreadingPolicy};
 pub use orientation::{Orientation, OrientationHint};
 pub use output::{FullFrame, OwnedFullFrame};
 
 pub use capabilities::UnsupportedOperation;
-pub use error::{find_cause, CodecErrorExt};
+pub use error::{CodecErrorExt, find_cause};
 pub use traits::Unsupported;
 
 // =========================================================================

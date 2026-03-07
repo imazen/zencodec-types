@@ -66,7 +66,6 @@ impl fmt::Display for UnsupportedOperation {
 
 impl core::error::Error for UnsupportedOperation {}
 
-
 // ===========================================================================
 // EncodeCapabilities
 // ===========================================================================
@@ -249,6 +248,39 @@ impl EncodeCapabilities {
     /// `(1, 16)` means the encoder can use 1 to 16 threads.
     pub const fn threads_supported_range(&self) -> (u16, u16) {
         self.threads_supported_range
+    }
+
+    /// Check whether this encoder supports a given operation.
+    ///
+    /// Returns `true` if the capability flag corresponding to `op` is set.
+    /// Returns `false` for decode-only operations or [`PixelFormat`](UnsupportedOperation::PixelFormat)
+    /// (which depends on the specific format, not a static flag).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use zc::UnsupportedOperation;
+    /// use zc::encode::EncodeCapabilities;
+    ///
+    /// static CAPS: EncodeCapabilities = EncodeCapabilities::new()
+    ///     .with_animation(true)
+    ///     .with_row_level(true);
+    ///
+    /// assert!(CAPS.supports(UnsupportedOperation::AnimationEncode));
+    /// assert!(CAPS.supports(UnsupportedOperation::RowLevelEncode));
+    /// assert!(!CAPS.supports(UnsupportedOperation::PullEncode));
+    /// assert!(!CAPS.supports(UnsupportedOperation::DecodeInto));
+    /// ```
+    pub const fn supports(&self, op: UnsupportedOperation) -> bool {
+        match op {
+            UnsupportedOperation::RowLevelEncode => self.row_level,
+            UnsupportedOperation::PullEncode => self.pull,
+            UnsupportedOperation::AnimationEncode => self.animation,
+            UnsupportedOperation::DecodeInto
+            | UnsupportedOperation::RowLevelDecode
+            | UnsupportedOperation::AnimationDecode
+            | UnsupportedOperation::PixelFormat => false,
+        }
     }
 
     // --- Const builder methods ---
@@ -536,6 +568,39 @@ impl DecodeCapabilities {
         self.threads_supported_range
     }
 
+    /// Check whether this decoder supports a given operation.
+    ///
+    /// Returns `true` if the capability flag corresponding to `op` is set.
+    /// Returns `false` for encode-only operations or [`PixelFormat`](UnsupportedOperation::PixelFormat)
+    /// (which depends on the specific format, not a static flag).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use zc::UnsupportedOperation;
+    /// use zc::decode::DecodeCapabilities;
+    ///
+    /// static CAPS: DecodeCapabilities = DecodeCapabilities::new()
+    ///     .with_animation(true)
+    ///     .with_decode_into(true);
+    ///
+    /// assert!(CAPS.supports(UnsupportedOperation::AnimationDecode));
+    /// assert!(CAPS.supports(UnsupportedOperation::DecodeInto));
+    /// assert!(!CAPS.supports(UnsupportedOperation::RowLevelDecode));
+    /// assert!(!CAPS.supports(UnsupportedOperation::RowLevelEncode));
+    /// ```
+    pub const fn supports(&self, op: UnsupportedOperation) -> bool {
+        match op {
+            UnsupportedOperation::DecodeInto => self.decode_into,
+            UnsupportedOperation::RowLevelDecode => self.row_level,
+            UnsupportedOperation::AnimationDecode => self.animation,
+            UnsupportedOperation::RowLevelEncode
+            | UnsupportedOperation::PullEncode
+            | UnsupportedOperation::AnimationEncode
+            | UnsupportedOperation::PixelFormat => false,
+        }
+    }
+
     // --- Const builder methods ---
 
     pub const fn with_icc(mut self, v: bool) -> Self {
@@ -779,6 +844,60 @@ mod tests {
     }
 
     #[test]
+    fn encode_supports() {
+        let caps = EncodeCapabilities::new()
+            .with_row_level(true)
+            .with_pull(true)
+            .with_animation(true);
+        assert!(caps.supports(UnsupportedOperation::RowLevelEncode));
+        assert!(caps.supports(UnsupportedOperation::PullEncode));
+        assert!(caps.supports(UnsupportedOperation::AnimationEncode));
+        assert!(!caps.supports(UnsupportedOperation::DecodeInto));
+        assert!(!caps.supports(UnsupportedOperation::RowLevelDecode));
+        assert!(!caps.supports(UnsupportedOperation::AnimationDecode));
+        assert!(!caps.supports(UnsupportedOperation::PixelFormat));
+    }
+
+    #[test]
+    fn decode_supports() {
+        let caps = DecodeCapabilities::new()
+            .with_decode_into(true)
+            .with_row_level(true)
+            .with_animation(true);
+        assert!(caps.supports(UnsupportedOperation::DecodeInto));
+        assert!(caps.supports(UnsupportedOperation::RowLevelDecode));
+        assert!(caps.supports(UnsupportedOperation::AnimationDecode));
+        assert!(!caps.supports(UnsupportedOperation::RowLevelEncode));
+        assert!(!caps.supports(UnsupportedOperation::PullEncode));
+        assert!(!caps.supports(UnsupportedOperation::AnimationEncode));
+        assert!(!caps.supports(UnsupportedOperation::PixelFormat));
+    }
+
+    #[test]
+    fn supports_empty_all_false() {
+        let enc = EncodeCapabilities::new();
+        let dec = DecodeCapabilities::new();
+        for op in [
+            UnsupportedOperation::RowLevelEncode,
+            UnsupportedOperation::PullEncode,
+            UnsupportedOperation::AnimationEncode,
+            UnsupportedOperation::DecodeInto,
+            UnsupportedOperation::RowLevelDecode,
+            UnsupportedOperation::AnimationDecode,
+            UnsupportedOperation::PixelFormat,
+        ] {
+            assert!(
+                !enc.supports(op),
+                "EncodeCapabilities::EMPTY.supports({op:?})"
+            );
+            assert!(
+                !dec.supports(op),
+                "DecodeCapabilities::EMPTY.supports({op:?})"
+            );
+        }
+    }
+
+    #[test]
     fn unsupported_operation_display() {
         assert_eq!(
             alloc::format!("{}", UnsupportedOperation::RowLevelEncode),
@@ -829,5 +948,4 @@ mod tests {
             UnsupportedOperation::PullEncode
         );
     }
-
 }

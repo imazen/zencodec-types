@@ -1733,6 +1733,41 @@ fn encode_cost_limits_check() {
     ));
 }
 
+#[test]
+fn decode_cost_from_output_info() {
+    use zc::decode::{DecodeCost, OutputInfo};
+    use zenpixels::PixelDescriptor;
+
+    // 10x5 RGBA8 = 200 bytes, 50 pixels
+    let info = OutputInfo::full_decode(10, 5, PixelDescriptor::RGBA8_SRGB);
+    let cost = DecodeCost::from_output_info(&info);
+    assert_eq!(cost.output_bytes, 200);
+    assert_eq!(cost.pixel_count, 50);
+    assert_eq!(cost.peak_memory, None);
+
+    // Chain with_peak_memory
+    let cost = DecodeCost::from_output_info(&info).with_peak_memory(400);
+    assert_eq!(cost.output_bytes, 200);
+    assert_eq!(cost.peak_memory, Some(400));
+}
+
+#[test]
+fn encode_cost_for_input() {
+    use zc::encode::EncodeCost;
+    use zenpixels::PixelDescriptor;
+
+    // 10x5 RGB8 = 150 bytes, 50 pixels
+    let cost = EncodeCost::for_input(10, 5, PixelDescriptor::RGB8_SRGB);
+    assert_eq!(cost.input_bytes, 150);
+    assert_eq!(cost.pixel_count, 50);
+    assert_eq!(cost.peak_memory, None);
+
+    // Chain with_peak_memory
+    let cost = EncodeCost::for_input(10, 5, PixelDescriptor::RGB8_SRGB).with_peak_memory(450);
+    assert_eq!(cost.input_bytes, 150);
+    assert_eq!(cost.peak_memory, Some(450));
+}
+
 // =========================================================================
 // 36. Sink error propagation through push_decoder_via_full_decode
 // =========================================================================

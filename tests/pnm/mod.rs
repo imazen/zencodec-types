@@ -8,7 +8,9 @@
 
 use std::borrow::Cow;
 
-use zc::decode::{Decode, DecodeCapabilities, DecodeJob, DecoderConfig, push_decoder_via_full_decode};
+use zc::decode::{
+    Decode, DecodeCapabilities, DecodeJob, DecoderConfig, push_decoder_via_full_decode,
+};
 use zc::encode::{EncodeCapabilities, EncodeJob, EncodeOutput, Encoder, EncoderConfig};
 use zc::{ImageFormat, ImageInfo, MetadataView, ResourceLimits, Unsupported, UnsupportedOperation};
 

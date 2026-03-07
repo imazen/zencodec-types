@@ -232,9 +232,9 @@ pub trait EncodeJob<'a>: Sized {
     ///     .with_loop_count(Some(0))
     ///     .dyn_full_frame_encoder()?;
     ///
-    /// enc.push_frame(frame1_pixels, 100)?;
-    /// enc.push_frame(frame2_pixels, 100)?;
-    /// let output = enc.finish()?;
+    /// enc.push_frame(frame1_pixels, 100, None)?;
+    /// enc.push_frame(frame2_pixels, 100, None)?;
+    /// let output = enc.finish(None)?;
     /// ```
     fn dyn_full_frame_encoder(self) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError>
     where

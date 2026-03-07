@@ -1,8 +1,9 @@
 //! Decode execution traits: one-shot, streaming, and animation.
 
-use crate::{DecodeOutput, ImageInfo, OutputInfo};
 use crate::output::{FullFrame, OwnedFullFrame};
 use crate::sink::SinkError;
+use crate::{DecodeOutput, ImageInfo, OutputInfo};
+use enough::Stop;
 use zenpixels::PixelSlice;
 
 /// Single-image decode. Returns owned pixels.
@@ -78,6 +79,21 @@ pub trait StreamingDecode {
 /// but invalidated by the next call.
 /// [`render_next_frame_owned()`](FullFrameDecoder::render_next_frame_owned)
 /// copies to an [`OwnedFullFrame`] for independent ownership.
+///
+/// # Cooperative cancellation
+///
+/// Each render method takes an `Option<&dyn Stop>` token for cooperative
+/// cancellation. The codec checks this token periodically during decode
+/// and returns early with [`StopReason`](enough::StopReason) if
+/// cancellation is requested.
+///
+/// Because `FullFrameDec: 'static`, the decoder cannot borrow the
+/// job's stop token. Instead, the caller passes a stop token per call.
+/// Codecs that also stored an owned stop at construction time (e.g. via
+/// [`Stopper`](https://docs.rs/almost-enough/latest/almost_enough/struct.Stopper.html))
+/// can combine the two with
+/// [`OrStop`](https://docs.rs/almost-enough/latest/almost_enough/struct.OrStop.html).
+/// Pass `None` when cancellation is not needed.
 pub trait FullFrameDecoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
@@ -120,15 +136,25 @@ pub trait FullFrameDecoder: Sized {
     ///
     /// The returned [`FullFrame`] borrows the decoder's canvas buffer.
     /// Calling this method again invalidates the previous frame.
-    fn render_next_frame(&mut self) -> Result<Option<FullFrame<'_>>, Self::Error>;
+    ///
+    /// Pass `None` if cancellation is not needed.
+    fn render_next_frame(
+        &mut self,
+        stop: Option<&dyn Stop>,
+    ) -> Result<Option<FullFrame<'_>>, Self::Error>;
 
     /// Render the next frame as an owned copy.
     ///
     /// Default implementation calls [`render_next_frame()`](FullFrameDecoder::render_next_frame)
     /// and copies the pixel data. Codecs that produce owned data natively
     /// may override for efficiency.
-    fn render_next_frame_owned(&mut self) -> Result<Option<OwnedFullFrame>, Self::Error> {
-        match self.render_next_frame()? {
+    ///
+    /// Pass `None` if cancellation is not needed.
+    fn render_next_frame_owned(
+        &mut self,
+        stop: Option<&dyn Stop>,
+    ) -> Result<Option<OwnedFullFrame>, Self::Error> {
+        match self.render_next_frame(stop)? {
             Some(frame) => Ok(Some(frame.to_owned_frame())),
             None => Ok(None),
         }
@@ -142,8 +168,11 @@ pub trait FullFrameDecoder: Sized {
     /// Codecs with native row streaming should write directly into the sink.
     /// Codecs that render to an internal canvas should call
     /// [`render_frame_to_sink_via_copy()`] as a fallback.
+    ///
+    /// Pass `None` if cancellation is not needed.
     fn render_next_frame_to_sink(
         &mut self,
+        stop: Option<&dyn Stop>,
         sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<OutputInfo>, Self::Error>;
 }
@@ -159,16 +188,18 @@ pub trait FullFrameDecoder: Sized {
 /// ```rust,ignore
 /// fn render_next_frame_to_sink(
 ///     &mut self,
+///     stop: Option<&dyn Stop>,
 ///     sink: &mut dyn DecodeRowSink,
 /// ) -> Result<Option<OutputInfo>, Self::Error> {
-///     render_frame_to_sink_via_copy(self, sink)
+///     render_frame_to_sink_via_copy(self, stop, sink)
 /// }
 /// ```
 pub fn render_frame_to_sink_via_copy<D: FullFrameDecoder>(
     decoder: &mut D,
+    stop: Option<&dyn Stop>,
     sink: &mut dyn crate::DecodeRowSink,
 ) -> Result<Option<OutputInfo>, D::Error> {
-    let frame = match decoder.render_next_frame()? {
+    let frame = match decoder.render_next_frame(stop)? {
         Some(f) => f,
         None => return Ok(None),
     };

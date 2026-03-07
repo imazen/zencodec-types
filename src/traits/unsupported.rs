@@ -5,9 +5,10 @@
 
 use core::marker::PhantomData;
 
-use crate::{ImageInfo, OutputInfo};
 use crate::output::{FullFrame, OwnedFullFrame};
 use crate::sink::SinkError;
+use crate::{ImageInfo, OutputInfo};
+use enough::Stop;
 use zenpixels::PixelSlice;
 
 use super::decoder::{FullFrameDecoder, StreamingDecode};
@@ -61,16 +62,20 @@ impl<E: core::error::Error + Send + Sync + 'static> FullFrameDecoder for Unsuppo
         unreachable!("Unsupported: full frame decode stub should never be constructed")
     }
 
-    fn render_next_frame(&mut self) -> Result<Option<FullFrame<'_>>, E> {
+    fn render_next_frame(&mut self, _stop: Option<&dyn Stop>) -> Result<Option<FullFrame<'_>>, E> {
         unreachable!("Unsupported: full frame decode stub should never be constructed")
     }
 
-    fn render_next_frame_owned(&mut self) -> Result<Option<OwnedFullFrame>, E> {
+    fn render_next_frame_owned(
+        &mut self,
+        _stop: Option<&dyn Stop>,
+    ) -> Result<Option<OwnedFullFrame>, E> {
         unreachable!("Unsupported: full frame decode stub should never be constructed")
     }
 
     fn render_next_frame_to_sink(
         &mut self,
+        _stop: Option<&dyn Stop>,
         _sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<OutputInfo>, E> {
         unreachable!("Unsupported: full frame decode stub should never be constructed")

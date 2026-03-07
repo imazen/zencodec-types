@@ -78,7 +78,9 @@ fn concrete_encode_decode_rgb8_roundtrip() {
     assert_eq!(info.format, ImageFormat::Pnm);
 
     // Full decode
-    let decoder = dec_job.decoder(Cow::Borrowed(encoded), &[]).expect("decoder creation");
+    let decoder = dec_job
+        .decoder(Cow::Borrowed(encoded), &[])
+        .expect("decoder creation");
     let decoded = decoder.decode().expect("decode");
 
     // Verify roundtrip
@@ -105,7 +107,10 @@ fn concrete_encode_decode_gray8_roundtrip() {
     assert!(encoded.starts_with(b"P5\n3 2\n255\n"));
 
     let dec_config = PnmDecoderConfig::new();
-    let decoder = dec_config.job().decoder(Cow::Borrowed(encoded), &[]).expect("decoder");
+    let decoder = dec_config
+        .job()
+        .decoder(Cow::Borrowed(encoded), &[])
+        .expect("decoder");
     let decoded = decoder.decode().expect("decode");
 
     let orig = pixels.as_slice();
@@ -151,7 +156,9 @@ fn dyn_encode_decode_rgb8_roundtrip() {
     assert_eq!(info.height, 2);
 
     // Decode via dyn decoder
-    let decoder = dec_job.into_decoder(Cow::Borrowed(&encoded), &[]).expect("dyn decoder");
+    let decoder = dec_job
+        .into_decoder(Cow::Borrowed(&encoded), &[])
+        .expect("dyn decoder");
     let decoded = decoder.decode().expect("dyn decode");
 
     let orig = test_rgb8_pixels();
@@ -592,7 +599,12 @@ fn sink_preallocated_buffer() {
     // Encode a test image
     let pixels = test_rgb8_pixels(); // 4x2 RGB8
     let config = PnmEncoderConfig::new();
-    let encoded = config.job().encoder().unwrap().encode(pixels.as_slice()).unwrap();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap();
 
     // Pre-allocate a buffer for decode output
     let width = 4u32;
@@ -623,13 +635,15 @@ fn sink_preallocated_buffer() {
                 return Err(format!(
                     "format mismatch: expected {:?}, got {:?}",
                     self.expected_desc, descriptor
-                ).into());
+                )
+                .into());
             }
             if width != self.expected_width {
                 return Err(format!(
                     "width mismatch: expected {}, got {}",
                     self.expected_width, width
-                ).into());
+                )
+                .into());
             }
             if y + height > self.total_height {
                 return Err("strip exceeds buffer bounds".into());
@@ -645,7 +659,8 @@ fn sink_preallocated_buffer() {
                 height,
                 self.stride,
                 descriptor,
-            ).expect("valid slice"))
+            )
+            .expect("valid slice"))
         }
     }
 
@@ -660,7 +675,8 @@ fn sink_preallocated_buffer() {
     // Decode via push_decoder
     let dec_config = PnmDecoderConfig::new();
     let job = dec_config.job();
-    let info = job.push_decoder(Cow::Borrowed(encoded.data()), &mut sink, &[])
+    let info = job
+        .push_decoder(Cow::Borrowed(encoded.data()), &mut sink, &[])
         .expect("push_decoder");
 
     assert_eq!(info.width, 4);
@@ -697,10 +713,7 @@ fn sink_format_mismatch_rejected_at_begin() {
             descriptor: PixelDescriptor,
         ) -> Result<(), SinkError> {
             if descriptor != PixelDescriptor::RGBA8_SRGB {
-                return Err(format!(
-                    "sink requires RGBA8, got {:?}",
-                    descriptor
-                ).into());
+                return Err(format!("sink requires RGBA8, got {:?}", descriptor).into());
             }
             Ok(())
         }
@@ -716,8 +729,10 @@ fn sink_format_mismatch_rejected_at_begin() {
             let stride = width as usize * bpp;
             let needed = height as usize * stride;
             self.buf.resize(needed, 0);
-            Ok(PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
-                .expect("valid slice"))
+            Ok(
+                PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
+                    .expect("valid slice"),
+            )
         }
     }
 
@@ -744,7 +759,12 @@ fn sink_format_mismatch_rejected_at_begin() {
 fn sink_row_processing_pipeline() {
     let pixels = test_rgb8_pixels(); // 4x2 RGB8
     let config = PnmEncoderConfig::new();
-    let encoded = config.job().encoder().unwrap().encode(pixels.as_slice()).unwrap();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap();
 
     struct ProcessingSink {
         strip_buf: Vec<u8>,
@@ -786,8 +806,10 @@ fn sink_row_processing_pipeline() {
             let stride = width as usize * bpp;
             let needed = height as usize * stride;
             self.strip_buf.resize(needed, 0);
-            Ok(PixelSliceMut::new(&mut self.strip_buf, width, height, stride, descriptor)
-                .expect("valid slice"))
+            Ok(
+                PixelSliceMut::new(&mut self.strip_buf, width, height, stride, descriptor)
+                    .expect("valid slice"),
+            )
         }
 
         fn finish(&mut self) -> Result<(), SinkError> {
@@ -804,11 +826,10 @@ fn sink_row_processing_pipeline() {
     };
 
     let dec_config = PnmDecoderConfig::new();
-    dec_config.job().push_decoder(
-        Cow::Borrowed(encoded.data()),
-        &mut sink,
-        &[],
-    ).expect("push_decoder");
+    dec_config
+        .job()
+        .push_decoder(Cow::Borrowed(encoded.data()), &mut sink, &[])
+        .expect("push_decoder");
 
     // finish() was called by push_decoder — no manual cleanup needed
     assert_eq!(sink.row_sums.len(), 2, "should have processed 2 rows");
@@ -827,7 +848,12 @@ fn sink_row_processing_pipeline() {
 fn sink_completion_aware() {
     let pixels = test_gray8_pixels(); // 3x2 Gray8
     let config = PnmEncoderConfig::new();
-    let encoded = config.job().encoder().unwrap().encode(pixels.as_slice()).unwrap();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap();
 
     struct AccumulatingSink {
         output: Option<PixelBuffer>,
@@ -878,11 +904,10 @@ fn sink_completion_aware() {
     };
 
     let dec_config = PnmDecoderConfig::new();
-    dec_config.job().push_decoder(
-        Cow::Borrowed(encoded.data()),
-        &mut sink,
-        &[],
-    ).expect("push_decoder");
+    dec_config
+        .job()
+        .push_decoder(Cow::Borrowed(encoded.data()), &mut sink, &[])
+        .expect("push_decoder");
 
     // push_decoder called begin(), provide_next_buffer(), finish()
     assert!(sink.finished, "finish() should have been called");
@@ -906,7 +931,12 @@ fn sink_completion_aware() {
 fn sink_simd_aligned_decode_into() {
     let pixels = test_rgb8_pixels(); // 4x2 RGB8
     let config = PnmEncoderConfig::new();
-    let encoded = config.job().encoder().unwrap().encode(pixels.as_slice()).unwrap();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap();
 
     struct AlignedDecodeIntoSink {
         buf: Vec<u8>,
@@ -965,7 +995,8 @@ fn sink_simd_aligned_decode_into() {
                 height,
                 self.stride,
                 descriptor,
-            ).expect("valid"))
+            )
+            .expect("valid"))
         }
     }
 
@@ -973,23 +1004,23 @@ fn sink_simd_aligned_decode_into() {
     let job = dec_config.job();
     let out_info = job.output_info(encoded.data()).unwrap();
 
-    let mut sink = AlignedDecodeIntoSink::new(
-        out_info.width,
-        out_info.height,
-        out_info.native_format,
-    );
+    let mut sink =
+        AlignedDecodeIntoSink::new(out_info.width, out_info.height, out_info.native_format);
 
     let dec_config2 = PnmDecoderConfig::new();
-    dec_config2.job().push_decoder(
-        Cow::Borrowed(encoded.data()),
-        &mut sink,
-        &[],
-    ).expect("push_decoder");
+    dec_config2
+        .job()
+        .push_decoder(Cow::Borrowed(encoded.data()), &mut sink, &[])
+        .expect("push_decoder");
 
     // Verify stride is 64-byte aligned AND pixel-aligned
     // For RGB8 (bpp=3), lcm(64,3)=192
     assert_eq!(sink.stride % 64, 0, "stride should be 64-byte aligned");
-    assert_eq!(sink.stride % 3, 0, "stride should be pixel-aligned for RGB8");
+    assert_eq!(
+        sink.stride % 3,
+        0,
+        "stride should be pixel-aligned for RGB8"
+    );
     assert_eq!(sink.stride, 192);
     // Verify row bytes are 12 (4 pixels × 3 bytes)
     let row_bytes = 4 * 3;
@@ -1017,7 +1048,12 @@ fn sink_simd_aligned_decode_into() {
 fn sink_through_dyn_dispatch() {
     let pixels = test_rgb8_pixels();
     let config = PnmEncoderConfig::new();
-    let encoded = config.job().encoder().unwrap().encode(pixels.as_slice()).unwrap();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap();
 
     struct CollectSink {
         buf: Vec<u8>,
@@ -1044,8 +1080,10 @@ fn sink_through_dyn_dispatch() {
             let stride = width as usize * bpp;
             let needed = height as usize * stride;
             self.buf.resize(needed, 0);
-            Ok(PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
-                .expect("valid"))
+            Ok(
+                PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
+                    .expect("valid"),
+            )
         }
     }
 
@@ -1058,11 +1096,14 @@ fn sink_through_dyn_dispatch() {
     // Use the concrete push_decoder path (since DynDecodeJob doesn't
     // have push_decoder yet — that's another gap to note)
     let dec_config = PnmDecoderConfig::new();
-    dec_config.job().push_decoder(
-        Cow::Borrowed(encoded.data()),
-        &mut sink as &mut dyn DecodeRowSink,
-        &[],
-    ).expect("push_decoder");
+    dec_config
+        .job()
+        .push_decoder(
+            Cow::Borrowed(encoded.data()),
+            &mut sink as &mut dyn DecodeRowSink,
+            &[],
+        )
+        .expect("push_decoder");
 
     assert_eq!(sink.desc, Some(PixelDescriptor::RGB8_SRGB));
     assert_eq!(sink.dimensions, Some((4, 2)));
@@ -1078,7 +1119,12 @@ fn sink_through_dyn_dispatch() {
 fn sink_deferred_allocation() {
     let pixels = test_gray8_pixels(); // Gray8 — sink doesn't know this in advance
     let config = PnmEncoderConfig::new();
-    let encoded = config.job().encoder().unwrap().encode(pixels.as_slice()).unwrap();
+    let encoded = config
+        .job()
+        .encoder()
+        .unwrap()
+        .encode(pixels.as_slice())
+        .unwrap();
 
     struct DeferredSink {
         buf: Option<PixelBuffer>,
@@ -1111,11 +1157,10 @@ fn sink_deferred_allocation() {
     let mut sink = DeferredSink { buf: None };
 
     let dec_config = PnmDecoderConfig::new();
-    dec_config.job().push_decoder(
-        Cow::Borrowed(encoded.data()),
-        &mut sink,
-        &[],
-    ).expect("push_decoder");
+    dec_config
+        .job()
+        .push_decoder(Cow::Borrowed(encoded.data()), &mut sink, &[])
+        .expect("push_decoder");
 
     let buf = sink.buf.expect("begin() should have allocated");
     assert_eq!(buf.width(), 3);
@@ -1148,9 +1193,9 @@ fn sink_multi_strip_simulation() {
     for y in 0..height {
         for x in 0..width {
             let idx = (y as usize * width as usize + x as usize) * bpp;
-            data[idx] = y as u8;       // R = row index
-            data[idx + 1] = x as u8;   // G = col index
-            data[idx + 2] = 128;       // B = constant
+            data[idx] = y as u8; // R = row index
+            data[idx + 1] = x as u8; // G = col index
+            data[idx + 2] = 128; // B = constant
         }
     }
     let source = PixelBuffer::from_vec(data, width, height, desc).unwrap();
@@ -1240,8 +1285,10 @@ fn sink_early_abort() {
             let stride = width as usize * bpp;
             let needed = height as usize * stride;
             self.buf.resize(needed, 0);
-            Ok(PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
-                .expect("valid"))
+            Ok(
+                PixelSliceMut::new(&mut self.buf, width, height, stride, descriptor)
+                    .expect("valid"),
+            )
         }
     }
 
