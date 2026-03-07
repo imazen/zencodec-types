@@ -16,4 +16,3 @@ name = "zc"
 [dependencies]
 zenpixels = { version = "0.1", features = ["buffer"] }
 enough = "0.4"
-whereat = { version = "0.1", default-features = false }

@@ -17,12 +17,11 @@
 //!
 //! # Re-exported crates
 //!
-//! Cancellation and error tracking crates are re-exported at
-//! crate level for qualified access: [`enough`], [`whereat`].
+//! The [`enough`] crate is re-exported for cooperative cancellation
+//! (`enough::Stop`).
 //!
 //! ```rust,ignore
 //! use enough::Stop;
-//! use whereat::At;
 //! ```
 //!
 //! Individual codecs (zenjpeg, zenwebp, zengif, zenavif) implement the
@@ -73,10 +72,7 @@ pub use capabilities::{HasUnsupportedOperation, UnsupportedOperation};
 // Crate-level re-exports (qualified access, not individual types)
 // =========================================================================
 //
-// Use `enough::Stop`, `whereat::At`.
-
 pub use enough;
-pub use whereat;
 
 // =========================================================================
 // pub(crate) re-exports — keep internal `use crate::Foo` paths working
@@ -168,26 +164,3 @@ pub mod decode {
     pub use crate::info::{EmbeddedMetadata, SourceColor};
 }
 
-// Error location tracking re-exports.
-//
-// Codec error types use `whereat` for file:line tracking.
-// The recommended pattern (codecs depend on `thiserror` directly):
-//
-// ```rust,ignore
-// use whereat::{At, ResultAtExt};
-//
-// #[derive(Debug, thiserror::Error)]
-// pub enum MyCodecError {
-//     #[error("invalid header")]
-//     InvalidHeader,
-// }
-//
-// // In trait impl:
-// type Error = At<MyCodecError>;
-//
-// // .at() captures file:line on error:
-// fn decode(&self, data: &[u8]) -> Result<..., At<MyCodecError>> {
-//     parse_header(data).at()?;
-//     Ok(...)
-// }
-// ```
