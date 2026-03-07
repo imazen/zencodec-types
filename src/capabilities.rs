@@ -1,8 +1,8 @@
 //! Codec capability descriptors.
 //!
-//! Each codec returns a static [`CodecCapabilities`] describing what it
-//! supports. This lets callers discover behavior before calling methods
-//! that might be no-ops or expensive.
+//! Encoders return [`EncodeCapabilities`] and decoders return
+//! [`DecodeCapabilities`] describing what they support. This lets callers
+//! discover behavior before calling methods that might be no-ops or expensive.
 //!
 //! [`UnsupportedOperation`] provides a standard enum for codecs to report
 //! which operations they don't support. [`HasUnsupportedOperation`] lets
@@ -118,540 +118,323 @@ pub trait HasUnsupportedOperation {
     fn unsupported_operation(&self) -> Option<UnsupportedOperation>;
 }
 
-/// Describes what a codec supports.
+// ===========================================================================
+// EncodeCapabilities
+// ===========================================================================
+
+/// Describes what an encoder supports.
 ///
-/// Returned by `EncoderConfig::capabilities()` and
-/// `DecoderConfig::capabilities()` as a `&'static`
-/// reference. The struct uses getter methods so fields can be added over time
+/// Returned by [`EncoderConfig::capabilities()`](crate::EncoderConfig::capabilities)
+/// as a `&'static` reference. Uses getter methods so fields can be added
 /// without breaking changes.
 ///
 /// # Example
 ///
 /// ```
-/// use zencodec_types::CodecCapabilities;
+/// use zencodec_types::EncodeCapabilities;
 ///
-/// static CAPS: CodecCapabilities = CodecCapabilities::new()
-///     .with_encode_icc(true)
-///     .with_encode_exif(true)
-///     .with_encode_xmp(true)
-///     .with_encode_cancel(true)
-///     .with_decode_cancel(true)
-///     .with_native_gray(true)
-///     .with_cheap_probe(true);
+/// static CAPS: EncodeCapabilities = EncodeCapabilities::new()
+///     .with_icc(true)
+///     .with_exif(true)
+///     .with_xmp(true)
+///     .with_cancel(true)
+///     .with_native_gray(true);
 ///
-/// assert!(CAPS.encode_icc());
-/// assert!(CAPS.cheap_probe());
+/// assert!(CAPS.icc());
+/// assert!(CAPS.native_gray());
 /// ```
 #[non_exhaustive]
-pub struct CodecCapabilities {
-    encode_icc: bool,
-    encode_exif: bool,
-    encode_xmp: bool,
-    decode_icc: bool,
-    decode_exif: bool,
-    decode_xmp: bool,
-    encode_cancel: bool,
-    decode_cancel: bool,
-    native_gray: bool,
-    cheap_probe: bool,
-    encode_animation: bool,
-    decode_animation: bool,
-    native_16bit: bool,
+pub struct EncodeCapabilities {
+    // Metadata embedding
+    icc: bool,
+    exif: bool,
+    xmp: bool,
+    cicp: bool,
+    // Operation support
+    cancel: bool,
+    animation: bool,
+    row_level: bool,
+    pull: bool,
+    row_level_frame: bool,
+    pull_frame: bool,
+    // Format capabilities
+    lossy: bool,
     lossless: bool,
     hdr: bool,
-    encode_cicp: bool,
-    decode_cicp: bool,
-    enforces_max_pixels: bool,
-    enforces_max_memory: bool,
-    enforces_max_file_size: bool,
-    lossy: bool,
+    native_gray: bool,
+    native_16bit: bool,
     native_f32: bool,
     native_alpha: bool,
-    decode_into: bool,
-    row_level_encode: bool,
-    pull_encode: bool,
-    row_level_decode: bool,
-    row_level_frame_encode: bool,
-    pull_frame_encode: bool,
-    frame_decode_into: bool,
-    row_level_frame_decode: bool,
-    /// Meaningful effort range `[min, max]`. `None` = no effort tuning.
+    // Limit enforcement
+    enforces_max_pixels: bool,
+    enforces_max_memory: bool,
+    // Tuning ranges
     effort_range: Option<[i32; 2]>,
-    /// Meaningful quality range `[min, max]` on the calibrated 0–100 scale.
-    /// `None` = lossless-only codec (no quality parameter).
     quality_range: Option<[f32; 2]>,
+    // Threading
+    threads_supported_range: (u16, u16),
 }
 
-impl Default for CodecCapabilities {
+impl Default for EncodeCapabilities {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CodecCapabilities {
-    /// Empty capabilities (everything disabled).
+impl EncodeCapabilities {
+    /// Empty capabilities (everything disabled, single-threaded).
     pub const EMPTY: Self = Self::new();
 
     /// Create capabilities with everything disabled.
     pub const fn new() -> Self {
         Self {
-            encode_icc: false,
-            encode_exif: false,
-            encode_xmp: false,
-            decode_icc: false,
-            decode_exif: false,
-            decode_xmp: false,
-            encode_cancel: false,
-            decode_cancel: false,
-            native_gray: false,
-            cheap_probe: false,
-            encode_animation: false,
-            decode_animation: false,
-            native_16bit: false,
+            icc: false,
+            exif: false,
+            xmp: false,
+            cicp: false,
+            cancel: false,
+            animation: false,
+            row_level: false,
+            pull: false,
+            row_level_frame: false,
+            pull_frame: false,
+            lossy: false,
             lossless: false,
             hdr: false,
-            encode_cicp: false,
-            decode_cicp: false,
-            enforces_max_pixels: false,
-            enforces_max_memory: false,
-            enforces_max_file_size: false,
-            lossy: false,
+            native_gray: false,
+            native_16bit: false,
             native_f32: false,
             native_alpha: false,
-            decode_into: false,
-            row_level_encode: false,
-            pull_encode: false,
-            row_level_decode: false,
-            row_level_frame_encode: false,
-            pull_frame_encode: false,
-            frame_decode_into: false,
-            row_level_frame_decode: false,
+            enforces_max_pixels: false,
+            enforces_max_memory: false,
             effort_range: None,
             quality_range: None,
+            threads_supported_range: (1, 1),
         }
     }
 
+    // --- Getters ---
+
     /// Whether the encoder embeds ICC color profiles from `with_metadata`.
-    pub const fn encode_icc(&self) -> bool {
-        self.encode_icc
+    pub const fn icc(&self) -> bool {
+        self.icc
     }
-
     /// Whether the encoder embeds EXIF data from `with_metadata`.
-    pub const fn encode_exif(&self) -> bool {
-        self.encode_exif
+    pub const fn exif(&self) -> bool {
+        self.exif
     }
-
     /// Whether the encoder embeds XMP data from `with_metadata`.
-    pub const fn encode_xmp(&self) -> bool {
-        self.encode_xmp
+    pub const fn xmp(&self) -> bool {
+        self.xmp
     }
-
-    /// Whether the decoder extracts ICC color profiles into `ImageInfo`.
-    pub const fn decode_icc(&self) -> bool {
-        self.decode_icc
+    /// Whether the encoder embeds CICP color description from `with_metadata`.
+    pub const fn cicp(&self) -> bool {
+        self.cicp
     }
-
-    /// Whether the decoder extracts EXIF data into `ImageInfo`.
-    pub const fn decode_exif(&self) -> bool {
-        self.decode_exif
-    }
-
-    /// Whether the decoder extracts XMP data into `ImageInfo`.
-    pub const fn decode_xmp(&self) -> bool {
-        self.decode_xmp
-    }
-
     /// Whether `with_stop` on encode jobs is respected (not a no-op).
-    pub const fn encode_cancel(&self) -> bool {
-        self.encode_cancel
+    pub const fn cancel(&self) -> bool {
+        self.cancel
     }
-
-    /// Whether `with_stop` on decode jobs is respected (not a no-op).
-    pub const fn decode_cancel(&self) -> bool {
-        self.decode_cancel
-    }
-
-    /// Whether the codec supports grayscale natively (without expanding to RGB).
-    pub const fn native_gray(&self) -> bool {
-        self.native_gray
-    }
-
-    /// Whether `probe_header` is cheap (header parse only, not a full decode).
-    pub const fn cheap_probe(&self) -> bool {
-        self.cheap_probe
-    }
-
     /// Whether the codec supports encoding animation (multiple frames).
-    pub const fn encode_animation(&self) -> bool {
-        self.encode_animation
+    pub const fn animation(&self) -> bool {
+        self.animation
     }
-
-    /// Whether the codec supports decoding animation (multiple frames).
-    pub const fn decode_animation(&self) -> bool {
-        self.decode_animation
+    /// Whether `push_rows()` / `finish()` work (row-level encode).
+    pub const fn row_level(&self) -> bool {
+        self.row_level
     }
-
-    /// Whether the codec supports 16-bit per channel natively (without
-    /// dithering/truncating to 8-bit internally).
-    pub const fn native_16bit(&self) -> bool {
-        self.native_16bit
+    /// Whether `encode_from()` works (pull-from-source encode).
+    pub const fn pull(&self) -> bool {
+        self.pull
     }
-
+    /// Whether `FrameEncoder::begin_frame` / `push_rows` / `end_frame` work.
+    pub const fn row_level_frame(&self) -> bool {
+        self.row_level_frame
+    }
+    /// Whether `pull_frame()` works (pull-from-source frame encode).
+    pub const fn pull_frame(&self) -> bool {
+        self.pull_frame
+    }
+    /// Whether the codec supports lossy encoding.
+    pub const fn lossy(&self) -> bool {
+        self.lossy
+    }
     /// Whether the codec supports mathematically lossless encoding.
     pub const fn lossless(&self) -> bool {
         self.lossless
     }
-
-    /// Whether the codec supports HDR content (wide gamut, high bit depth,
-    /// PQ/HLG transfer functions, HDR metadata).
+    /// Whether the codec supports HDR content.
     pub const fn hdr(&self) -> bool {
         self.hdr
     }
-
-    /// Whether the encoder embeds CICP color description from `with_metadata`.
-    pub const fn encode_cicp(&self) -> bool {
-        self.encode_cicp
+    /// Whether the codec supports grayscale natively.
+    pub const fn native_gray(&self) -> bool {
+        self.native_gray
     }
-
-    /// Whether the decoder extracts CICP color description into `ImageInfo`.
-    pub const fn decode_cicp(&self) -> bool {
-        self.decode_cicp
+    /// Whether the codec supports 16-bit per channel natively.
+    pub const fn native_16bit(&self) -> bool {
+        self.native_16bit
     }
-
-    /// Whether the codec enforces [`ResourceLimits::max_pixels`](crate::ResourceLimits::max_pixels).
+    /// Whether the codec handles f32 pixel data natively.
+    pub const fn native_f32(&self) -> bool {
+        self.native_f32
+    }
+    /// Whether the codec handles alpha channel natively.
+    pub const fn native_alpha(&self) -> bool {
+        self.native_alpha
+    }
+    /// Whether the codec enforces `max_pixels` limits.
     pub const fn enforces_max_pixels(&self) -> bool {
         self.enforces_max_pixels
     }
-
-    /// Whether the codec enforces [`ResourceLimits::max_memory_bytes`](crate::ResourceLimits::max_memory_bytes).
+    /// Whether the codec enforces `max_memory_bytes` limits.
     pub const fn enforces_max_memory(&self) -> bool {
         self.enforces_max_memory
     }
 
-    /// Whether the codec enforces [`ResourceLimits::max_file_size`](crate::ResourceLimits::max_file_size).
-    pub const fn enforces_max_file_size(&self) -> bool {
-        self.enforces_max_file_size
-    }
-
     /// Meaningful effort range `[min, max]`.
     ///
-    /// `None` means the codec has no effort tuning —
-    /// [`EncoderConfig::with_generic_effort()`](crate::EncoderConfig::with_generic_effort) is a no-op.
+    /// `None` means the codec has no effort tuning.
     pub const fn effort_range(&self) -> Option<[i32; 2]> {
         self.effort_range
     }
 
     /// Meaningful quality range `[min, max]` on the calibrated 0.0–100.0 scale.
     ///
-    /// `None` means the codec is lossless-only —
-    /// [`EncoderConfig::with_generic_quality()`](crate::EncoderConfig::with_generic_quality) is a no-op.
-    /// Most lossy codecs return `Some([0.0, 100.0])`.
+    /// `None` means the codec is lossless-only.
     pub const fn quality_range(&self) -> Option<[f32; 2]> {
         self.quality_range
     }
 
-    /// Whether the codec supports lossy encoding.
+    /// Supported thread count range `(min, max)`.
     ///
-    /// Complement to [`lossless()`](CodecCapabilities::lossless) — a codec
-    /// can support both (e.g. WebP, JXL).
-    pub const fn lossy(&self) -> bool {
-        self.lossy
+    /// `(1, 1)` means single-threaded only.
+    /// `(1, 16)` means the encoder can use 1 to 16 threads.
+    pub const fn threads_supported_range(&self) -> (u16, u16) {
+        self.threads_supported_range
     }
 
-    /// Whether the codec handles f32 pixel data natively (without
-    /// converting to u8/u16 internally).
-    pub const fn native_f32(&self) -> bool {
-        self.native_f32
-    }
+    // --- Const builder methods ---
 
-    /// Whether the codec handles alpha channel natively (not JPEG).
-    pub const fn native_alpha(&self) -> bool {
-        self.native_alpha
-    }
-
-    /// Whether `decode_into()` is
-    /// implemented (not just a stub that returns an error).
-    pub const fn decode_into(&self) -> bool {
-        self.decode_into
-    }
-
-    /// Whether `push_rows()` / `finish()` actually work
-    /// (row-level encode).
-    pub const fn row_level_encode(&self) -> bool {
-        self.row_level_encode
-    }
-
-    /// Whether `encode_from()` works (pull-from-source encode).
-    pub const fn pull_encode(&self) -> bool {
-        self.pull_encode
-    }
-
-    /// Whether `decode_rows()` pushes real streaming rows
-    /// (not a single full-frame callback).
-    pub const fn row_level_decode(&self) -> bool {
-        self.row_level_decode
-    }
-
-    /// Whether `FrameEncoder::begin_frame` / `push_rows` / `end_frame` work.
-    pub const fn row_level_frame_encode(&self) -> bool {
-        self.row_level_frame_encode
-    }
-
-    /// Whether `pull_frame()` works (pull-from-source frame encode).
-    pub const fn pull_frame_encode(&self) -> bool {
-        self.pull_frame_encode
-    }
-
-    /// Whether `next_frame_into()` works (frame decode into caller buffer).
-    pub const fn frame_decode_into(&self) -> bool {
-        self.frame_decode_into
-    }
-
-    /// Whether `next_frame_rows()` works (row-level frame decode).
-    pub const fn row_level_frame_decode(&self) -> bool {
-        self.row_level_frame_decode
-    }
-
-    // --- const builder methods for static construction ---
-
-    /// Set ICC embed support on encode.
-    pub const fn with_encode_icc(mut self, v: bool) -> Self {
-        self.encode_icc = v;
+    pub const fn with_icc(mut self, v: bool) -> Self {
+        self.icc = v;
         self
     }
-
-    /// Set EXIF embed support on encode.
-    pub const fn with_encode_exif(mut self, v: bool) -> Self {
-        self.encode_exif = v;
+    pub const fn with_exif(mut self, v: bool) -> Self {
+        self.exif = v;
         self
     }
-
-    /// Set XMP embed support on encode.
-    pub const fn with_encode_xmp(mut self, v: bool) -> Self {
-        self.encode_xmp = v;
+    pub const fn with_xmp(mut self, v: bool) -> Self {
+        self.xmp = v;
         self
     }
-
-    /// Set ICC extraction support on decode.
-    pub const fn with_decode_icc(mut self, v: bool) -> Self {
-        self.decode_icc = v;
+    pub const fn with_cicp(mut self, v: bool) -> Self {
+        self.cicp = v;
         self
     }
-
-    /// Set EXIF extraction support on decode.
-    pub const fn with_decode_exif(mut self, v: bool) -> Self {
-        self.decode_exif = v;
+    pub const fn with_cancel(mut self, v: bool) -> Self {
+        self.cancel = v;
         self
     }
-
-    /// Set XMP extraction support on decode.
-    pub const fn with_decode_xmp(mut self, v: bool) -> Self {
-        self.decode_xmp = v;
+    pub const fn with_animation(mut self, v: bool) -> Self {
+        self.animation = v;
         self
     }
-
-    /// Set cooperative cancellation support on encode.
-    pub const fn with_encode_cancel(mut self, v: bool) -> Self {
-        self.encode_cancel = v;
+    pub const fn with_row_level(mut self, v: bool) -> Self {
+        self.row_level = v;
         self
     }
-
-    /// Set cooperative cancellation support on decode.
-    pub const fn with_decode_cancel(mut self, v: bool) -> Self {
-        self.decode_cancel = v;
+    pub const fn with_pull(mut self, v: bool) -> Self {
+        self.pull = v;
         self
     }
-
-    /// Set native grayscale support.
-    pub const fn with_native_gray(mut self, v: bool) -> Self {
-        self.native_gray = v;
+    pub const fn with_row_level_frame(mut self, v: bool) -> Self {
+        self.row_level_frame = v;
         self
     }
-
-    /// Set whether probe_header is cheap.
-    pub const fn with_cheap_probe(mut self, v: bool) -> Self {
-        self.cheap_probe = v;
+    pub const fn with_pull_frame(mut self, v: bool) -> Self {
+        self.pull_frame = v;
         self
     }
-
-    /// Set animation encoding support.
-    pub const fn with_encode_animation(mut self, v: bool) -> Self {
-        self.encode_animation = v;
+    pub const fn with_lossy(mut self, v: bool) -> Self {
+        self.lossy = v;
         self
     }
-
-    /// Set animation decoding support.
-    pub const fn with_decode_animation(mut self, v: bool) -> Self {
-        self.decode_animation = v;
-        self
-    }
-
-    /// Set native 16-bit support.
-    pub const fn with_native_16bit(mut self, v: bool) -> Self {
-        self.native_16bit = v;
-        self
-    }
-
-    /// Set lossless encoding support.
     pub const fn with_lossless(mut self, v: bool) -> Self {
         self.lossless = v;
         self
     }
-
-    /// Set HDR support.
     pub const fn with_hdr(mut self, v: bool) -> Self {
         self.hdr = v;
         self
     }
-
-    /// Set CICP embed support on encode.
-    pub const fn with_encode_cicp(mut self, v: bool) -> Self {
-        self.encode_cicp = v;
+    pub const fn with_native_gray(mut self, v: bool) -> Self {
+        self.native_gray = v;
         self
     }
-
-    /// Set CICP extraction support on decode.
-    pub const fn with_decode_cicp(mut self, v: bool) -> Self {
-        self.decode_cicp = v;
+    pub const fn with_native_16bit(mut self, v: bool) -> Self {
+        self.native_16bit = v;
         self
     }
-
-    /// Set whether the codec enforces max_pixels limits.
+    pub const fn with_native_f32(mut self, v: bool) -> Self {
+        self.native_f32 = v;
+        self
+    }
+    pub const fn with_native_alpha(mut self, v: bool) -> Self {
+        self.native_alpha = v;
+        self
+    }
     pub const fn with_enforces_max_pixels(mut self, v: bool) -> Self {
         self.enforces_max_pixels = v;
         self
     }
-
-    /// Set whether the codec enforces max_memory limits.
     pub const fn with_enforces_max_memory(mut self, v: bool) -> Self {
         self.enforces_max_memory = v;
         self
     }
 
-    /// Set whether the codec enforces max_file_size limits.
-    pub const fn with_enforces_max_file_size(mut self, v: bool) -> Self {
-        self.enforces_max_file_size = v;
-        self
-    }
-
     /// Set the meaningful effort range `[min, max]`.
-    ///
-    /// `None` (default) means the codec has no effort tuning.
     pub const fn with_effort_range(mut self, min: i32, max: i32) -> Self {
         self.effort_range = Some([min, max]);
         self
     }
 
-    /// Set the meaningful quality range `[min, max]` on the calibrated 0.0–100.0 scale.
-    ///
-    /// `None` (default) means the codec is lossless-only.
-    /// Most lossy codecs: `with_quality_range(0.0, 100.0)`.
+    /// Set the meaningful quality range `[min, max]`.
     pub const fn with_quality_range(mut self, min: f32, max: f32) -> Self {
         self.quality_range = Some([min, max]);
         self
     }
 
-    /// Set lossy encoding support.
-    pub const fn with_lossy(mut self, v: bool) -> Self {
-        self.lossy = v;
-        self
-    }
-
-    /// Set native f32 pixel data support.
-    pub const fn with_native_f32(mut self, v: bool) -> Self {
-        self.native_f32 = v;
-        self
-    }
-
-    /// Set native alpha channel support.
-    pub const fn with_native_alpha(mut self, v: bool) -> Self {
-        self.native_alpha = v;
-        self
-    }
-
-    /// Set `decode_into()` support.
-    pub const fn with_decode_into(mut self, v: bool) -> Self {
-        self.decode_into = v;
-        self
-    }
-
-    /// Set row-level encode support (`push_rows()` / `finish()`).
-    pub const fn with_row_level_encode(mut self, v: bool) -> Self {
-        self.row_level_encode = v;
-        self
-    }
-
-    /// Set pull encode support (`encode_from()`).
-    pub const fn with_pull_encode(mut self, v: bool) -> Self {
-        self.pull_encode = v;
-        self
-    }
-
-    /// Set row-level decode support.
-    pub const fn with_row_level_decode(mut self, v: bool) -> Self {
-        self.row_level_decode = v;
-        self
-    }
-
-    /// Set row-level frame encode support.
-    pub const fn with_row_level_frame_encode(mut self, v: bool) -> Self {
-        self.row_level_frame_encode = v;
-        self
-    }
-
-    /// Set pull frame encode support.
-    pub const fn with_pull_frame_encode(mut self, v: bool) -> Self {
-        self.pull_frame_encode = v;
-        self
-    }
-
-    /// Set frame decode-into support.
-    pub const fn with_frame_decode_into(mut self, v: bool) -> Self {
-        self.frame_decode_into = v;
-        self
-    }
-
-    /// Set row-level frame decode support.
-    pub const fn with_row_level_frame_decode(mut self, v: bool) -> Self {
-        self.row_level_frame_decode = v;
+    /// Set supported thread count range.
+    pub const fn with_threads_supported_range(mut self, min: u16, max: u16) -> Self {
+        self.threads_supported_range = (min, max);
         self
     }
 }
 
-impl core::fmt::Debug for CodecCapabilities {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut s = f.debug_struct("CodecCapabilities");
-        s.field("encode_icc", &self.encode_icc)
-            .field("encode_exif", &self.encode_exif)
-            .field("encode_xmp", &self.encode_xmp)
-            .field("decode_icc", &self.decode_icc)
-            .field("decode_exif", &self.decode_exif)
-            .field("decode_xmp", &self.decode_xmp)
-            .field("encode_cancel", &self.encode_cancel)
-            .field("decode_cancel", &self.decode_cancel)
-            .field("native_gray", &self.native_gray)
-            .field("cheap_probe", &self.cheap_probe)
-            .field("encode_animation", &self.encode_animation)
-            .field("decode_animation", &self.decode_animation)
-            .field("native_16bit", &self.native_16bit)
-            .field("lossless", &self.lossless)
+impl fmt::Debug for EncodeCapabilities {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct("EncodeCapabilities");
+        s.field("icc", &self.icc)
+            .field("exif", &self.exif)
+            .field("xmp", &self.xmp)
+            .field("cicp", &self.cicp)
+            .field("cancel", &self.cancel)
+            .field("animation", &self.animation)
             .field("lossy", &self.lossy)
+            .field("lossless", &self.lossless)
             .field("hdr", &self.hdr)
+            .field("native_gray", &self.native_gray)
+            .field("native_16bit", &self.native_16bit)
             .field("native_f32", &self.native_f32)
             .field("native_alpha", &self.native_alpha)
-            .field("decode_into", &self.decode_into)
-            .field("row_level_encode", &self.row_level_encode)
-            .field("pull_encode", &self.pull_encode)
-            .field("row_level_decode", &self.row_level_decode)
-            .field("row_level_frame_encode", &self.row_level_frame_encode)
-            .field("pull_frame_encode", &self.pull_frame_encode)
-            .field("frame_decode_into", &self.frame_decode_into)
-            .field("row_level_frame_decode", &self.row_level_frame_decode)
-            .field("encode_cicp", &self.encode_cicp)
-            .field("decode_cicp", &self.decode_cicp)
+            .field("row_level", &self.row_level)
+            .field("pull", &self.pull)
+            .field("row_level_frame", &self.row_level_frame)
+            .field("pull_frame", &self.pull_frame)
             .field("enforces_max_pixels", &self.enforces_max_pixels)
             .field("enforces_max_memory", &self.enforces_max_memory)
-            .field("enforces_max_file_size", &self.enforces_max_file_size);
+            .field("threads_supported_range", &self.threads_supported_range);
         if let Some(range) = &self.effort_range {
             s.field("effort_range", range);
         }
@@ -662,191 +445,436 @@ impl core::fmt::Debug for CodecCapabilities {
     }
 }
 
+// ===========================================================================
+// DecodeCapabilities
+// ===========================================================================
+
+/// Describes what a decoder supports.
+///
+/// Returned by [`DecoderConfig::capabilities()`](crate::DecoderConfig::capabilities)
+/// as a `&'static` reference. Uses getter methods so fields can be added
+/// without breaking changes.
+///
+/// # Example
+///
+/// ```
+/// use zencodec_types::DecodeCapabilities;
+///
+/// static CAPS: DecodeCapabilities = DecodeCapabilities::new()
+///     .with_icc(true)
+///     .with_exif(true)
+///     .with_cancel(true)
+///     .with_cheap_probe(true);
+///
+/// assert!(CAPS.icc());
+/// assert!(CAPS.cheap_probe());
+/// ```
+#[non_exhaustive]
+pub struct DecodeCapabilities {
+    // Metadata extraction
+    icc: bool,
+    exif: bool,
+    xmp: bool,
+    cicp: bool,
+    // Operation support
+    cancel: bool,
+    animation: bool,
+    cheap_probe: bool,
+    decode_into: bool,
+    row_level: bool,
+    frame_decode_into: bool,
+    row_level_frame: bool,
+    // Format capabilities
+    hdr: bool,
+    native_gray: bool,
+    native_16bit: bool,
+    native_f32: bool,
+    native_alpha: bool,
+    // Limit enforcement
+    enforces_max_pixels: bool,
+    enforces_max_memory: bool,
+    enforces_max_input_bytes: bool,
+    // Threading
+    threads_supported_range: (u16, u16),
+}
+
+impl Default for DecodeCapabilities {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DecodeCapabilities {
+    /// Empty capabilities (everything disabled, single-threaded).
+    pub const EMPTY: Self = Self::new();
+
+    /// Create capabilities with everything disabled.
+    pub const fn new() -> Self {
+        Self {
+            icc: false,
+            exif: false,
+            xmp: false,
+            cicp: false,
+            cancel: false,
+            animation: false,
+            cheap_probe: false,
+            decode_into: false,
+            row_level: false,
+            frame_decode_into: false,
+            row_level_frame: false,
+            hdr: false,
+            native_gray: false,
+            native_16bit: false,
+            native_f32: false,
+            native_alpha: false,
+            enforces_max_pixels: false,
+            enforces_max_memory: false,
+            enforces_max_input_bytes: false,
+            threads_supported_range: (1, 1),
+        }
+    }
+
+    // --- Getters ---
+
+    /// Whether the decoder extracts ICC color profiles into `ImageInfo`.
+    pub const fn icc(&self) -> bool {
+        self.icc
+    }
+    /// Whether the decoder extracts EXIF data into `ImageInfo`.
+    pub const fn exif(&self) -> bool {
+        self.exif
+    }
+    /// Whether the decoder extracts XMP data into `ImageInfo`.
+    pub const fn xmp(&self) -> bool {
+        self.xmp
+    }
+    /// Whether the decoder extracts CICP color description into `ImageInfo`.
+    pub const fn cicp(&self) -> bool {
+        self.cicp
+    }
+    /// Whether `with_stop` on decode jobs is respected (not a no-op).
+    pub const fn cancel(&self) -> bool {
+        self.cancel
+    }
+    /// Whether the codec supports decoding animation (multiple frames).
+    pub const fn animation(&self) -> bool {
+        self.animation
+    }
+    /// Whether `probe()` is cheap (header parse only, not a full decode).
+    pub const fn cheap_probe(&self) -> bool {
+        self.cheap_probe
+    }
+    /// Whether `decode_into()` is implemented.
+    pub const fn decode_into(&self) -> bool {
+        self.decode_into
+    }
+    /// Whether streaming row-level decode works.
+    pub const fn row_level(&self) -> bool {
+        self.row_level
+    }
+    /// Whether `next_frame_into()` works (frame decode into caller buffer).
+    pub const fn frame_decode_into(&self) -> bool {
+        self.frame_decode_into
+    }
+    /// Whether row-level frame decode works.
+    pub const fn row_level_frame(&self) -> bool {
+        self.row_level_frame
+    }
+    /// Whether the codec supports HDR content.
+    pub const fn hdr(&self) -> bool {
+        self.hdr
+    }
+    /// Whether the codec supports grayscale natively.
+    pub const fn native_gray(&self) -> bool {
+        self.native_gray
+    }
+    /// Whether the codec supports 16-bit per channel natively.
+    pub const fn native_16bit(&self) -> bool {
+        self.native_16bit
+    }
+    /// Whether the codec handles f32 pixel data natively.
+    pub const fn native_f32(&self) -> bool {
+        self.native_f32
+    }
+    /// Whether the codec handles alpha channel natively.
+    pub const fn native_alpha(&self) -> bool {
+        self.native_alpha
+    }
+    /// Whether the codec enforces `max_pixels` limits.
+    pub const fn enforces_max_pixels(&self) -> bool {
+        self.enforces_max_pixels
+    }
+    /// Whether the codec enforces `max_memory_bytes` limits.
+    pub const fn enforces_max_memory(&self) -> bool {
+        self.enforces_max_memory
+    }
+    /// Whether the codec enforces `max_input_bytes` limits.
+    pub const fn enforces_max_input_bytes(&self) -> bool {
+        self.enforces_max_input_bytes
+    }
+
+    /// Supported thread count range `(min, max)`.
+    ///
+    /// `(1, 1)` means single-threaded only.
+    /// `(1, 8)` means the decoder can use 1 to 8 threads.
+    pub const fn threads_supported_range(&self) -> (u16, u16) {
+        self.threads_supported_range
+    }
+
+    // --- Const builder methods ---
+
+    pub const fn with_icc(mut self, v: bool) -> Self {
+        self.icc = v;
+        self
+    }
+    pub const fn with_exif(mut self, v: bool) -> Self {
+        self.exif = v;
+        self
+    }
+    pub const fn with_xmp(mut self, v: bool) -> Self {
+        self.xmp = v;
+        self
+    }
+    pub const fn with_cicp(mut self, v: bool) -> Self {
+        self.cicp = v;
+        self
+    }
+    pub const fn with_cancel(mut self, v: bool) -> Self {
+        self.cancel = v;
+        self
+    }
+    pub const fn with_animation(mut self, v: bool) -> Self {
+        self.animation = v;
+        self
+    }
+    pub const fn with_cheap_probe(mut self, v: bool) -> Self {
+        self.cheap_probe = v;
+        self
+    }
+    pub const fn with_decode_into(mut self, v: bool) -> Self {
+        self.decode_into = v;
+        self
+    }
+    pub const fn with_row_level(mut self, v: bool) -> Self {
+        self.row_level = v;
+        self
+    }
+    pub const fn with_frame_decode_into(mut self, v: bool) -> Self {
+        self.frame_decode_into = v;
+        self
+    }
+    pub const fn with_row_level_frame(mut self, v: bool) -> Self {
+        self.row_level_frame = v;
+        self
+    }
+    pub const fn with_hdr(mut self, v: bool) -> Self {
+        self.hdr = v;
+        self
+    }
+    pub const fn with_native_gray(mut self, v: bool) -> Self {
+        self.native_gray = v;
+        self
+    }
+    pub const fn with_native_16bit(mut self, v: bool) -> Self {
+        self.native_16bit = v;
+        self
+    }
+    pub const fn with_native_f32(mut self, v: bool) -> Self {
+        self.native_f32 = v;
+        self
+    }
+    pub const fn with_native_alpha(mut self, v: bool) -> Self {
+        self.native_alpha = v;
+        self
+    }
+    pub const fn with_enforces_max_pixels(mut self, v: bool) -> Self {
+        self.enforces_max_pixels = v;
+        self
+    }
+    pub const fn with_enforces_max_memory(mut self, v: bool) -> Self {
+        self.enforces_max_memory = v;
+        self
+    }
+    pub const fn with_enforces_max_input_bytes(mut self, v: bool) -> Self {
+        self.enforces_max_input_bytes = v;
+        self
+    }
+
+    /// Set supported thread count range.
+    pub const fn with_threads_supported_range(mut self, min: u16, max: u16) -> Self {
+        self.threads_supported_range = (min, max);
+        self
+    }
+}
+
+impl fmt::Debug for DecodeCapabilities {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct("DecodeCapabilities");
+        s.field("icc", &self.icc)
+            .field("exif", &self.exif)
+            .field("xmp", &self.xmp)
+            .field("cicp", &self.cicp)
+            .field("cancel", &self.cancel)
+            .field("animation", &self.animation)
+            .field("cheap_probe", &self.cheap_probe)
+            .field("decode_into", &self.decode_into)
+            .field("row_level", &self.row_level)
+            .field("frame_decode_into", &self.frame_decode_into)
+            .field("row_level_frame", &self.row_level_frame)
+            .field("hdr", &self.hdr)
+            .field("native_gray", &self.native_gray)
+            .field("native_16bit", &self.native_16bit)
+            .field("native_f32", &self.native_f32)
+            .field("native_alpha", &self.native_alpha)
+            .field("enforces_max_pixels", &self.enforces_max_pixels)
+            .field("enforces_max_memory", &self.enforces_max_memory)
+            .field("enforces_max_input_bytes", &self.enforces_max_input_bytes)
+            .field("threads_supported_range", &self.threads_supported_range);
+        s.finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn default_all_false() {
-        let caps = CodecCapabilities::new();
-        assert!(!caps.encode_icc());
-        assert!(!caps.encode_exif());
-        assert!(!caps.encode_xmp());
-        assert!(!caps.decode_icc());
-        assert!(!caps.decode_exif());
-        assert!(!caps.decode_xmp());
-        assert!(!caps.encode_cancel());
-        assert!(!caps.decode_cancel());
-        assert!(!caps.native_gray());
-        assert!(!caps.cheap_probe());
-        assert!(!caps.encode_animation());
-        assert!(!caps.decode_animation());
-        assert!(!caps.native_16bit());
-        assert!(!caps.lossless());
+    fn encode_default_all_false() {
+        let caps = EncodeCapabilities::new();
+        assert!(!caps.icc());
+        assert!(!caps.exif());
+        assert!(!caps.xmp());
+        assert!(!caps.cicp());
+        assert!(!caps.cancel());
+        assert!(!caps.animation());
+        assert!(!caps.row_level());
+        assert!(!caps.pull());
+        assert!(!caps.row_level_frame());
+        assert!(!caps.pull_frame());
         assert!(!caps.lossy());
+        assert!(!caps.lossless());
         assert!(!caps.hdr());
+        assert!(!caps.native_gray());
+        assert!(!caps.native_16bit());
         assert!(!caps.native_f32());
         assert!(!caps.native_alpha());
-        assert!(!caps.decode_into());
-        assert!(!caps.row_level_encode());
-        assert!(!caps.pull_encode());
-        assert!(!caps.row_level_decode());
-        assert!(!caps.row_level_frame_encode());
-        assert!(!caps.pull_frame_encode());
-        assert!(!caps.frame_decode_into());
-        assert!(!caps.row_level_frame_decode());
-        assert!(!caps.encode_cicp());
-        assert!(!caps.decode_cicp());
         assert!(!caps.enforces_max_pixels());
         assert!(!caps.enforces_max_memory());
-        assert!(!caps.enforces_max_file_size());
         assert!(caps.effort_range().is_none());
         assert!(caps.quality_range().is_none());
+        assert_eq!(caps.threads_supported_range(), (1, 1));
     }
 
     #[test]
-    fn builder_sets_fields() {
-        let caps = CodecCapabilities::new()
-            .with_encode_icc(true)
-            .with_decode_cancel(true)
+    fn decode_default_all_false() {
+        let caps = DecodeCapabilities::new();
+        assert!(!caps.icc());
+        assert!(!caps.exif());
+        assert!(!caps.xmp());
+        assert!(!caps.cicp());
+        assert!(!caps.cancel());
+        assert!(!caps.animation());
+        assert!(!caps.cheap_probe());
+        assert!(!caps.decode_into());
+        assert!(!caps.row_level());
+        assert!(!caps.frame_decode_into());
+        assert!(!caps.row_level_frame());
+        assert!(!caps.hdr());
+        assert!(!caps.native_gray());
+        assert!(!caps.native_16bit());
+        assert!(!caps.native_f32());
+        assert!(!caps.native_alpha());
+        assert!(!caps.enforces_max_pixels());
+        assert!(!caps.enforces_max_memory());
+        assert!(!caps.enforces_max_input_bytes());
+        assert_eq!(caps.threads_supported_range(), (1, 1));
+    }
+
+    #[test]
+    fn encode_builder() {
+        let caps = EncodeCapabilities::new()
+            .with_icc(true)
+            .with_cancel(true)
             .with_native_gray(true)
-            .with_cheap_probe(true)
-            .with_encode_animation(true)
+            .with_animation(true)
             .with_native_16bit(true)
-            .with_hdr(true);
-        assert!(caps.encode_icc());
-        assert!(!caps.encode_exif());
-        assert!(caps.decode_cancel());
+            .with_hdr(true)
+            .with_threads_supported_range(1, 8);
+        assert!(caps.icc());
+        assert!(!caps.exif());
+        assert!(caps.cancel());
         assert!(caps.native_gray());
-        assert!(caps.cheap_probe());
-        assert!(caps.encode_animation());
-        assert!(!caps.decode_animation());
+        assert!(caps.animation());
         assert!(caps.native_16bit());
         assert!(!caps.lossless());
         assert!(caps.hdr());
+        assert_eq!(caps.threads_supported_range(), (1, 8));
     }
 
     #[test]
-    fn static_construction() {
-        static CAPS: CodecCapabilities = CodecCapabilities::new()
-            .with_encode_icc(true)
-            .with_encode_exif(true)
-            .with_encode_xmp(true)
-            .with_encode_cancel(true)
-            .with_decode_cancel(true)
-            .with_encode_animation(true)
-            .with_decode_animation(true)
+    fn decode_builder() {
+        let caps = DecodeCapabilities::new()
+            .with_icc(true)
+            .with_cheap_probe(true)
+            .with_cancel(true)
+            .with_animation(true)
+            .with_enforces_max_input_bytes(true)
+            .with_threads_supported_range(1, 4);
+        assert!(caps.icc());
+        assert!(caps.cheap_probe());
+        assert!(caps.cancel());
+        assert!(caps.animation());
+        assert!(caps.enforces_max_input_bytes());
+        assert_eq!(caps.threads_supported_range(), (1, 4));
+    }
+
+    #[test]
+    fn encode_static_construction() {
+        static CAPS: EncodeCapabilities = EncodeCapabilities::new()
+            .with_icc(true)
+            .with_exif(true)
+            .with_xmp(true)
+            .with_cancel(true)
+            .with_animation(true)
             .with_lossless(true)
-            .with_encode_cicp(true)
-            .with_decode_cicp(true);
-        assert!(CAPS.encode_icc());
-        assert!(CAPS.encode_cancel());
-        assert!(!CAPS.native_gray());
-        assert!(CAPS.encode_animation());
-        assert!(CAPS.decode_animation());
-        assert!(CAPS.lossless());
-        assert!(CAPS.encode_cicp());
-        assert!(CAPS.decode_cicp());
-    }
-
-    #[test]
-    fn enforces_limits_flags() {
-        let caps = CodecCapabilities::new()
-            .with_enforces_max_pixels(true)
-            .with_enforces_max_memory(true)
-            .with_enforces_max_file_size(true);
-        assert!(caps.enforces_max_pixels());
-        assert!(caps.enforces_max_memory());
-        assert!(caps.enforces_max_file_size());
-    }
-
-    #[test]
-    fn enforces_limits_static() {
-        static CAPS: CodecCapabilities = CodecCapabilities::new()
-            .with_enforces_max_pixels(true)
-            .with_enforces_max_file_size(true);
-        assert!(CAPS.enforces_max_pixels());
-        assert!(!CAPS.enforces_max_memory());
-        assert!(CAPS.enforces_max_file_size());
-    }
-
-    #[test]
-    fn effort_range_builder_and_getter() {
-        let caps = CodecCapabilities::new().with_effort_range(0, 10);
-        assert_eq!(caps.effort_range(), Some([0i32, 10]));
-    }
-
-    #[test]
-    fn quality_range_builder_and_getter() {
-        let caps = CodecCapabilities::new().with_quality_range(0.0, 100.0);
-        assert_eq!(caps.quality_range(), Some([0.0, 100.0]));
-    }
-
-    #[test]
-    fn effort_quality_static_construction() {
-        static CAPS: CodecCapabilities = CodecCapabilities::new()
-            .with_lossless(true)
+            .with_cicp(true)
             .with_effort_range(0, 100)
-            .with_quality_range(0.0, 100.0);
+            .with_quality_range(0.0, 100.0)
+            .with_threads_supported_range(1, 16);
+        assert!(CAPS.icc());
+        assert!(CAPS.cancel());
+        assert!(!CAPS.native_gray());
+        assert!(CAPS.animation());
         assert!(CAPS.lossless());
+        assert!(CAPS.cicp());
         assert_eq!(CAPS.effort_range(), Some([0, 100]));
         assert_eq!(CAPS.quality_range(), Some([0.0, 100.0]));
+        assert_eq!(CAPS.threads_supported_range(), (1, 16));
     }
 
     #[test]
-    fn lossless_only_codec_no_quality_range() {
-        let caps = CodecCapabilities::new()
-            .with_lossless(true)
-            .with_effort_range(1, 9);
-        assert!(caps.lossless());
-        assert_eq!(caps.effort_range(), Some([1, 9]));
-        assert!(caps.quality_range().is_none()); // lossless-only → no quality range
+    fn decode_static_construction() {
+        static CAPS: DecodeCapabilities = DecodeCapabilities::new()
+            .with_icc(true)
+            .with_cheap_probe(true)
+            .with_cancel(true)
+            .with_animation(true)
+            .with_enforces_max_pixels(true)
+            .with_enforces_max_input_bytes(true);
+        assert!(CAPS.icc());
+        assert!(CAPS.cheap_probe());
+        assert!(CAPS.enforces_max_pixels());
+        assert!(!CAPS.enforces_max_memory());
+        assert!(CAPS.enforces_max_input_bytes());
     }
 
     #[test]
-    fn new_capability_flags() {
-        let caps = CodecCapabilities::new()
-            .with_lossy(true)
-            .with_native_f32(true)
-            .with_native_alpha(true)
-            .with_decode_into(true)
-            .with_row_level_encode(true)
-            .with_pull_encode(true)
-            .with_row_level_decode(true)
-            .with_row_level_frame_encode(true)
-            .with_pull_frame_encode(true)
-            .with_frame_decode_into(true)
-            .with_row_level_frame_decode(true);
-        assert!(caps.lossy());
-        assert!(caps.native_f32());
-        assert!(caps.native_alpha());
-        assert!(caps.decode_into());
-        assert!(caps.row_level_encode());
-        assert!(caps.pull_encode());
-        assert!(caps.row_level_decode());
-        assert!(caps.row_level_frame_encode());
-        assert!(caps.pull_frame_encode());
-        assert!(caps.frame_decode_into());
-        assert!(caps.row_level_frame_decode());
-    }
-
-    #[test]
-    fn new_capability_flags_static() {
-        static CAPS: CodecCapabilities = CodecCapabilities::new()
-            .with_lossy(true)
-            .with_lossless(true)
-            .with_native_f32(true)
-            .with_native_alpha(true)
-            .with_decode_into(true)
-            .with_row_level_encode(true);
-        assert!(CAPS.lossy());
-        assert!(CAPS.lossless());
-        assert!(CAPS.native_f32());
-        assert!(CAPS.native_alpha());
-        assert!(CAPS.decode_into());
-        assert!(CAPS.row_level_encode());
-        assert!(!CAPS.pull_encode());
-        assert!(!CAPS.row_level_decode());
+    fn encode_effort_quality_ranges() {
+        let caps = EncodeCapabilities::new()
+            .with_effort_range(0, 10)
+            .with_quality_range(0.0, 100.0);
+        assert_eq!(caps.effort_range(), Some([0i32, 10]));
+        assert_eq!(caps.quality_range(), Some([0.0, 100.0]));
     }
 
     #[test]
@@ -900,7 +928,6 @@ mod tests {
 
     #[test]
     fn unsupported_operation_is_error() {
-        // Verify it implements core::error::Error
         let op = UnsupportedOperation::DecodeInto;
         let err: &dyn core::error::Error = &op;
         assert!(err.source().is_none());
@@ -908,9 +935,6 @@ mod tests {
 
     #[test]
     fn unsupported_operation_eq_hash() {
-        use alloc::collections::BTreeSet;
-        let mut set = BTreeSet::new();
-        // Use Debug ordering via string comparison as a proxy
         assert_eq!(
             UnsupportedOperation::DecodeInto,
             UnsupportedOperation::DecodeInto
@@ -919,8 +943,6 @@ mod tests {
             UnsupportedOperation::DecodeInto,
             UnsupportedOperation::PullEncode
         );
-        // Hash: just verify it compiles with a set-like usage
-        let _ = set.insert(alloc::format!("{:?}", UnsupportedOperation::DecodeInto));
     }
 
     #[test]

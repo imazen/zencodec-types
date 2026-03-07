@@ -44,8 +44,8 @@ use alloc::boxed::Box;
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
 use crate::{
-    CodecCapabilities, DecodeFrame, DecodeOutput, EncodeFrame, EncodeOutput, ImageInfo,
-    MetadataView, OutputInfo, ResourceLimits, Stop,
+    DecodeCapabilities, DecodeFrame, DecodeOutput, EncodeCapabilities, EncodeFrame, EncodeOutput,
+    ImageInfo, MetadataView, OutputInfo, ResourceLimits, Stop,
 };
 use rgb::{Gray, Rgb, Rgba};
 use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
@@ -56,12 +56,8 @@ use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
 /// related methods that erase the concrete codec type.
 pub type BoxedError = Box<dyn core::error::Error + Send + Sync>;
 
-/// Type-erased frame encoder: `Some(frame)` pushes a frame, `None` finalizes.
-pub type DynFrameEncoder<'a> =
-    Box<dyn FnMut(Option<EncodeFrame<'_>>) -> Result<Option<EncodeOutput>, BoxedError> + 'a>;
-
-/// Type-erased frame decoder: call repeatedly until `Ok(None)`.
-pub type DynFrameDecoder<'a> = Box<dyn FnMut() -> Result<Option<DecodeFrame>, BoxedError> + 'a>;
+// DynFrameEncoder and DynFrameDecoder are defined as proper traits
+// in the object-safe section below.
 
 // ===========================================================================
 // Encode traits
@@ -97,11 +93,11 @@ pub trait EncoderConfig: Clone + Send + Sync {
     /// conversion. Must not be empty.
     fn supported_descriptors() -> &'static [PixelDescriptor];
 
-    /// Codec capabilities (metadata support, cancellation, etc.).
+    /// Encoder capabilities (metadata support, cancellation, etc.).
     ///
-    /// Returns a static reference describing what this codec supports.
-    fn capabilities() -> &'static CodecCapabilities {
-        &CodecCapabilities::EMPTY
+    /// Returns a static reference describing what this encoder supports.
+    fn capabilities() -> &'static EncodeCapabilities {
+        &EncodeCapabilities::EMPTY
     }
 
     /// Set encoding quality on a calibrated 0.0–100.0 scale.
@@ -233,10 +229,11 @@ pub trait EncodeJob<'a>: Sized {
 
     /// Create a type-erased one-shot encoder.
     ///
-    /// Returns a boxed closure that accepts any [`PixelSlice`] (type-erased)
-    /// and produces encoded output. All configuration — both universal
-    /// ([`EncoderConfig::with_generic_quality`]) and codec-specific (methods
-    /// on the concrete config type) — is applied *before* this call.
+    /// Returns a boxed [`DynEncoder`] that accepts any [`PixelSlice`]
+    /// (type-erased) and produces encoded output. All configuration —
+    /// both universal ([`EncoderConfig::with_generic_quality`]) and
+    /// codec-specific (methods on the concrete config type) — is
+    /// applied *before* this call.
     ///
     /// Only available when `Enc` implements [`Encoder`].
     ///
@@ -267,28 +264,20 @@ pub trait EncodeJob<'a>: Sized {
 
     /// Create a type-erased frame-by-frame encoder.
     ///
-    /// Returns a boxed closure using an option protocol:
-    /// - `Some(frame)` — push a frame, returns `Ok(None)`
-    /// - `None` — finalize the animation, returns `Ok(Some(output))`
-    ///
     /// Only available when `FrameEnc` implements [`FrameEncoder`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if called after finalization (`None` sent twice).
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// let mut encode_frame = config.job()
+    /// let mut enc = config.job()
     ///     .with_loop_count(Some(0))
     ///     .dyn_frame_encoder()?;
     ///
-    /// encode_frame(Some(frame1))?;
-    /// encode_frame(Some(frame2))?;
-    /// let output = encode_frame(None)?.unwrap();
+    /// enc.push_encode_frame(frame1)?;
+    /// enc.push_encode_frame(frame2)?;
+    /// let output = enc.finish()?;
     /// ```
-    fn dyn_frame_encoder(self) -> Result<DynFrameEncoder<'a>, BoxedError>
+    fn dyn_frame_encoder(self) -> Result<Box<dyn DynFrameEncoder + 'a>, BoxedError>
     where
         Self: 'a,
         Self::FrameEnc: FrameEncoder,
@@ -296,22 +285,7 @@ pub trait EncodeJob<'a>: Sized {
         let enc = self
             .frame_encoder()
             .map_err(|e| Box::new(e) as BoxedError)?;
-        let mut enc = Some(enc);
-        Ok(Box::new(move |frame| match frame {
-            Some(frame) => {
-                enc.as_mut()
-                    .expect("frame encoder already finished")
-                    .push_encode_frame(frame)
-                    .map_err(|e| Box::new(e) as BoxedError)?;
-                Ok(None)
-            }
-            None => {
-                let enc = enc.take().expect("frame encoder already finished");
-                enc.finish()
-                    .map_err(|e| Box::new(e) as BoxedError)
-                    .map(Some)
-            }
-        }))
+        Ok(Box::new(FrameEncoderShim(enc)))
     }
 }
 
@@ -655,6 +629,20 @@ pub trait FrameEncoder: Sized {
     fn finish(self) -> Result<EncodeOutput, Self::Error>;
 }
 
+/// Trivial rejection impl — codecs that don't support animation set
+/// `type FrameEnc = ()` and `frame_encoder()` returns an error.
+impl FrameEncoder for () {
+    type Error = crate::UnsupportedOperation;
+
+    fn push_frame(&mut self, _: PixelSlice<'_>, _: u32) -> Result<(), Self::Error> {
+        Err(crate::UnsupportedOperation::AnimationEncode)
+    }
+
+    fn finish(self) -> Result<EncodeOutput, Self::Error> {
+        Err(crate::UnsupportedOperation::AnimationEncode)
+    }
+}
+
 // ===========================================================================
 // Decode traits
 // ===========================================================================
@@ -684,11 +672,11 @@ pub trait DecoderConfig: Clone + Send + Sync {
     /// without lossy conversion. Must not be empty.
     fn supported_descriptors() -> &'static [PixelDescriptor];
 
-    /// Codec capabilities (metadata support, cancellation, etc.).
+    /// Decoder capabilities (metadata support, cancellation, etc.).
     ///
-    /// Returns a static reference describing what this codec supports.
-    fn capabilities() -> &'static CodecCapabilities {
-        &CodecCapabilities::EMPTY
+    /// Returns a static reference describing what this decoder supports.
+    fn capabilities() -> &'static DecodeCapabilities {
+        &DecodeCapabilities::EMPTY
     }
 
     /// Create a per-operation job.
@@ -903,16 +891,13 @@ pub trait DecodeJob<'a>: Sized {
 
     /// Create a type-erased frame-by-frame decoder.
     ///
-    /// Returns a boxed closure that yields frames. Call repeatedly
-    /// until it returns `Ok(None)`.
-    ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// let mut next_frame = config.job()
+    /// let mut dec = config.job()
     ///     .dyn_frame_decoder(data, &[])?;
     ///
-    /// while let Some(frame) = next_frame()? {
+    /// while let Some(frame) = dec.next_frame()? {
     ///     // process frame
     /// }
     /// ```
@@ -920,16 +905,40 @@ pub trait DecodeJob<'a>: Sized {
         self,
         data: &'a [u8],
         preferred: &[PixelDescriptor],
-    ) -> Result<DynFrameDecoder<'a>, BoxedError>
+    ) -> Result<Box<dyn DynFrameDecoder + 'a>, BoxedError>
     where
         Self: 'a,
     {
-        let mut dec = self
+        let dec = self
             .frame_decoder(data, preferred)
             .map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(move || {
-            dec.next_frame().map_err(|e| Box::new(e) as BoxedError)
-        }))
+        Ok(Box::new(FrameDecoderShim(dec)))
+    }
+
+    /// Create a type-erased streaming decoder.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut dec = config.job()
+    ///     .dyn_streaming_decoder(data, &[])?;
+    ///
+    /// while let Some((y, strip)) = dec.next_batch()? {
+    ///     // process strip
+    /// }
+    /// ```
+    fn dyn_streaming_decoder(
+        self,
+        data: &'a [u8],
+        preferred: &[PixelDescriptor],
+    ) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError>
+    where
+        Self: 'a,
+    {
+        let dec = self
+            .streaming_decoder(data, preferred)
+            .map_err(|e| Box::new(e) as BoxedError)?;
+        Ok(Box::new(StreamingDecoderShim(dec)))
     }
 }
 
@@ -1058,17 +1067,27 @@ pub trait FrameDecode: Sized {
     }
 }
 
+/// Trivial rejection impl — codecs that don't support animation set
+/// `type FrameDec = ()` and `frame_decoder()` returns an error.
+impl FrameDecode for () {
+    type Error = crate::UnsupportedOperation;
+
+    fn next_frame(&mut self) -> Result<Option<DecodeFrame>, Self::Error> {
+        Err(crate::UnsupportedOperation::AnimationDecode)
+    }
+}
+
 // ===========================================================================
 // Object-safe layered traits — zero-generics codec-agnostic dispatch
 // ===========================================================================
 //
 // Mirrors the generic hierarchy with dyn-safe traits:
 //
-//   DynEncoderConfig → DynEncodeJob → DynEncoder
-//   DynDecoderConfig → DynDecodeJob → DynDecoder
+//   DynEncoderConfig → DynEncodeJob → DynEncoder / DynFrameEncoder
+//   DynDecoderConfig → DynDecodeJob → DynDecoder / DynFrameDecoder / DynStreamingDecoder
 //
 // Each layer is a separate trait with blanket impls via private shim structs.
-// Usage:
+// Every method from the generic traits is exposed.
 //
 // ```rust,ignore
 // fn save(config: &dyn DynEncoderConfig, data: &[u8], w: u32, h: u32) -> Result<Vec<u8>, BoxedError> {
@@ -1088,6 +1107,9 @@ pub trait FrameDecode: Sized {
 /// Wraps [`Encoder`] for dyn dispatch. Produced by
 /// [`DynEncodeJob::into_encoder`].
 pub trait DynEncoder {
+    /// Suggested strip height for optimal row-level encoding.
+    fn preferred_strip_height(&self) -> u32;
+
     /// Encode a complete image from type-erased pixels (consumes self).
     fn encode(self: Box<Self>, pixels: PixelSlice<'_>) -> Result<EncodeOutput, BoxedError>;
 
@@ -1100,11 +1122,27 @@ pub trait DynEncoder {
         height: u32,
         stride_pixels: u32,
     ) -> Result<EncodeOutput, BoxedError>;
+
+    /// Push scanline rows incrementally.
+    fn push_rows(&mut self, rows: PixelSlice<'_>) -> Result<(), BoxedError>;
+
+    /// Finalize after push_rows. Returns encoded output.
+    fn finish(self: Box<Self>) -> Result<EncodeOutput, BoxedError>;
+
+    /// Encode by pulling rows from a source callback.
+    fn encode_from(
+        self: Box<Self>,
+        source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
+    ) -> Result<EncodeOutput, BoxedError>;
 }
 
 struct EncoderShim<E>(E);
 
 impl<E: Encoder> DynEncoder for EncoderShim<E> {
+    fn preferred_strip_height(&self) -> u32 {
+        self.0.preferred_strip_height()
+    }
+
     fn encode(self: Box<Self>, pixels: PixelSlice<'_>) -> Result<EncodeOutput, BoxedError> {
         self.0.encode(pixels).map_err(|e| Box::new(e) as BoxedError)
     }
@@ -1121,14 +1159,117 @@ impl<E: Encoder> DynEncoder for EncoderShim<E> {
             .encode_srgba8(data, make_opaque, width, height, stride_pixels)
             .map_err(|e| Box::new(e) as BoxedError)
     }
+
+    fn push_rows(&mut self, rows: PixelSlice<'_>) -> Result<(), BoxedError> {
+        self.0
+            .push_rows(rows)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn finish(self: Box<Self>) -> Result<EncodeOutput, BoxedError> {
+        self.0.finish().map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn encode_from(
+        self: Box<Self>,
+        source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
+    ) -> Result<EncodeOutput, BoxedError> {
+        self.0
+            .encode_from(source)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+}
+
+/// Object-safe animation encoder.
+///
+/// Wraps [`FrameEncoder`] for dyn dispatch. Produced by
+/// [`DynEncodeJob::into_frame_encoder`].
+pub trait DynFrameEncoder {
+    /// Push a complete full-canvas frame.
+    fn push_frame(&mut self, pixels: PixelSlice<'_>, duration_ms: u32) -> Result<(), BoxedError>;
+
+    /// Push a frame with sub-canvas positioning and compositing.
+    fn push_encode_frame(&mut self, frame: EncodeFrame<'_>) -> Result<(), BoxedError>;
+
+    /// Begin a new frame (for row-level building).
+    fn begin_frame(&mut self, duration_ms: u32) -> Result<(), BoxedError>;
+
+    /// Push rows into the current frame.
+    fn push_rows(&mut self, rows: PixelSlice<'_>) -> Result<(), BoxedError>;
+
+    /// End the current frame.
+    fn end_frame(&mut self) -> Result<(), BoxedError>;
+
+    /// Encode a frame by pulling rows from a source callback.
+    fn pull_frame(
+        &mut self,
+        duration_ms: u32,
+        source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
+    ) -> Result<(), BoxedError>;
+
+    /// Set animation loop count.
+    fn set_loop_count(&mut self, count: Option<u32>);
+
+    /// Finalize animation. Returns encoded output.
+    fn finish(self: Box<Self>) -> Result<EncodeOutput, BoxedError>;
+}
+
+struct FrameEncoderShim<F>(F);
+
+impl<F: FrameEncoder> DynFrameEncoder for FrameEncoderShim<F> {
+    fn push_frame(&mut self, pixels: PixelSlice<'_>, duration_ms: u32) -> Result<(), BoxedError> {
+        self.0
+            .push_frame(pixels, duration_ms)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn push_encode_frame(&mut self, frame: EncodeFrame<'_>) -> Result<(), BoxedError> {
+        self.0
+            .push_encode_frame(frame)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn begin_frame(&mut self, duration_ms: u32) -> Result<(), BoxedError> {
+        self.0
+            .begin_frame(duration_ms)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn push_rows(&mut self, rows: PixelSlice<'_>) -> Result<(), BoxedError> {
+        self.0
+            .push_rows(rows)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn end_frame(&mut self) -> Result<(), BoxedError> {
+        self.0.end_frame().map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn pull_frame(
+        &mut self,
+        duration_ms: u32,
+        source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize,
+    ) -> Result<(), BoxedError> {
+        self.0
+            .pull_frame(duration_ms, source)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn set_loop_count(&mut self, count: Option<u32>) {
+        self.0.with_loop_count(count);
+    }
+
+    fn finish(self: Box<Self>) -> Result<EncodeOutput, BoxedError> {
+        self.0.finish().map_err(|e| Box::new(e) as BoxedError)
+    }
 }
 
 /// Object-safe encode job.
 ///
 /// Wraps [`EncodeJob`] for dyn dispatch. Produced by
 /// [`DynEncoderConfig::dyn_job`]. Use the `set_*` methods to configure,
-/// then call [`into_encoder`](DynEncodeJob::into_encoder) to create
-/// the encoder.
+/// then call [`into_encoder`](DynEncodeJob::into_encoder) or
+/// [`into_frame_encoder`](DynEncodeJob::into_frame_encoder).
 pub trait DynEncodeJob<'a> {
     /// Set cooperative cancellation token.
     fn set_stop(&mut self, stop: &'a dyn Stop);
@@ -1136,47 +1277,93 @@ pub trait DynEncodeJob<'a> {
     /// Override resource limits.
     fn set_limits(&mut self, limits: ResourceLimits);
 
+    /// Set encode security policy.
+    fn set_policy(&mut self, policy: crate::EncodePolicy);
+
     /// Set metadata (ICC, EXIF, XMP) to embed.
     fn set_metadata(&mut self, meta: &'a MetadataView<'a>);
 
-    /// Create the encoder (consumes this job).
+    /// Set animation canvas dimensions.
+    fn set_canvas_size(&mut self, width: u32, height: u32);
+
+    /// Set animation loop count.
+    fn set_loop_count(&mut self, count: Option<u32>);
+
+    /// Create the single-image encoder (consumes this job).
     fn into_encoder(self: Box<Self>) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>;
+
+    /// Create the animation encoder (consumes this job).
+    fn into_frame_encoder(self: Box<Self>) -> Result<Box<dyn DynFrameEncoder + 'a>, BoxedError>;
 }
 
 struct EncodeJobShim<J>(Option<J>);
+
+impl<J> EncodeJobShim<J> {
+    fn take(&mut self) -> J {
+        self.0.take().expect("job already consumed")
+    }
+
+    fn put(&mut self, job: J) {
+        self.0 = Some(job);
+    }
+}
 
 impl<'a, J> DynEncodeJob<'a> for EncodeJobShim<J>
 where
     J: EncodeJob<'a> + 'a,
     J::Enc: Encoder,
+    J::FrameEnc: FrameEncoder,
 {
     fn set_stop(&mut self, stop: &'a dyn Stop) {
-        let job = self.0.take().expect("job already consumed");
-        self.0 = Some(job.with_stop(stop));
+        let job = self.take();
+        self.put(job.with_stop(stop));
     }
 
     fn set_limits(&mut self, limits: ResourceLimits) {
-        let job = self.0.take().expect("job already consumed");
-        self.0 = Some(job.with_limits(limits));
+        let job = self.take();
+        self.put(job.with_limits(limits));
+    }
+
+    fn set_policy(&mut self, policy: crate::EncodePolicy) {
+        let job = self.take();
+        self.put(job.with_policy(policy));
     }
 
     fn set_metadata(&mut self, meta: &'a MetadataView<'a>) {
-        let job = self.0.take().expect("job already consumed");
-        self.0 = Some(job.with_metadata(meta));
+        let job = self.take();
+        self.put(job.with_metadata(meta));
+    }
+
+    fn set_canvas_size(&mut self, width: u32, height: u32) {
+        let job = self.take();
+        self.put(job.with_canvas_size(width, height));
+    }
+
+    fn set_loop_count(&mut self, count: Option<u32>) {
+        let job = self.take();
+        self.put(job.with_loop_count(count));
     }
 
     fn into_encoder(mut self: Box<Self>) -> Result<Box<dyn DynEncoder + 'a>, BoxedError> {
-        let job = self.0.take().expect("job already consumed");
+        let job = self.take();
         let enc = job.encoder().map_err(|e| Box::new(e) as BoxedError)?;
         Ok(Box::new(EncoderShim(enc)))
+    }
+
+    fn into_frame_encoder(
+        mut self: Box<Self>,
+    ) -> Result<Box<dyn DynFrameEncoder + 'a>, BoxedError> {
+        let job = self.take();
+        let enc = job.frame_encoder().map_err(|e| Box::new(e) as BoxedError)?;
+        Ok(Box::new(FrameEncoderShim(enc)))
     }
 }
 
 /// Object-safe encoder configuration.
 ///
 /// Blanket-implemented for all [`EncoderConfig`] types whose encoder
-/// implements [`Encoder`]. Enables fully codec-agnostic code with no
-/// generic parameters.
+/// implements [`Encoder`] and frame encoder implements [`FrameEncoder`].
+/// Codecs without animation support should set `type FrameEnc = ()`.
 ///
 /// ```rust,ignore
 /// fn save(config: &dyn DynEncoderConfig, pixels: &[u8], w: u32, h: u32) -> Result<Vec<u8>, BoxedError> {
@@ -1197,6 +1384,9 @@ pub trait DynEncoderConfig: Send + Sync {
     /// Pixel formats this encoder accepts natively.
     fn supported_descriptors(&self) -> &'static [PixelDescriptor];
 
+    /// Encoder capabilities (metadata support, cancellation, etc.).
+    fn capabilities(&self) -> &'static EncodeCapabilities;
+
     /// Create a dyn-dispatched encode job.
     fn dyn_job(&self) -> Box<dyn DynEncodeJob<'_> + '_>;
 }
@@ -1205,6 +1395,7 @@ impl<C> DynEncoderConfig for C
 where
     C: EncoderConfig,
     for<'a> <C::Job<'a> as EncodeJob<'a>>::Enc: Encoder,
+    for<'a> <C::Job<'a> as EncodeJob<'a>>::FrameEnc: FrameEncoder,
 {
     fn format(&self) -> ImageFormat {
         C::format()
@@ -1212,6 +1403,10 @@ where
 
     fn supported_descriptors(&self) -> &'static [PixelDescriptor] {
         C::supported_descriptors()
+    }
+
+    fn capabilities(&self) -> &'static EncodeCapabilities {
+        C::capabilities()
     }
 
     fn dyn_job(&self) -> Box<dyn DynEncodeJob<'_> + '_> {
@@ -1238,11 +1433,81 @@ impl<D: Decode> DynDecoder for DecoderShim<D> {
     }
 }
 
+/// Object-safe animation decoder.
+///
+/// Wraps [`FrameDecode`] for dyn dispatch. Produced by
+/// [`DynDecodeJob::into_frame_decoder`].
+pub trait DynFrameDecoder {
+    /// Number of frames, if known without decoding.
+    fn frame_count(&self) -> Option<u32>;
+
+    /// Animation loop count from the container.
+    fn loop_count(&self) -> Option<u32>;
+
+    /// Pull next frame. Returns `None` when all frames consumed.
+    fn next_frame(&mut self) -> Result<Option<DecodeFrame>, BoxedError>;
+
+    /// Decode next frame directly into a caller-owned sink (push model).
+    fn next_frame_to_sink(
+        &mut self,
+        sink: &mut dyn crate::DecodeRowSink,
+    ) -> Result<Option<OutputInfo>, BoxedError>;
+}
+
+struct FrameDecoderShim<F>(F);
+
+impl<F: FrameDecode> DynFrameDecoder for FrameDecoderShim<F> {
+    fn frame_count(&self) -> Option<u32> {
+        self.0.frame_count()
+    }
+
+    fn loop_count(&self) -> Option<u32> {
+        self.0.loop_count()
+    }
+
+    fn next_frame(&mut self) -> Result<Option<DecodeFrame>, BoxedError> {
+        self.0.next_frame().map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn next_frame_to_sink(
+        &mut self,
+        sink: &mut dyn crate::DecodeRowSink,
+    ) -> Result<Option<OutputInfo>, BoxedError> {
+        self.0
+            .next_frame_to_sink(sink)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+}
+
+/// Object-safe streaming scanline-batch decoder.
+///
+/// Wraps [`StreamingDecode`] for dyn dispatch. Produced by
+/// [`DynDecodeJob::into_streaming_decoder`].
+pub trait DynStreamingDecoder {
+    /// Pull the next batch of scanlines.
+    fn next_batch(&mut self) -> Result<Option<(u32, PixelSlice<'_>)>, BoxedError>;
+
+    /// Image metadata, available after construction.
+    fn info(&self) -> &ImageInfo;
+}
+
+struct StreamingDecoderShim<S>(S);
+
+impl<S: StreamingDecode> DynStreamingDecoder for StreamingDecoderShim<S> {
+    fn next_batch(&mut self) -> Result<Option<(u32, PixelSlice<'_>)>, BoxedError> {
+        self.0.next_batch().map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn info(&self) -> &ImageInfo {
+        self.0.info()
+    }
+}
+
 /// Object-safe decode job.
 ///
 /// Wraps [`DecodeJob`] for dyn dispatch. Produced by
 /// [`DynDecoderConfig::dyn_job`]. Use the `set_*` methods to configure,
-/// then call [`into_decoder`](DynDecodeJob::into_decoder) to decode.
+/// then call one of the `into_*` methods to create a decoder.
 pub trait DynDecodeJob<'a> {
     /// Set cooperative cancellation token.
     fn set_stop(&mut self, stop: &'a dyn Stop);
@@ -1250,41 +1515,122 @@ pub trait DynDecodeJob<'a> {
     /// Override resource limits.
     fn set_limits(&mut self, limits: ResourceLimits);
 
-    /// Probe image metadata without decoding pixels.
+    /// Set decode security policy.
+    fn set_policy(&mut self, policy: crate::DecodePolicy);
+
+    /// Probe image metadata without decoding pixels (header parse).
     fn probe(&self, data: &[u8]) -> Result<ImageInfo, BoxedError>;
 
+    /// Probe image metadata with a full parse.
+    fn probe_full(&self, data: &[u8]) -> Result<ImageInfo, BoxedError>;
+
+    /// Hint: crop to this region in source coordinates.
+    fn set_crop_hint(&mut self, x: u32, y: u32, width: u32, height: u32);
+
+    /// Hint: target output dimensions for prescaling.
+    fn set_scale_hint(&mut self, max_width: u32, max_height: u32);
+
+    /// Set orientation handling strategy.
+    fn set_orientation(&mut self, hint: OrientationHint);
+
+    /// Predict what the decoder will produce given current hints.
+    fn output_info(&self, data: &[u8]) -> Result<OutputInfo, BoxedError>;
+
     /// Create a one-shot decoder bound to `data` (consumes this job).
-    ///
-    /// `preferred` is a ranked list of desired output pixel formats.
-    /// Pass `&[]` for the decoder's native format.
     fn into_decoder(
         self: Box<Self>,
         data: &'a [u8],
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynDecoder + 'a>, BoxedError>;
+
+    /// Decode into a caller-owned sink (consumes this job).
+    fn push_decode(
+        self: Box<Self>,
+        data: &'a [u8],
+        sink: &mut dyn crate::DecodeRowSink,
+        preferred: &[PixelDescriptor],
+    ) -> Result<OutputInfo, BoxedError>;
+
+    /// Create a streaming decoder (consumes this job).
+    fn into_streaming_decoder(
+        self: Box<Self>,
+        data: &'a [u8],
+        preferred: &[PixelDescriptor],
+    ) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError>;
+
+    /// Create a frame-by-frame animation decoder (consumes this job).
+    fn into_frame_decoder(
+        self: Box<Self>,
+        data: &'a [u8],
+        preferred: &[PixelDescriptor],
+    ) -> Result<Box<dyn DynFrameDecoder + 'a>, BoxedError>;
 }
 
 struct DecodeJobShim<J>(Option<J>);
+
+impl<J> DecodeJobShim<J> {
+    fn take(&mut self) -> J {
+        self.0.take().expect("job already consumed")
+    }
+
+    fn put(&mut self, job: J) {
+        self.0 = Some(job);
+    }
+
+    fn as_ref(&self) -> &J {
+        self.0.as_ref().expect("job already consumed")
+    }
+}
 
 impl<'a, J> DynDecodeJob<'a> for DecodeJobShim<J>
 where
     J: DecodeJob<'a> + 'a,
 {
     fn set_stop(&mut self, stop: &'a dyn Stop) {
-        let job = self.0.take().expect("job already consumed");
-        self.0 = Some(job.with_stop(stop));
+        let job = self.take();
+        self.put(job.with_stop(stop));
     }
 
     fn set_limits(&mut self, limits: ResourceLimits) {
-        let job = self.0.take().expect("job already consumed");
-        self.0 = Some(job.with_limits(limits));
+        let job = self.take();
+        self.put(job.with_limits(limits));
+    }
+
+    fn set_policy(&mut self, policy: crate::DecodePolicy) {
+        let job = self.take();
+        self.put(job.with_policy(policy));
     }
 
     fn probe(&self, data: &[u8]) -> Result<ImageInfo, BoxedError> {
-        self.0
-            .as_ref()
-            .expect("job already consumed")
+        self.as_ref()
             .probe(data)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn probe_full(&self, data: &[u8]) -> Result<ImageInfo, BoxedError> {
+        self.as_ref()
+            .probe_full(data)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn set_crop_hint(&mut self, x: u32, y: u32, width: u32, height: u32) {
+        let job = self.take();
+        self.put(job.with_crop_hint(x, y, width, height));
+    }
+
+    fn set_scale_hint(&mut self, max_width: u32, max_height: u32) {
+        let job = self.take();
+        self.put(job.with_scale_hint(max_width, max_height));
+    }
+
+    fn set_orientation(&mut self, hint: OrientationHint) {
+        let job = self.take();
+        self.put(job.with_orientation(hint));
+    }
+
+    fn output_info(&self, data: &[u8]) -> Result<OutputInfo, BoxedError> {
+        self.as_ref()
+            .output_info(data)
             .map_err(|e| Box::new(e) as BoxedError)
     }
 
@@ -1293,11 +1639,46 @@ where
         data: &'a [u8],
         preferred: &[PixelDescriptor],
     ) -> Result<Box<dyn DynDecoder + 'a>, BoxedError> {
-        let job = self.0.take().expect("job already consumed");
+        let job = self.take();
         let dec = job
             .decoder(data, preferred)
             .map_err(|e| Box::new(e) as BoxedError)?;
         Ok(Box::new(DecoderShim(dec)))
+    }
+
+    fn push_decode(
+        mut self: Box<Self>,
+        data: &'a [u8],
+        sink: &mut dyn crate::DecodeRowSink,
+        preferred: &[PixelDescriptor],
+    ) -> Result<OutputInfo, BoxedError> {
+        let job = self.take();
+        job.push_decoder(data, sink, preferred)
+            .map_err(|e| Box::new(e) as BoxedError)
+    }
+
+    fn into_streaming_decoder(
+        mut self: Box<Self>,
+        data: &'a [u8],
+        preferred: &[PixelDescriptor],
+    ) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError> {
+        let job = self.take();
+        let dec = job
+            .streaming_decoder(data, preferred)
+            .map_err(|e| Box::new(e) as BoxedError)?;
+        Ok(Box::new(StreamingDecoderShim(dec)))
+    }
+
+    fn into_frame_decoder(
+        mut self: Box<Self>,
+        data: &'a [u8],
+        preferred: &[PixelDescriptor],
+    ) -> Result<Box<dyn DynFrameDecoder + 'a>, BoxedError> {
+        let job = self.take();
+        let dec = job
+            .frame_decoder(data, preferred)
+            .map_err(|e| Box::new(e) as BoxedError)?;
+        Ok(Box::new(FrameDecoderShim(dec)))
     }
 }
 
@@ -1323,6 +1704,9 @@ pub trait DynDecoderConfig: Send + Sync {
     /// Pixel formats this decoder can produce natively.
     fn supported_descriptors(&self) -> &'static [PixelDescriptor];
 
+    /// Decoder capabilities (metadata support, cancellation, etc.).
+    fn capabilities(&self) -> &'static DecodeCapabilities;
+
     /// Create a dyn-dispatched decode job.
     fn dyn_job(&self) -> Box<dyn DynDecodeJob<'_> + '_>;
 }
@@ -1337,6 +1721,10 @@ where
 
     fn supported_descriptors(&self) -> &'static [PixelDescriptor] {
         C::supported_descriptors()
+    }
+
+    fn capabilities(&self) -> &'static DecodeCapabilities {
+        C::capabilities()
     }
 
     fn dyn_job(&self) -> Box<dyn DynDecodeJob<'_> + '_> {

@@ -4,6 +4,43 @@
 //! is returned when a check fails. Use the `check_*` methods for
 //! parse-time rejection (fastest — reject before any pixel work).
 
+/// Threading policy for codec operations.
+///
+/// Controls how many threads a codec may use. Codecs report their
+/// supported range via
+/// [`EncodeCapabilities::threads_supported_range()`](crate::EncodeCapabilities::threads_supported_range)
+/// and [`DecodeCapabilities::threads_supported_range()`](crate::DecodeCapabilities::threads_supported_range).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ThreadingPolicy {
+    /// Force single-threaded operation.
+    ///
+    /// Useful for deterministic output or constrained environments.
+    SingleThread,
+
+    /// Use at most `max_threads` threads. If the codec would need more,
+    /// fall back to single-threaded.
+    LimitOrSingle {
+        /// Maximum thread count before falling back to single-threaded.
+        max_threads: u16,
+    },
+
+    /// Prefer at most `preferred_max_threads` threads, but the codec
+    /// may use more if it needs to.
+    LimitOrAny {
+        /// Preferred maximum thread count (advisory, not enforced).
+        preferred_max_threads: u16,
+    },
+
+    /// Let the codec pick a reasonable thread count based on available
+    /// parallelism (typically half of available cores or similar).
+    Balanced,
+
+    /// No thread limit. Use as many threads as the codec wants.
+    #[default]
+    Unlimited,
+}
+
 /// Resource limits for encode/decode operations.
 ///
 /// Used to prevent DoS attacks and resource exhaustion. All fields are optional;
@@ -46,17 +83,16 @@ pub struct ResourceLimits {
     pub max_width: Option<u32>,
     /// Maximum image height in pixels.
     pub max_height: Option<u32>,
-    /// Maximum input file size in bytes (decode only).
-    pub max_file_size: Option<u64>,
+    /// Maximum input data size in bytes (decode only).
+    pub max_input_bytes: Option<u64>,
     /// Maximum number of animation frames.
     pub max_frames: Option<u32>,
     /// Maximum total animation duration in milliseconds.
     pub max_duration_ms: Option<u64>,
-    /// Whether the codec may use multiple threads.
+    /// Threading policy for the codec.
     ///
-    /// Defaults to `true`. Set to `false` to force single-threaded operation
-    /// (useful for deterministic output or constrained environments).
-    pub allow_multithreading: bool,
+    /// Defaults to [`ThreadingPolicy::Unlimited`].
+    pub threading: ThreadingPolicy,
 }
 
 impl Default for ResourceLimits {
@@ -67,16 +103,16 @@ impl Default for ResourceLimits {
             max_output_bytes: None,
             max_width: None,
             max_height: None,
-            max_file_size: None,
+            max_input_bytes: None,
             max_frames: None,
             max_duration_ms: None,
-            allow_multithreading: true,
+            threading: ThreadingPolicy::Unlimited,
         }
     }
 }
 
 impl ResourceLimits {
-    /// No limits (all fields `None`), multithreading allowed.
+    /// No limits (all fields `None`), unlimited threading.
     pub fn none() -> Self {
         Self::default()
     }
@@ -111,9 +147,9 @@ impl ResourceLimits {
         self
     }
 
-    /// Set maximum input file size in bytes.
-    pub fn with_max_file_size(mut self, bytes: u64) -> Self {
-        self.max_file_size = Some(bytes);
+    /// Set maximum input data size in bytes (decode only).
+    pub fn with_max_input_bytes(mut self, bytes: u64) -> Self {
+        self.max_input_bytes = Some(bytes);
         self
     }
 
@@ -129,28 +165,28 @@ impl ResourceLimits {
         self
     }
 
-    /// Set whether the codec may use multiple threads.
-    pub fn with_allow_multithreading(mut self, allow: bool) -> Self {
-        self.allow_multithreading = allow;
+    /// Set threading policy.
+    pub fn with_threading(mut self, policy: ThreadingPolicy) -> Self {
+        self.threading = policy;
         self
     }
 
-    /// Whether multithreading is allowed.
-    pub fn allow_multithreading(&self) -> bool {
-        self.allow_multithreading
+    /// Current threading policy.
+    pub fn threading(&self) -> ThreadingPolicy {
+        self.threading
     }
 
-    /// Whether any limits are set (including disabling multithreading).
+    /// Whether any limits are set (including non-default threading).
     pub fn has_any(&self) -> bool {
         self.max_pixels.is_some()
             || self.max_memory_bytes.is_some()
             || self.max_output_bytes.is_some()
             || self.max_width.is_some()
             || self.max_height.is_some()
-            || self.max_file_size.is_some()
+            || self.max_input_bytes.is_some()
             || self.max_frames.is_some()
             || self.max_duration_ms.is_some()
-            || !self.allow_multithreading
+            || self.threading != ThreadingPolicy::Unlimited
     }
 
     // --- Validation methods ---
@@ -192,12 +228,12 @@ impl ResourceLimits {
         Ok(())
     }
 
-    /// Check input file size against `max_file_size`.
-    pub fn check_file_size(&self, bytes: u64) -> Result<(), LimitExceeded> {
-        if let Some(max) = self.max_file_size
+    /// Check input data size against `max_input_bytes`.
+    pub fn check_input_size(&self, bytes: u64) -> Result<(), LimitExceeded> {
+        if let Some(max) = self.max_input_bytes
             && bytes > max
         {
-            return Err(LimitExceeded::FileSize { actual: bytes, max });
+            return Err(LimitExceeded::InputSize { actual: bytes, max });
         }
         Ok(())
     }
@@ -345,9 +381,9 @@ pub enum LimitExceeded {
         /// Maximum allowed.
         max: u64,
     },
-    /// Input file size exceeded `max_file_size`.
-    FileSize {
-        /// Actual file size in bytes.
+    /// Input data size exceeded `max_input_bytes`.
+    InputSize {
+        /// Actual input size in bytes.
         actual: u64,
         /// Maximum allowed.
         max: u64,
@@ -386,8 +422,8 @@ impl core::fmt::Display for LimitExceeded {
             Self::Memory { actual, max } => {
                 write!(f, "memory {actual} bytes exceeds limit {max}")
             }
-            Self::FileSize { actual, max } => {
-                write!(f, "file size {actual} bytes exceeds limit {max}")
+            Self::InputSize { actual, max } => {
+                write!(f, "input size {actual} bytes exceeds limit {max}")
             }
             Self::OutputSize { actual, max } => {
                 write!(f, "output size {actual} bytes exceeds limit {max}")
@@ -444,6 +480,37 @@ mod tests {
         assert!(limits.has_any());
     }
 
+    #[test]
+    fn threading_policy_default() {
+        let limits = ResourceLimits::none();
+        assert_eq!(limits.threading(), ThreadingPolicy::Unlimited);
+        assert!(!limits.has_any());
+    }
+
+    #[test]
+    fn threading_policy_single_thread() {
+        let limits = ResourceLimits::none().with_threading(ThreadingPolicy::SingleThread);
+        assert!(limits.has_any());
+        assert_eq!(limits.threading(), ThreadingPolicy::SingleThread);
+    }
+
+    #[test]
+    fn threading_policy_limit_or_single() {
+        let limits = ResourceLimits::none()
+            .with_threading(ThreadingPolicy::LimitOrSingle { max_threads: 4 });
+        assert!(limits.has_any());
+        assert_eq!(
+            limits.threading(),
+            ThreadingPolicy::LimitOrSingle { max_threads: 4 }
+        );
+    }
+
+    #[test]
+    fn threading_policy_balanced() {
+        let limits = ResourceLimits::none().with_threading(ThreadingPolicy::Balanced);
+        assert!(limits.has_any());
+    }
+
     // --- Validation tests ---
 
     #[test]
@@ -485,7 +552,6 @@ mod tests {
     #[test]
     fn check_dimensions_pixels_exceeded() {
         let limits = ResourceLimits::none().with_max_pixels(1_000_000);
-        // 1001×1000 = 1,001,000 > 1,000,000
         let err = limits.check_dimensions(1001, 1000).unwrap_err();
         assert_eq!(
             err,
@@ -511,11 +577,11 @@ mod tests {
     }
 
     #[test]
-    fn check_file_size_pass_and_fail() {
-        let limits = ResourceLimits::none().with_max_file_size(10 * 1024 * 1024);
-        assert!(limits.check_file_size(5 * 1024 * 1024).is_ok());
-        let err = limits.check_file_size(20 * 1024 * 1024).unwrap_err();
-        assert!(matches!(err, LimitExceeded::FileSize { .. }));
+    fn check_input_size_pass_and_fail() {
+        let limits = ResourceLimits::none().with_max_input_bytes(10 * 1024 * 1024);
+        assert!(limits.check_input_size(5 * 1024 * 1024).is_ok());
+        let err = limits.check_input_size(20 * 1024 * 1024).unwrap_err();
+        assert!(matches!(err, LimitExceeded::InputSize { .. }));
     }
 
     #[test]
@@ -557,7 +623,6 @@ mod tests {
             .with_max_frames(100);
 
         let info = ImageInfo::new(3840, 2160, ImageFormat::Avif).with_frame_count(50);
-        // 3840×2160 = 8,294,400 < 16M, width 3840 < 4096, frames 50 < 100
         assert!(limits.check_image_info(&info).is_ok());
 
         let big = ImageInfo::new(5000, 4000, ImageFormat::Jpeg);
@@ -603,7 +668,6 @@ mod tests {
         use crate::DecodeCost;
         let limits = ResourceLimits::none().with_max_memory(50 * 1024 * 1024);
 
-        // peak_memory is None, so falls back to output_bytes
         let cost = DecodeCost {
             output_bytes: 100 * 1024 * 1024,
             pixel_count: 25_000_000,
@@ -657,13 +721,13 @@ mod tests {
         };
         assert_eq!(format!("{err}"), "width 5000 exceeds limit 4096");
 
-        let err = LimitExceeded::Pixels {
+        let err = LimitExceeded::InputSize {
             actual: 20_000_000,
-            max: 16_000_000,
+            max: 10_000_000,
         };
         assert_eq!(
             format!("{err}"),
-            "pixel count 20000000 exceeds limit 16000000"
+            "input size 20000000 bytes exceeds limit 10000000"
         );
 
         let err = LimitExceeded::Duration {
