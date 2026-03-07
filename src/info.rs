@@ -207,6 +207,61 @@ impl SourceColor {
     }
 }
 
+/// Physical resolution unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ResolutionUnit {
+    /// Pixels per inch (DPI). Used by JPEG (JFIF), TIFF, and EXIF.
+    PixelsPerInch,
+    /// Pixels per centimeter. Used by JPEG (JFIF), TIFF, and PNG (pHYs).
+    PixelsPerCm,
+    /// Pixels per meter. Native unit of PNG pHYs chunks.
+    PixelsPerMeter,
+}
+
+/// Physical resolution of an image.
+///
+/// Maps pixels to physical dimensions for print and display sizing.
+/// Stored in format-specific containers: JFIF APP0 (JPEG), pHYs (PNG),
+/// IFD tags 282/283/296 (TIFF), EXIF tags 282/283/296.
+///
+/// Carried through [`MetadataView`] / [`Metadata`] so encoders can write
+/// the appropriate format-specific resolution metadata.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct Resolution {
+    /// Horizontal resolution in the given unit.
+    pub x: f32,
+    /// Vertical resolution in the given unit.
+    pub y: f32,
+    /// Unit of measurement.
+    pub unit: ResolutionUnit,
+}
+
+// Eq: resolution values come from file metadata and are never NaN.
+// Required because MetadataView derives Eq.
+impl Eq for Resolution {}
+
+impl Resolution {
+    /// Create a resolution with the given DPI (pixels per inch).
+    pub const fn dpi(x: f32, y: f32) -> Self {
+        Self {
+            x,
+            y,
+            unit: ResolutionUnit::PixelsPerInch,
+        }
+    }
+
+    /// Create a uniform resolution (same in both axes).
+    pub const fn uniform(value: f32, unit: ResolutionUnit) -> Self {
+        Self {
+            x: value,
+            y: value,
+            unit,
+        }
+    }
+}
+
 /// Embedded non-color metadata from the image file.
 ///
 /// Groups metadata blobs (EXIF, XMP) that are carried through
@@ -507,6 +562,7 @@ impl ImageInfo {
             content_light_level: self.source_color.content_light_level,
             mastering_display: self.source_color.mastering_display,
             orientation: self.orientation,
+            resolution: None,
         }
     }
 }
@@ -540,6 +596,11 @@ pub struct MetadataView<'a> {
     /// Set to [`Normal`](Orientation::Normal) after applying rotation,
     /// or preserve the original value for the encoder to embed.
     pub orientation: Orientation,
+    /// Physical resolution (DPI / pixels-per-cm / pixels-per-meter).
+    ///
+    /// Extracted from format-specific containers (JFIF, pHYs, TIFF IFD)
+    /// and written back by encoders that support resolution metadata.
+    pub resolution: Option<Resolution>,
 }
 
 impl Default for MetadataView<'_> {
@@ -552,6 +613,7 @@ impl Default for MetadataView<'_> {
             content_light_level: None,
             mastering_display: None,
             orientation: Orientation::Normal,
+            resolution: None,
         }
     }
 }
@@ -580,6 +642,8 @@ pub struct Metadata {
     pub mastering_display: Option<MasteringDisplay>,
     /// EXIF orientation.
     pub orientation: Orientation,
+    /// Physical resolution (DPI / pixels-per-cm / pixels-per-meter).
+    pub resolution: Option<Resolution>,
 }
 
 impl Metadata {
@@ -630,6 +694,12 @@ impl Metadata {
         self
     }
 
+    /// Set the physical resolution.
+    pub fn with_resolution(mut self, resolution: Resolution) -> Self {
+        self.resolution = Some(resolution);
+        self
+    }
+
     /// Borrow as a [`MetadataView`].
     pub fn as_view(&self) -> MetadataView<'_> {
         MetadataView {
@@ -640,6 +710,7 @@ impl Metadata {
             content_light_level: self.content_light_level,
             mastering_display: self.mastering_display,
             orientation: self.orientation,
+            resolution: self.resolution,
         }
     }
 
@@ -652,6 +723,7 @@ impl Metadata {
             && self.content_light_level.is_none()
             && self.mastering_display.is_none()
             && self.orientation == Orientation::Normal
+            && self.resolution.is_none()
     }
 }
 
@@ -665,6 +737,7 @@ impl From<MetadataView<'_>> for Metadata {
             content_light_level: view.content_light_level,
             mastering_display: view.mastering_display,
             orientation: view.orientation,
+            resolution: view.resolution,
         }
     }
 }
@@ -679,6 +752,7 @@ impl From<&ImageInfo> for Metadata {
             content_light_level: info.source_color.content_light_level,
             mastering_display: info.source_color.mastering_display,
             orientation: info.orientation,
+            resolution: None,
         }
     }
 }
@@ -731,6 +805,12 @@ impl<'a> MetadataView<'a> {
         self
     }
 
+    /// Set the physical resolution.
+    pub fn with_resolution(mut self, resolution: Resolution) -> Self {
+        self.resolution = Some(resolution);
+        self
+    }
+
     /// Derive the transfer function from CICP metadata.
     ///
     /// Returns the [`TransferFunction`](TransferFunction) corresponding
@@ -765,6 +845,46 @@ impl<'a> MetadataView<'a> {
         }
     }
 
+    /// ICC color profile, if present.
+    pub fn icc_profile(&self) -> Option<&'a [u8]> {
+        self.icc_profile
+    }
+
+    /// EXIF metadata, if present.
+    pub fn exif(&self) -> Option<&'a [u8]> {
+        self.exif
+    }
+
+    /// XMP metadata, if present.
+    pub fn xmp(&self) -> Option<&'a [u8]> {
+        self.xmp
+    }
+
+    /// CICP color description, if present.
+    pub fn cicp(&self) -> Option<Cicp> {
+        self.cicp
+    }
+
+    /// Content Light Level Info, if present.
+    pub fn content_light_level(&self) -> Option<ContentLightLevel> {
+        self.content_light_level
+    }
+
+    /// Mastering Display Color Volume, if present.
+    pub fn mastering_display(&self) -> Option<MasteringDisplay> {
+        self.mastering_display
+    }
+
+    /// EXIF orientation.
+    pub fn orientation(&self) -> Orientation {
+        self.orientation
+    }
+
+    /// Physical resolution, if present.
+    pub fn resolution(&self) -> Option<Resolution> {
+        self.resolution
+    }
+
     /// Whether any metadata is present.
     ///
     /// Returns `false` if orientation is not [`Normal`](Orientation::Normal),
@@ -777,6 +897,7 @@ impl<'a> MetadataView<'a> {
             && self.content_light_level.is_none()
             && self.mastering_display.is_none()
             && self.orientation == Orientation::Normal
+            && self.resolution.is_none()
     }
 }
 

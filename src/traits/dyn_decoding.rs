@@ -34,6 +34,12 @@ pub trait DynDecoder {
     fn decode(self: Box<Self>) -> Result<DecodeOutput, BoxedError>;
 }
 
+impl core::fmt::Debug for dyn DynDecoder + '_ {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DynDecoder").finish_non_exhaustive()
+    }
+}
+
 pub(super) struct DecoderShim<D>(pub(super) D);
 
 impl<D: Decode> DynDecoder for DecoderShim<D> {
@@ -61,13 +67,24 @@ pub trait DynFullFrameDecoder {
     fn loop_count(&self) -> Option<u32>;
 
     /// Render the next frame as an owned copy.
-    fn render_next_frame_owned(&mut self) -> Result<Option<OwnedFullFrame>, BoxedError>;
+    fn render_next_frame_owned(
+        &mut self,
+        stop: Option<&dyn Stop>,
+    ) -> Result<Option<OwnedFullFrame>, BoxedError>;
 
     /// Render the next frame directly into a caller-owned sink.
     fn render_next_frame_to_sink(
         &mut self,
+        stop: Option<&dyn Stop>,
         sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<OutputInfo>, BoxedError>;
+}
+
+impl core::fmt::Debug for dyn DynFullFrameDecoder + '_ {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DynFullFrameDecoder")
+            .finish_non_exhaustive()
+    }
 }
 
 pub(super) struct FullFrameDecoderShim<F>(pub(super) F);
@@ -85,18 +102,22 @@ impl<F: FullFrameDecoder> DynFullFrameDecoder for FullFrameDecoderShim<F> {
         self.0.loop_count()
     }
 
-    fn render_next_frame_owned(&mut self) -> Result<Option<OwnedFullFrame>, BoxedError> {
+    fn render_next_frame_owned(
+        &mut self,
+        stop: Option<&dyn Stop>,
+    ) -> Result<Option<OwnedFullFrame>, BoxedError> {
         self.0
-            .render_next_frame_owned()
+            .render_next_frame_owned(stop)
             .map_err(|e| Box::new(e) as BoxedError)
     }
 
     fn render_next_frame_to_sink(
         &mut self,
+        stop: Option<&dyn Stop>,
         sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<OutputInfo>, BoxedError> {
         self.0
-            .render_next_frame_to_sink(sink)
+            .render_next_frame_to_sink(stop, sink)
             .map_err(|e| Box::new(e) as BoxedError)
     }
 }
@@ -115,6 +136,13 @@ pub trait DynStreamingDecoder {
 
     /// Image metadata, available after construction.
     fn info(&self) -> &ImageInfo;
+}
+
+impl core::fmt::Debug for dyn DynStreamingDecoder + '_ {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DynStreamingDecoder")
+            .finish_non_exhaustive()
+    }
 }
 
 pub(super) struct StreamingDecoderShim<S>(pub(super) S);

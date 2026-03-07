@@ -746,6 +746,11 @@ fn metadata_roundtrip_via_encode_job() {
         .with_xmp(xmp.clone());
 
     let view = meta.as_view();
+    // Accessor methods
+    assert_eq!(view.icc_profile(), Some(icc.as_slice()));
+    assert_eq!(view.exif(), Some(exif.as_slice()));
+    assert_eq!(view.xmp(), Some(xmp.as_slice()));
+    // Public fields (same data, both work)
     assert_eq!(view.icc_profile, Some(icc.as_slice()));
     assert_eq!(view.exif, Some(exif.as_slice()));
     assert_eq!(view.xmp, Some(xmp.as_slice()));
@@ -767,7 +772,7 @@ fn metadata_owned_from_view() {
     let view = meta.as_view();
 
     let owned = Metadata::from(view);
-    assert_eq!(owned.as_view().icc_profile, Some(icc.as_slice()));
+    assert_eq!(owned.as_view().icc_profile(), Some(icc.as_slice()));
 }
 
 #[test]
@@ -777,9 +782,9 @@ fn metadata_from_image_info() {
         .with_exif(vec![4, 5, 6]);
 
     let view = info.metadata();
-    assert_eq!(view.icc_profile, Some([1u8, 2, 3].as_slice()));
-    assert_eq!(view.exif, Some([4u8, 5, 6].as_slice()));
-    assert!(view.xmp.is_none());
+    assert_eq!(view.icc_profile(), Some([1u8, 2, 3].as_slice()));
+    assert_eq!(view.exif(), Some([4u8, 5, 6].as_slice()));
+    assert!(view.xmp().is_none());
 }
 
 // =========================================================================
@@ -1880,8 +1885,7 @@ fn boxed_error_codec_error_ext() {
 
     let err = dyn_job
         .into_decoder(Cow::Borrowed(&data), &[])
-        .err()
-        .expect("should fail with limit exceeded");
+        .expect_err("should fail with limit exceeded");
 
     // BoxedError implements CodecErrorExt
     let limit = err.limit_exceeded().unwrap();
