@@ -9,8 +9,8 @@ use zc::decode::{Decode, DecodeCapabilities, DecodeJob, DecoderConfig};
 use zc::encode::{EncodeCapabilities, EncodeJob, EncodeOutput, Encoder, EncoderConfig};
 use zc::{ImageFormat, ImageInfo, MetadataView, ResourceLimits, UnsupportedOperation};
 
-use zc::decode::{DecodeOutput, OutputInfo};
 use enough::{Stop, StopReason};
+use zc::decode::{DecodeOutput, OutputInfo};
 use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
 
 // =========================================================================
@@ -133,11 +133,10 @@ impl<'a> EncodeJob<'a> for PnmEncodeJob<'a> {
     }
 
     fn encoder(self) -> Result<PnmEnc, PnmError> {
-        let stop: Option<Box<dyn Fn() -> Result<(), StopReason> + Send>> =
-            self.stop.map(|s| {
-                let _ = s.check();
-                Box::new(|| Ok(())) as Box<dyn Fn() -> Result<(), StopReason> + Send>
-            });
+        let stop: Option<Box<dyn Fn() -> Result<(), StopReason> + Send>> = self.stop.map(|s| {
+            let _ = s.check();
+            Box::new(|| Ok(())) as Box<dyn Fn() -> Result<(), StopReason> + Send>
+        });
         Ok(PnmEnc { stop })
     }
 

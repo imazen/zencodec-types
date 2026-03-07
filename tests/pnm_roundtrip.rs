@@ -7,7 +7,7 @@ mod pnm;
 use pnm::{PnmDecoderConfig, PnmEncoderConfig};
 
 use zc::decode::{Decode, DecodeJob, DecoderConfig, DynDecoderConfig};
-use zc::encode::{EncodeJob, Encoder, EncoderConfig, DynEncoderConfig};
+use zc::encode::{DynEncoderConfig, EncodeJob, Encoder, EncoderConfig};
 use zc::{ImageFormat, ResourceLimits};
 use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
 
@@ -30,15 +30,13 @@ fn test_rgb8_pixels() -> PixelBuffer {
           0, 255, 255,
         255,   0, 255,
     ];
-    PixelBuffer::from_vec(data, 4, 2, PixelDescriptor::RGB8_SRGB)
-        .expect("valid test buffer")
+    PixelBuffer::from_vec(data, 4, 2, PixelDescriptor::RGB8_SRGB).expect("valid test buffer")
 }
 
 /// Create a 3x2 Gray8 test image.
 fn test_gray8_pixels() -> PixelBuffer {
     let data: Vec<u8> = vec![0, 128, 255, 64, 192, 32];
-    PixelBuffer::from_vec(data, 3, 2, PixelDescriptor::GRAY8_SRGB)
-        .expect("valid test buffer")
+    PixelBuffer::from_vec(data, 3, 2, PixelDescriptor::GRAY8_SRGB).expect("valid test buffer")
 }
 
 // =========================================================================
@@ -239,7 +237,10 @@ fn codec_agnostic_roundtrip() {
 
 #[test]
 fn encoder_config_static_methods() {
-    assert_eq!(<PnmEncoderConfig as EncoderConfig>::format(), ImageFormat::Pnm);
+    assert_eq!(
+        <PnmEncoderConfig as EncoderConfig>::format(),
+        ImageFormat::Pnm
+    );
 
     let descs = <PnmEncoderConfig as EncoderConfig>::supported_descriptors();
     assert!(descs.contains(&PixelDescriptor::RGB8_SRGB));
@@ -251,7 +252,10 @@ fn encoder_config_static_methods() {
 
 #[test]
 fn decoder_config_static_methods() {
-    assert_eq!(<PnmDecoderConfig as DecoderConfig>::format(), ImageFormat::Pnm);
+    assert_eq!(
+        <PnmDecoderConfig as DecoderConfig>::format(),
+        ImageFormat::Pnm
+    );
 
     let descs = <PnmDecoderConfig as DecoderConfig>::supported_descriptors();
     assert!(descs.contains(&PixelDescriptor::RGB8_SRGB));

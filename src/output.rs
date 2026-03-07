@@ -200,7 +200,6 @@ impl DecodeOutput {
     pub fn metadata(&self) -> MetadataView<'_> {
         self.info.metadata()
     }
-
 }
 
 impl core::fmt::Debug for DecodeOutput {
@@ -382,7 +381,6 @@ impl DecodeFrame {
     pub fn has_alpha(&self) -> bool {
         self.pixels.has_alpha()
     }
-
 }
 
 impl core::fmt::Debug for DecodeFrame {

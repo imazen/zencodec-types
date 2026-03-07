@@ -7,9 +7,9 @@ use crate::{EncodeCapabilities, MetadataView, ResourceLimits};
 use enough::Stop;
 use zenpixels::PixelDescriptor;
 
+use super::BoxedError;
 use super::dyn_encoding::{DynEncoder, DynFrameEncoder, FrameEncoderShim};
 use super::encoder::{Encoder, FrameEncoder};
-use super::BoxedError;
 
 // ===========================================================================
 // Encoder configuration

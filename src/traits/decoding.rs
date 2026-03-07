@@ -8,12 +8,12 @@ use crate::{DecodeCapabilities, ImageInfo, OutputInfo, ResourceLimits};
 use enough::Stop;
 use zenpixels::PixelDescriptor;
 
+use super::BoxedError;
 use super::decoder::{Decode, FrameDecode, StreamingDecode};
 use super::dyn_decoding::{
     DecoderShim, DynDecoder, DynFrameDecoder, DynStreamingDecoder, FrameDecoderShim,
     StreamingDecoderShim,
 };
-use super::BoxedError;
 
 // ===========================================================================
 // Decoder configuration

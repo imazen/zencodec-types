@@ -11,15 +11,13 @@ use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
-use crate::{
-    DecodeCapabilities, DecodeFrame, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits,
-};
+use crate::{DecodeCapabilities, DecodeFrame, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits};
 use enough::Stop;
 use zenpixels::{PixelDescriptor, PixelSlice};
 
+use super::BoxedError;
 use super::decoder::{Decode, FrameDecode, StreamingDecode};
 use super::decoding::{DecodeJob, DecoderConfig};
-use super::BoxedError;
 
 // ===========================================================================
 // DynDecoder

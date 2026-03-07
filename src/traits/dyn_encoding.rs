@@ -25,9 +25,9 @@ use crate::{EncodeCapabilities, EncodeFrame, EncodeOutput, MetadataView, Resourc
 use enough::Stop;
 use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
 
+use super::BoxedError;
 use super::encoder::{Encoder, FrameEncoder};
 use super::encoding::{EncodeJob, EncoderConfig};
-use super::BoxedError;
 
 // ===========================================================================
 // DynEncoder
