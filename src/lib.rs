@@ -105,9 +105,9 @@ pub(crate) use sink::DecodeRowSink;
 /// # Trait hierarchy
 ///
 /// ```text
-///                                  ┌→ Enc (implements Encoder and/or EncodeRgb8, EncodeRgba8, ...)
+///                                  ┌→ Enc (implements Encoder)
 /// EncoderConfig → EncodeJob<'a> ──┤
-///                                  └→ FrameEnc (implements FrameEncoder and/or FrameEncodeRgba8, ...)
+///                                  └→ FrameEnc (implements FrameEncoder)
 /// ```
 ///
 /// # Object-safe dyn dispatch
@@ -120,18 +120,7 @@ pub(crate) use sink::DecodeRowSink;
 /// use the `Dyn*` variants for codec-agnostic operation.
 pub mod encode {
     // Traits — config, job, execution
-    pub use crate::traits::{
-        EncodeJob, Encoder, EncoderConfig, FrameEncoder,
-    };
-
-    // Per-format typed encode traits
-    pub use crate::traits::{
-        EncodeGray8, EncodeGray16, EncodeGrayF32, EncodeRgb8, EncodeRgb16, EncodeRgbF16,
-        EncodeRgbF32, EncodeRgba8, EncodeRgba16, EncodeRgbaF16, EncodeRgbaF32,
-    };
-
-    // Per-format frame encode traits (animation)
-    pub use crate::traits::{FrameEncodeRgb8, FrameEncodeRgba8};
+    pub use crate::traits::{EncodeJob, Encoder, EncoderConfig, FrameEncoder};
 
     // Object-safe dyn dispatch
     pub use crate::traits::{

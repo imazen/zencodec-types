@@ -1,12 +1,11 @@
-//! Encoder configuration, encode jobs, and per-format encode traits.
+//! Encoder configuration and encode jobs.
 
 use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
 use crate::{EncodeCapabilities, EncodeOutput, MetadataView, ResourceLimits};
 use enough::Stop;
-use rgb::{Gray, Rgb, Rgba};
-use zenpixels::{PixelDescriptor, PixelSlice};
+use zenpixels::PixelDescriptor;
 
 use super::dyn_encoding::{DynEncoder, DynFrameEncoder, FrameEncoderShim};
 use super::encoder::{Encoder, FrameEncoder};
@@ -127,15 +126,10 @@ pub trait EncodeJob<'a>: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
-    /// Single-image encoder type.
-    ///
-    /// Implements per-format encode traits (`EncodeRgb8`, `EncodeRgba8`,
-    /// etc.) for each pixel format the codec accepts.
+    /// Single-image encoder type (implements [`Encoder`]).
     type Enc: Sized;
 
-    /// Animation encoder type.
-    ///
-    /// Implements per-format frame encode traits (`FrameEncodeRgba8`, etc.).
+    /// Animation encoder type (implements [`FrameEncoder`]).
     type FrameEnc: Sized;
 
     /// Set cooperative cancellation token.
@@ -186,7 +180,7 @@ pub trait EncodeJob<'a>: Sized {
 
     /// Create a type-erased one-shot encoder.
     ///
-    /// Returns a boxed [`DynEncoder`] that accepts any [`PixelSlice`]
+    /// Returns a boxed [`DynEncoder`] that accepts any [`PixelSlice`](zenpixels::PixelSlice)
     /// (type-erased) and produces encoded output. All configuration —
     /// both universal ([`EncoderConfig::with_generic_quality`]) and
     /// codec-specific (methods on the concrete config type) — is
@@ -244,151 +238,4 @@ pub trait EncodeJob<'a>: Sized {
             .map_err(|e| Box::new(e) as BoxedError)?;
         Ok(Box::new(FrameEncoderShim(enc)))
     }
-}
-
-// ===========================================================================
-// Per-format encode traits
-// ===========================================================================
-//
-// Each codec implements only the pixel formats it accepts. The trait name
-// IS the format contract — compile-time enforcement.
-//
-// Codec format matrix:
-//
-//               Rgb8  Rgba8  Gray8  Rgb16  Rgba16  Gray16  RgbF16  RgbaF16  RgbF32  RgbaF32  GrayF32
-// JPEG           ✓             ✓
-// WebP           ✓      ✓
-// GIF                   ✓
-// PNG            ✓      ✓      ✓      ✓       ✓      ✓
-// AVIF           ✓      ✓                                                    ✓        ✓
-// JXL            ✓      ✓      ✓      ✓       ✓      ✓      ✓        ✓      ✓        ✓        ✓
-
-/// Encode from 8-bit RGB pixels.
-pub trait EncodeRgb8 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode RGB8 pixels. Consumes self (single-shot).
-    fn encode_rgb8(self, pixels: PixelSlice<'_, Rgb<u8>>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from 8-bit RGBA pixels.
-pub trait EncodeRgba8 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode RGBA8 pixels. Consumes self (single-shot).
-    fn encode_rgba8(self, pixels: PixelSlice<'_, Rgba<u8>>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from 8-bit grayscale pixels.
-pub trait EncodeGray8 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode Gray8 pixels. Consumes self (single-shot).
-    fn encode_gray8(self, pixels: PixelSlice<'_, Gray<u8>>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from 16-bit RGB pixels.
-pub trait EncodeRgb16 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode RGB16 pixels. Consumes self (single-shot).
-    fn encode_rgb16(self, pixels: PixelSlice<'_, Rgb<u16>>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from 16-bit RGBA pixels.
-pub trait EncodeRgba16 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode RGBA16 pixels. Consumes self (single-shot).
-    fn encode_rgba16(self, pixels: PixelSlice<'_, Rgba<u16>>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from 16-bit grayscale pixels.
-pub trait EncodeGray16 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode Gray16 pixels. Consumes self (single-shot).
-    fn encode_gray16(self, pixels: PixelSlice<'_, Gray<u16>>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from half-precision (f16) RGB pixels.
-///
-/// Uses type-erased `PixelSlice` because the `rgb` crate has no half-float type.
-pub trait EncodeRgbF16 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode RGB f16 pixels. Consumes self (single-shot).
-    fn encode_rgb_f16(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from half-precision (f16) RGBA pixels.
-///
-/// Uses type-erased `PixelSlice` because the `rgb` crate has no half-float type.
-pub trait EncodeRgbaF16 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode RGBA f16 pixels. Consumes self (single-shot).
-    fn encode_rgba_f16(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from 32-bit float RGB pixels.
-pub trait EncodeRgbF32 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode RGB f32 pixels. Consumes self (single-shot).
-    fn encode_rgb_f32(self, pixels: PixelSlice<'_, Rgb<f32>>) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from 32-bit float RGBA pixels.
-pub trait EncodeRgbaF32 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode RGBA f32 pixels. Consumes self (single-shot).
-    fn encode_rgba_f32(
-        self,
-        pixels: PixelSlice<'_, Rgba<f32>>,
-    ) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode from 32-bit float grayscale pixels.
-pub trait EncodeGrayF32 {
-    /// The codec-specific error type.
-    type Error;
-    /// Encode Gray f32 pixels. Consumes self (single-shot).
-    fn encode_gray_f32(
-        self,
-        pixels: PixelSlice<'_, Gray<f32>>,
-    ) -> Result<EncodeOutput, Self::Error>;
-}
-
-// ===========================================================================
-// Per-format frame encode traits (animation)
-// ===========================================================================
-
-/// Encode animation frames from 8-bit RGB pixels.
-pub trait FrameEncodeRgb8 {
-    /// The codec-specific error type.
-    type Error;
-    /// Push one RGB8 animation frame.
-    fn push_frame_rgb8(
-        &mut self,
-        pixels: PixelSlice<'_, Rgb<u8>>,
-        duration_ms: u32,
-    ) -> Result<(), Self::Error>;
-    /// Finalize and return the encoded animation.
-    fn finish_rgb8(self) -> Result<EncodeOutput, Self::Error>;
-}
-
-/// Encode animation frames from 8-bit RGBA pixels.
-pub trait FrameEncodeRgba8 {
-    /// The codec-specific error type.
-    type Error;
-    /// Push one RGBA8 animation frame.
-    fn push_frame_rgba8(
-        &mut self,
-        pixels: PixelSlice<'_, Rgba<u8>>,
-        duration_ms: u32,
-    ) -> Result<(), Self::Error>;
-    /// Finalize and return the encoded animation.
-    fn finish_rgba8(self) -> Result<EncodeOutput, Self::Error>;
 }

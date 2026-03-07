@@ -16,7 +16,7 @@ use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
 /// Codecs that need full-frame data (e.g. AV1) may buffer internally
 /// when rows are pushed or pulled incrementally.
 ///
-/// Codecs may implement this alongside per-format traits like [`EncodeRgb8`](super::EncodeRgb8).
+/// The encoder dispatches internally based on the pixel descriptor.
 pub trait Encoder: Sized {
     /// The codec-specific error type.
     ///
@@ -123,7 +123,7 @@ pub trait Encoder: Sized {
 ///   [`end_frame()`](FrameEncoder::end_frame) — caller pushes rows
 /// - [`pull_frame()`](FrameEncoder::pull_frame) — encoder pulls rows from a callback
 ///
-/// Codecs may implement this alongside per-format frame traits like [`FrameEncodeRgba8`](super::FrameEncodeRgba8).
+/// The frame encoder dispatches internally based on the pixel descriptor.
 pub trait FrameEncoder: Sized {
     /// The codec-specific error type.
     ///

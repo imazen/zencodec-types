@@ -1,12 +1,10 @@
 //! Common codec traits.
 //!
-//! These traits define the execution interface for image codecs:
-//!
 //! ```text
 //! ENCODE:
-//!                                  ┌→ Enc (implements Encoder and/or EncodeRgb8, EncodeRgba8, ...)
+//!                                  ┌→ Enc (implements Encoder)
 //! EncoderConfig → EncodeJob<'a> ──┤
-//!                                  └→ FrameEnc (implements FrameEncoder and/or FrameEncodeRgba8, ...)
+//!                                  └→ FrameEnc (implements FrameEncoder)
 //!
 //! DECODE:
 //!                                  ┌→ Dec (implements Decode)
@@ -14,26 +12,10 @@
 //!                                  └→ FrameDec (implements FrameDecode)
 //! ```
 //!
-//! # Encoding: two complementary approaches
-//!
-//! **Type-erased** ([`Encoder`], [`FrameEncoder`]): The encoder accepts any
-//! pixel format at runtime via [`PixelSlice`]. It dispatches internally based
-//! on the descriptor. Good for generic pipelines and codecs that handle many
-//! formats uniformly (e.g. PNM, BMP).
-//!
-//! **Per-format typed** ([`EncodeRgb8`], [`EncodeRgba8`], etc.): Each trait
-//! is a compile-time guarantee that the codec can encode that exact format.
-//! No runtime dispatch needed. Good for codecs with format-specific paths.
-//!
-//! A codec can implement both: type-erased for generic callers, per-format
-//! for callers that know the pixel type statically.
-//!
-//! # Decoding
-//!
-//! Decoding is **type-erased**: the output format is discovered at runtime
-//! from the file. The caller provides a ranked preference list of
-//! [`PixelDescriptor`](crate::PixelDescriptor)s and the decoder picks the
-//! best match it can produce without lossy conversion.
+//! Encoding and decoding are both **type-erased**: encoders accept any pixel
+//! format at runtime via [`PixelSlice`] and dispatch internally based on the
+//! descriptor. Decoders return native pixels; the caller provides a ranked
+//! preference list of [`PixelDescriptor`](crate::PixelDescriptor)s.
 //!
 //! Color management is explicitly **not** the codec's job. Decoders return
 //! native pixels with ICC/CICP metadata. Encoders accept pixels as-is and
@@ -53,11 +35,7 @@ pub use dyn_decoding::{
 };
 pub use dyn_encoding::{DynEncodeJob, DynEncoder, DynEncoderConfig, DynFrameEncoder};
 pub use encoder::{Encoder, FrameEncoder};
-pub use encoding::{
-    EncodeGray8, EncodeGray16, EncodeGrayF32, EncodeJob, EncodeRgb8, EncodeRgb16, EncodeRgbF16,
-    EncodeRgbF32, EncodeRgba8, EncodeRgba16, EncodeRgbaF16, EncodeRgbaF32, EncoderConfig,
-    FrameEncodeRgb8, FrameEncodeRgba8,
-};
+pub use encoding::{EncodeJob, EncoderConfig};
 
 use alloc::boxed::Box;
 
