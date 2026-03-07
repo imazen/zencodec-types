@@ -15,9 +15,5 @@ name = "zc"
 
 [dependencies]
 zenpixels = { version = "0.1", features = ["buffer"] }
-zenpixels-convert = { version = "0.1", features = ["buffer"] }
-bytemuck = { version = "1.25", default-features = false, features = ["extern_crate_alloc", "derive"] }
 enough = "0.4"
-rgb = { version = "0.8", default-features = false, features = ["bytemuck"] }
-imgref = "1.12"
 whereat = { version = "0.1", default-features = false }

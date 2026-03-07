@@ -17,12 +17,10 @@
 //!
 //! # Re-exported crates
 //!
-//! Pixel types, cancellation, and error tracking crates are re-exported at
-//! crate level for qualified access: [`rgb`], [`imgref`], [`enough`], [`whereat`].
+//! Cancellation and error tracking crates are re-exported at
+//! crate level for qualified access: [`enough`], [`whereat`].
 //!
 //! ```rust,ignore
-//! use rgb::Rgba;
-//! use imgref::ImgVec;
 //! use enough::Stop;
 //! use whereat::At;
 //! ```
@@ -71,18 +69,13 @@ pub use output::{FrameBlend, FrameDisposal};
 
 pub use capabilities::{HasUnsupportedOperation, UnsupportedOperation};
 
-// Re-export PixelBufferConvertExt so codec crates get to_rgb8() etc. automatically.
-pub use zenpixels_convert::ext::PixelBufferConvertExt;
-
 // =========================================================================
 // Crate-level re-exports (qualified access, not individual types)
 // =========================================================================
 //
-// Use `rgb::Rgba`, `imgref::ImgVec`, `enough::Stop`, `whereat::At`.
+// Use `enough::Stop`, `whereat::At`.
 
 pub use enough;
-pub use imgref;
-pub use rgb;
 pub use whereat;
 
 // =========================================================================
@@ -130,7 +123,7 @@ pub mod encode {
     // Types
     pub use crate::capabilities::EncodeCapabilities;
     pub use crate::info::EncodeCost;
-    pub use crate::output::{EncodeFrame, EncodeOutput, TypedEncodeFrame};
+    pub use crate::output::{EncodeFrame, EncodeOutput};
     pub use crate::policy::EncodePolicy;
 }
 
