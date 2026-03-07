@@ -212,8 +212,8 @@ impl DecoderConfig for PnmDecoderConfig {
     type Error = At<PnmError>;
     type Job<'a> = PnmDecodeJob<'a>;
 
-    fn format() -> ImageFormat {
-        ImageFormat::Pnm
+    fn formats() -> &'static [ImageFormat] {
+        &[ImageFormat::Pnm]
     }
 
     fn supported_descriptors() -> &'static [PixelDescriptor] {

@@ -36,8 +36,15 @@ pub trait DecoderConfig: Clone + Send + Sync {
     where
         Self: 'a;
 
-    /// The image format this decoder handles.
-    fn format() -> ImageFormat;
+    /// The image formats this decoder handles.
+    ///
+    /// A single-format decoder returns one element. Multi-format decoders
+    /// (e.g., a bitmap crate handling BMP, ICO, CUR, TGA, PNM) return all
+    /// formats they can decode. The dispatch layer registers this config
+    /// for each format in the list.
+    ///
+    /// Must not be empty.
+    fn formats() -> &'static [ImageFormat];
 
     /// Pixel formats this decoder can produce natively.
     ///

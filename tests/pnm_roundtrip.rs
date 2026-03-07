@@ -141,7 +141,7 @@ fn dyn_encode_decode_rgb8_roundtrip() {
     let dec_config = PnmDecoderConfig::new();
     let dyn_dec: &dyn DynDecoderConfig = &dec_config;
 
-    assert_eq!(dyn_dec.format(), ImageFormat::Pnm);
+    assert_eq!(dyn_dec.formats(), &[ImageFormat::Pnm]);
 
     let dec_job = dyn_dec.dyn_job();
 
@@ -257,8 +257,8 @@ fn encoder_config_static_methods() {
 #[test]
 fn decoder_config_static_methods() {
     assert_eq!(
-        <PnmDecoderConfig as DecoderConfig>::format(),
-        ImageFormat::Pnm
+        <PnmDecoderConfig as DecoderConfig>::formats(),
+        &[ImageFormat::Pnm]
     );
 
     let descs = <PnmDecoderConfig as DecoderConfig>::supported_descriptors();

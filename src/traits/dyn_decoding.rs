@@ -333,8 +333,8 @@ where
 /// let img = load(&webp, &webp_bytes)?;
 /// ```
 pub trait DynDecoderConfig: Send + Sync {
-    /// The image format this decoder handles.
-    fn format(&self) -> ImageFormat;
+    /// The image formats this decoder handles.
+    fn formats(&self) -> &'static [ImageFormat];
 
     /// Pixel formats this decoder can produce natively.
     fn supported_descriptors(&self) -> &'static [PixelDescriptor];
@@ -350,8 +350,8 @@ impl<C> DynDecoderConfig for C
 where
     C: DecoderConfig,
 {
-    fn format(&self) -> ImageFormat {
-        C::format()
+    fn formats(&self) -> &'static [ImageFormat] {
+        C::formats()
     }
 
     fn supported_descriptors(&self) -> &'static [PixelDescriptor] {
