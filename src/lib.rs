@@ -37,7 +37,6 @@ extern crate alloc;
 
 mod capabilities;
 mod color;
-mod convert;
 mod format;
 mod gainmap;
 mod info;
@@ -54,10 +53,6 @@ mod traits;
 // =========================================================================
 
 pub use color::{ColorContext, ColorProfileSource, NamedProfile};
-pub use convert::{
-    AlphaPolicy, ConvertError, ConvertOptions, DepthPolicy, GrayExpand, LumaCoefficients,
-    PixelSliceConvertExt,
-};
 pub use format::ImageFormat;
 pub use gainmap::GainMapMetadata;
 pub use info::{Cicp, ContentLightLevel, ImageInfo, MasteringDisplay, Metadata, MetadataView};
