@@ -9,6 +9,7 @@
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
+use core::any::Any;
 
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
@@ -56,7 +57,21 @@ impl<D: Decode> DynDecoder for DecoderShim<D> {
 ///
 /// Wraps [`FullFrameDecoder`] for dyn dispatch. Produced by
 /// [`DynDecodeJob::into_full_frame_decoder`].
+///
+/// # Downcasting
+///
+/// Use [`as_any()`](DynFullFrameDecoder::as_any) to downcast back to the
+/// concrete codec type for format-specific animation controls.
 pub trait DynFullFrameDecoder {
+    /// Downcast to the concrete frame decoder type.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Downcast to the concrete frame decoder type (mutable).
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    /// Consume and downcast to the concrete frame decoder type.
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+
     /// Image metadata, available after construction.
     fn info(&self) -> &ImageInfo;
 
@@ -89,7 +104,19 @@ impl core::fmt::Debug for dyn DynFullFrameDecoder + '_ {
 
 pub(super) struct FullFrameDecoderShim<F>(pub(super) F);
 
-impl<F: FullFrameDecoder> DynFullFrameDecoder for FullFrameDecoderShim<F> {
+impl<F: FullFrameDecoder + 'static> DynFullFrameDecoder for FullFrameDecoderShim<F> {
+    fn as_any(&self) -> &dyn Any {
+        &self.0
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        &mut self.0
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        Box::new(self.0)
+    }
+
     fn info(&self) -> &ImageInfo {
         self.0.info()
     }
@@ -371,6 +398,14 @@ where
 /// let img = load(&webp, &webp_bytes)?;
 /// ```
 pub trait DynDecoderConfig: Send + Sync {
+    /// Downcast to the concrete config type.
+    ///
+    /// ```rust,ignore
+    /// let config: &dyn DynDecoderConfig = &JpegDecoderConfig::new();
+    /// let jpeg = config.as_any().downcast_ref::<JpegDecoderConfig>().unwrap();
+    /// ```
+    fn as_any(&self) -> &dyn Any;
+
     /// The image formats this decoder handles.
     fn formats(&self) -> &'static [ImageFormat];
 
@@ -386,8 +421,12 @@ pub trait DynDecoderConfig: Send + Sync {
 
 impl<C> DynDecoderConfig for C
 where
-    C: DecoderConfig,
+    C: DecoderConfig + 'static,
 {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn formats(&self) -> &'static [ImageFormat] {
         C::formats()
     }

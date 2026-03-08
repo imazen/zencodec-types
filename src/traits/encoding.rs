@@ -215,7 +215,7 @@ pub trait EncodeJob<'a>: Sized {
     fn dyn_encoder(self) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>
     where
         Self: 'a,
-        Self::Enc: Encoder,
+        Self::Enc: Encoder + 'static,
     {
         let enc = self.encoder().map_err(|e| Box::new(e) as BoxedError)?;
         Ok(Box::new(super::dyn_encoding::EncoderShim(enc)))
