@@ -50,6 +50,7 @@ The config is reusable — create it once, call `.job()` for each encode operati
 The flow is **Config → Job → (probe) → Decoder → output**.
 
 ```rust
+use std::borrow::Cow;
 use zenjpeg::JpegDecoderConfig;
 use zc::decode::{DecoderConfig, DecodeJob, Decode};
 
@@ -61,7 +62,7 @@ let info = job.probe(&jpeg_bytes)?;
 println!("{}x{}", info.width, info.height);
 
 // Decode
-let decoder = job.decoder(&jpeg_bytes, &[])?;
+let decoder = job.decoder(Cow::Borrowed(&jpeg_bytes), &[])?;
 let output = decoder.decode()?;
 
 let pixels = output.pixels();       // borrow as PixelSlice
@@ -79,7 +80,7 @@ use zenpixels::PixelDescriptor;
 
 // "I'd prefer RGBA8, but RGB8 is fine too"
 let preferred = &[PixelDescriptor::RGBA8_SRGB, PixelDescriptor::RGB8_SRGB];
-let decoder = job.decoder(&data, preferred)?;
+let decoder = job.decoder(Cow::Borrowed(&data), preferred)?;
 let output = decoder.decode()?;
 
 // Check what you actually got
@@ -134,7 +135,7 @@ fn decode_any(
     data: &[u8],
 ) -> Result<zenpixels::PixelBuffer, BoxedError> {
     let job = config.dyn_job();
-    let decoder = job.into_decoder(data, &[])?;
+    let decoder = job.into_decoder(Cow::Borrowed(data), &[])?;
     Ok(decoder.decode()?.into_buffer())
 }
 
@@ -185,7 +186,7 @@ if let Some([min, max]) = caps.quality_range() {
 // Advanced encode paths
 if caps.row_level() { /* push_rows() + finish() is supported */ }
 if caps.pull()      { /* encode_from() callback is supported */ }
-if caps.animation() { /* frame_encoder() works */ }
+if caps.animation() { /* full_frame_encoder() works */ }
 ```
 
 Decode capabilities follow the same pattern:
@@ -193,7 +194,7 @@ Decode capabilities follow the same pattern:
 ```rust
 let caps = JpegDecoderConfig::capabilities();
 if caps.cheap_probe() { /* probe() is fast, reads header only */ }
-if caps.animation()   { /* frame_decoder() works */ }
+if caps.animation()   { /* full_frame_decoder() works */ }
 if caps.row_level()   { /* streaming_decoder() works */ }
 ```
 
@@ -211,7 +212,7 @@ let limits = ResourceLimits::none()
     .with_max_memory(512 * 1024 * 1024);  // 512 MB peak
 
 let job = config.job().with_limits(limits);
-let decoder = job.decoder(&data, &[])?; // fails early if limits exceeded
+let decoder = job.decoder(Cow::Borrowed(&data), &[])?; // fails early if limits exceeded
 ```
 
 Limits are checked at job creation time (before allocation), not after decoding. The codec calls `limits.check_dimensions()`, `limits.check_memory()`, etc. during executor construction.
@@ -239,7 +240,7 @@ let stop = AtomicStop::new();
 // stop.request_stop();
 
 let job = config.job().with_stop(&stop);
-let decoder = job.decoder(&data, &[])?;
+let decoder = job.decoder(Cow::Borrowed(&data), &[])?;
 let output = decoder.decode()?; // returns Err if stop was requested
 ```
 
@@ -297,53 +298,43 @@ Color management is not the codec's job. Decoders return native pixels with ICC/
 
 ### Decoding Animation
 
+The `FullFrameDecoder` composites internally — it handles disposal, blending, sub-canvas positioning, and reference slots, then yields full-canvas frames ready for display.
+
 ```rust
-use zc::decode::{DecodeJob, FrameDecode};
+use std::borrow::Cow;
+use zc::decode::{DecodeJob, FullFrameDecoder};
 
 let job = config.job();
-let mut frame_dec = job.frame_decoder(&gif_bytes, &[])?;
+let mut frame_dec = job.full_frame_decoder(Cow::Borrowed(&gif_bytes), &[])?;
 
 println!("frames: {:?}", frame_dec.frame_count());
 println!("loop count: {:?}", frame_dec.loop_count()); // Some(0) = infinite
 
-while let Some(frame) = frame_dec.next_frame()? {
+while let Some(frame) = frame_dec.render_next_frame(None)? {
     let pixels = frame.pixels();
     let delay = frame.duration_ms();
-    let index = frame.index();
-
-    // Compositing info (for partial-canvas formats like GIF/APNG):
-    let blend = frame.blend();           // Source or Over
-    let disposal = frame.disposal();     // None, RestoreBackground, RestorePrevious
-    let rect = frame.frame_rect();       // Some([x, y, w, h]) or None for full canvas
-    let depends_on = frame.required_frame(); // None = keyframe
-
-    // Container metadata is shared across frames (Arc<ImageInfo>):
-    let info = frame.info();
+    let index = frame.frame_index();
+    // frame borrows the decoder's canvas — next call invalidates it.
+    // Use render_next_frame_owned() if you need to keep frames.
 }
 ```
 
 ### Encoding Animation
 
 ```rust
-use zc::encode::{EncodeJob, FrameEncoder, EncodeFrame};
-use zc::FrameBlend;
+use zc::encode::{EncodeJob, FullFrameEncoder};
 
 let job = config.job()
     .with_canvas_size(640, 480)
     .with_loop_count(Some(0)); // infinite loop
 
-let mut frame_enc = job.frame_encoder()?;
+let mut frame_enc = job.full_frame_encoder()?;
 
-// Push full-canvas frames:
-frame_enc.push_frame(frame1_pixels, 100)?; // 100ms delay
+// Push full-canvas frames (pixels, duration_ms, stop token):
+frame_enc.push_frame(frame1_pixels, 100, None)?;
+frame_enc.push_frame(frame2_pixels, 100, None)?;
 
-// Or use EncodeFrame for sub-canvas frames with compositing:
-let frame = EncodeFrame::new(region_pixels, 100)
-    .with_frame_rect([10, 20, 64, 48])
-    .with_blend(FrameBlend::Over);
-frame_enc.push_encode_frame(frame)?;
-
-let output = frame_enc.finish()?;
+let output = frame_enc.finish(None)?;
 ```
 
 ## Streaming Decode
@@ -353,7 +344,7 @@ For codecs that support it (check `capabilities().row_level()`), streaming decod
 ```rust
 use zc::decode::StreamingDecode;
 
-let mut stream = job.streaming_decoder(&data, &[])?;
+let mut stream = job.streaming_decoder(Cow::Borrowed(&data), &[])?;
 let info = stream.info(); // dimensions, format, metadata
 
 while let Some((y_offset, strip)) = stream.next_batch()? {
@@ -369,31 +360,47 @@ Strip height is codec-determined — it might be one row, eight rows (JPEG MCU h
 For zero-copy decoding into caller-provided buffers:
 
 ```rust
-use zc::decode::DecodeRowSink;
+use zc::decode::{DecodeRowSink, SinkError};
 use zenpixels::{PixelDescriptor, PixelSliceMut};
 
-struct MyBuffer { /* your frame buffer */ }
+struct MyBuffer {
+    buf: Vec<u8>,
+}
 
 impl DecodeRowSink for MyBuffer {
-    fn demand(
-        &mut self,
-        y: u32,
-        height: u32,
-        width: u32,
-        descriptor: PixelDescriptor,
-    ) -> PixelSliceMut<'_> {
-        // Return a mutable slice into your buffer for rows [y..y+height).
-        // You control stride, alignment, etc.
-        self.get_rows_mut(y, height, width, descriptor)
+    fn begin(&mut self, width: u32, height: u32, descriptor: PixelDescriptor)
+        -> Result<(), SinkError>
+    {
+        // Pre-allocate for the full image
+        let stride = width as usize * descriptor.bytes_per_pixel();
+        self.buf.resize(height as usize * stride, 0);
+        Ok(())
+    }
+
+    fn provide_next_buffer(&mut self, y: u32, height: u32, width: u32,
+        descriptor: PixelDescriptor) -> Result<PixelSliceMut<'_>, SinkError>
+    {
+        let bpp = descriptor.bytes_per_pixel();
+        let stride = width as usize * bpp;
+        let offset = y as usize * stride;
+        let len = height as usize * stride;
+        Ok(PixelSliceMut::new(
+            &mut self.buf[offset..offset + len],
+            width, height, stride, descriptor,
+        ).expect("buffer sized correctly"))
+    }
+
+    fn finish(&mut self) -> Result<(), SinkError> {
+        Ok(()) // flush or finalize if needed
     }
 }
 
-let mut sink = MyBuffer::new(width, height);
-let output_info = job.push_decoder(&data, &mut sink, &[])?;
-// sink now contains the decoded pixels
+let mut sink = MyBuffer { buf: Vec::new() };
+let output_info = job.push_decoder(Cow::Borrowed(&data), &mut sink, &[])?;
+// sink.buf now contains the decoded pixels
 ```
 
-The codec calls `demand()` as it produces rows. You provide the buffer; the codec fills it. This avoids an extra copy compared to `Decode::decode()` → copy into your buffer.
+The codec calls `begin()` once, then `provide_next_buffer()` for each strip of rows, then `finish()`. You provide the buffer; the codec fills it. This avoids an extra copy compared to `Decode::decode()` → copy into your buffer.
 
 ## Format Detection
 
@@ -437,7 +444,7 @@ match encoder.encode(pixels) {
     Err(e) => {
         // e is the codec's error type (e.g., JpegError)
         // Check if it's an unsupported operation:
-        use zc::HasUnsupportedOperation;
+        use zc::CodecErrorExt;
         if let Some(op) = e.unsupported_operation() {
             println!("not supported: {op}");
         }

@@ -19,8 +19,8 @@ Layer 3: Executor   (borrows pixel data or file bytes, consumes self)
 **Executor** borrows the actual pixels or file bytes. It consumes itself to produce output — single-shot by design. This prevents use-after-encode/decode bugs at the type level.
 
 ```text
-ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder (or FrameEncoder)
-DECODE:  DecoderConfig → DecodeJob<'a> → Decode  (or StreamingDecode, FrameDecode)
+ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder (or FullFrameEncoder)
+DECODE:  DecoderConfig → DecodeJob<'a> → Decode  (or StreamingDecode, FullFrameDecoder)
 ```
 
 ## Define Your Error Type
@@ -133,7 +133,7 @@ pub struct MyEncodeJob<'a> {
 impl<'a> EncodeJob<'a> for MyEncodeJob<'a> {
     type Error = MyError;
     type Enc = MyEncoder<'a>;
-    type FrameEnc = (); // Set to () if no animation support
+    type FullFrameEnc = (); // Set to () if no animation support
 
     fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
         self.stop = Some(stop);
@@ -154,14 +154,14 @@ impl<'a> EncodeJob<'a> for MyEncodeJob<'a> {
         Ok(MyEncoder { job: self })
     }
 
-    fn frame_encoder(self) -> Result<(), MyError> {
+    fn full_frame_encoder(self) -> Result<(), MyError> {
         // Return UnsupportedOperation for features you don't support.
         Err(UnsupportedOperation::AnimationEncode.into())
     }
 }
 ```
 
-**Important:** `type FrameEnc = ()` is the standard rejection stub. `FrameEncoder` is implemented for `()` — all methods return `UnsupportedOperation`. This means the dyn dispatch blanket impls work correctly even for codecs without animation.
+**Important:** `type FullFrameEnc = ()` is the standard rejection stub. `FullFrameEncoder` is implemented for `()` — all methods return `UnsupportedOperation`. This means the dyn dispatch blanket impls work correctly even for codecs without animation.
 
 ### Step 3: Encoder
 
@@ -252,13 +252,14 @@ impl DecoderConfig for MyDecoderConfig {
 The decode job is where probing, limit checking, and executor creation happen. Data is bound here, not on the executor.
 
 ```rust
+use std::borrow::Cow;
 use zc::decode::{DecodeJob, OutputInfo};
 
 impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
     type Error = MyError;
     type Dec = MyDecoder<'a>;
     type StreamDec = ();       // () stub if no streaming support
-    type FrameDec = ();        // () stub if no animation support
+    type FullFrameDec = ();    // () stub if no animation support
 
     fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
         self.stop = Some(stop);
@@ -286,7 +287,7 @@ impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
     // Bind data and preferred formats, check limits, create executor.
     fn decoder(
         self,
-        data: &'a [u8],
+        data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
     ) -> Result<MyDecoder<'a>, MyError> {
         let header = parse_header(data)?;
@@ -298,13 +299,13 @@ impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
     }
 
     // Return errors for unsupported decode modes:
-    fn streaming_decoder(self, _: &'a [u8], _: &[PixelDescriptor])
+    fn streaming_decoder(self, _: Cow<'a, [u8]>, _: &[PixelDescriptor])
         -> Result<(), MyError>
     {
         Err(UnsupportedOperation::RowLevelDecode.into())
     }
 
-    fn frame_decoder(self, _: &'a [u8], _: &[PixelDescriptor])
+    fn full_frame_decoder(self, _: Cow<'a, [u8]>, _: &[PixelDescriptor])
         -> Result<(), MyError>
     {
         Err(UnsupportedOperation::AnimationDecode.into())
@@ -339,7 +340,7 @@ The `preferred` parameter in `decoder()` is a ranked list of pixel formats the c
 ```rust
 use zc::decode::negotiate_pixel_format;
 
-fn decoder(self, data: &'a [u8], preferred: &[PixelDescriptor])
+fn decoder(self, data: Cow<'a, [u8]>, preferred: &[PixelDescriptor])
     -> Result<MyDecoder<'a>, MyError>
 {
     let header = parse_header(data)?;
@@ -385,15 +386,15 @@ fn encode(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, MyError> {
 
 You don't implement `DynEncoderConfig`, `DynEncodeJob`, etc. Blanket implementations generate the object-safe wrappers automatically from your generic trait impls. Once you implement `EncoderConfig`, your codec works with `&dyn DynEncoderConfig` — no extra code.
 
-The only requirement: your `EncodeJob::Enc` type must implement `Encoder` and your `EncodeJob::FrameEnc` must implement `FrameEncoder` (which `()` satisfies). Same pattern on the decode side.
+The only requirement: your `EncodeJob::Enc` type must implement `Encoder` and your `EncodeJob::FullFrameEnc` must implement `FullFrameEncoder` (which `()` satisfies). Same pattern on the decode side.
 
 ## Animation Support
 
-If your codec supports animation, implement `FrameEncoder` (encode) and `FrameDecode` (decode) on real types instead of `()`.
+If your codec supports animation, implement `FullFrameEncoder` (encode) and `FullFrameDecoder` (decode) on real types instead of `()`.
 
-**Encode side:** Set `type FrameEnc = MyFrameEncoder` on your `EncodeJob`. The caller uses `EncodeJob::frame_encoder()` to get it. Your `FrameEncoder` accepts frames via `push_frame()` (whole frame) or `begin_frame()` / `push_rows()` / `end_frame()` (row-level), then `finish()` produces the final `EncodeOutput`.
+**Encode side:** Set `type FullFrameEnc = MyFrameEncoder` on your `EncodeJob`. The caller uses `EncodeJob::full_frame_encoder()` to get it. Your `FullFrameEncoder` accepts frames via `push_frame(pixels, duration_ms, stop)`, then `finish(stop)` produces the final `EncodeOutput`.
 
-**Decode side:** Set `type FrameDec = MyFrameDecoder` on your `DecodeJob`. It's a pull iterator — the caller calls `next_frame()` repeatedly until it returns `Ok(None)`. Each `DecodeFrame` carries the pixel data, duration, compositing metadata, and a shared `Arc<ImageInfo>` for container-level metadata.
+**Decode side:** Set `type FullFrameDec = MyFrameDecoder` on your `DecodeJob`. It composites internally and yields full-canvas frames — the caller calls `render_next_frame(stop)` repeatedly until it returns `Ok(None)`. Each `FullFrame` carries composited pixel data, duration, and frame index.
 
 Set `with_animation(true)` on your capabilities struct.
 
