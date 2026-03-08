@@ -228,6 +228,16 @@ pub trait DynEncodeJob<'a> {
     /// Set animation loop count.
     fn set_loop_count(&mut self, count: Option<u32>);
 
+    /// Access codec-specific extensions for this job.
+    ///
+    /// Returns a reference to a `'static` extension type stored inside the
+    /// concrete job. Downcast to the codec's extension type to access
+    /// codec-specific configuration or alternate encode paths.
+    fn extensions(&self) -> Option<&dyn Any>;
+
+    /// Mutable access to codec-specific extensions.
+    fn extensions_mut(&mut self) -> Option<&mut dyn Any>;
+
     /// Create the single-image encoder (consumes this job).
     fn into_encoder(self: Box<Self>) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>;
 
@@ -284,6 +294,14 @@ where
     fn set_loop_count(&mut self, count: Option<u32>) {
         let job = self.take();
         self.put(job.with_loop_count(count));
+    }
+
+    fn extensions(&self) -> Option<&dyn Any> {
+        self.0.as_ref().and_then(|j| j.extensions())
+    }
+
+    fn extensions_mut(&mut self) -> Option<&mut dyn Any> {
+        self.0.as_mut().and_then(|j| j.extensions_mut())
     }
 
     fn into_encoder(mut self: Box<Self>) -> Result<Box<dyn DynEncoder + 'a>, BoxedError> {

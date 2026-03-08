@@ -166,6 +166,20 @@ pub trait DecodeJob<'a>: Sized {
         self
     }
 
+    /// Access codec-specific extensions for this job.
+    ///
+    /// Returns a reference to a `'static` extension type stored inside
+    /// the job. Callers downcast via [`Any::downcast_ref`] to the codec's
+    /// extension type. Returns `None` if the codec has no extensions.
+    fn extensions(&self) -> Option<&dyn core::any::Any> {
+        None
+    }
+
+    /// Mutable access to codec-specific extensions.
+    fn extensions_mut(&mut self) -> Option<&mut dyn core::any::Any> {
+        None
+    }
+
     // --- Output prediction ---
 
     /// Predict what the decoder will produce given current hints.

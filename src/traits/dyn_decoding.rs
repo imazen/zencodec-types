@@ -221,6 +221,16 @@ pub trait DynDecodeJob<'a> {
     /// Hint: start decoding from a specific frame (0-based).
     fn set_start_frame_index(&mut self, index: u32);
 
+    /// Access codec-specific extensions for this job.
+    ///
+    /// Returns a reference to a `'static` extension type stored inside the
+    /// concrete job. Downcast to the codec's extension type to access
+    /// codec-specific configuration or alternate decode paths.
+    fn extensions(&self) -> Option<&dyn Any>;
+
+    /// Mutable access to codec-specific extensions.
+    fn extensions_mut(&mut self) -> Option<&mut dyn Any>;
+
     /// Predict what the decoder will produce given current hints.
     fn output_info(&self, data: &[u8]) -> Result<OutputInfo, BoxedError>;
 
@@ -322,6 +332,14 @@ where
     fn set_start_frame_index(&mut self, index: u32) {
         let job = self.take();
         self.put(job.with_start_frame_index(index));
+    }
+
+    fn extensions(&self) -> Option<&dyn Any> {
+        self.0.as_ref().and_then(|j| j.extensions())
+    }
+
+    fn extensions_mut(&mut self) -> Option<&mut dyn Any> {
+        self.0.as_mut().and_then(|j| j.extensions_mut())
     }
 
     fn output_info(&self, data: &[u8]) -> Result<OutputInfo, BoxedError> {

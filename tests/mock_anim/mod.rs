@@ -173,6 +173,7 @@ impl DecoderConfig for MockDecoderConfig {
             scale: None,
             orientation: None,
             start_frame: None,
+            ext: MockDecodeExtensions::default(),
         }
     }
 }
@@ -185,6 +186,7 @@ pub struct MockDecodeJob<'a> {
     scale: Option<(u32, u32)>,
     orientation: Option<zc::OrientationHint>,
     start_frame: Option<u32>,
+    pub ext: MockDecodeExtensions,
 }
 
 impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
@@ -226,6 +228,14 @@ impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
     fn with_start_frame_index(mut self, index: u32) -> Self {
         self.start_frame = Some(index);
         self
+    }
+
+    fn extensions(&self) -> Option<&dyn std::any::Any> {
+        Some(&self.ext)
+    }
+
+    fn extensions_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(&mut self.ext)
     }
 
     fn probe(&self, data: &[u8]) -> Result<ImageInfo, MockError> {
@@ -449,6 +459,23 @@ impl FullFrameDecoder for MockFullFrameDec {
 }
 
 // =========================================================================
+// Extension types (for testing extensions() / extensions_mut())
+// =========================================================================
+
+/// Mock encode extensions — codec-specific knobs accessible through dyn dispatch.
+#[derive(Debug, Default)]
+pub struct MockEncodeExtensions {
+    pub optimize: bool,
+    pub custom_tag: Option<String>,
+}
+
+/// Mock decode extensions.
+#[derive(Debug, Default)]
+pub struct MockDecodeExtensions {
+    pub strict_parsing: bool,
+}
+
+// =========================================================================
 // Encode: Config → Job → Encoder / FullFrameEncoder
 // =========================================================================
 
@@ -544,6 +571,7 @@ impl EncoderConfig for MockEncoderConfig {
             canvas_size: None,
             loop_count: None,
             policy: None,
+            ext: MockEncodeExtensions::default(),
         }
     }
 }
@@ -555,6 +583,7 @@ pub struct MockEncodeJob<'a> {
     canvas_size: Option<(u32, u32)>,
     loop_count: Option<Option<u32>>,
     policy: Option<zc::encode::EncodePolicy>,
+    pub ext: MockEncodeExtensions,
 }
 
 impl<'a> EncodeJob<'a> for MockEncodeJob<'a> {
@@ -590,6 +619,14 @@ impl<'a> EncodeJob<'a> for MockEncodeJob<'a> {
     fn with_loop_count(mut self, count: Option<u32>) -> Self {
         self.loop_count = Some(count);
         self
+    }
+
+    fn extensions(&self) -> Option<&dyn std::any::Any> {
+        Some(&self.ext)
+    }
+
+    fn extensions_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(&mut self.ext)
     }
 
     fn encoder(self) -> Result<MockEnc, MockError> {

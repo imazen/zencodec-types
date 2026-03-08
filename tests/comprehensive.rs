@@ -2151,3 +2151,92 @@ fn owned_full_frame_extras_roundtrip() {
     assert_eq!(taken, Some(FrameMeta { is_keyframe: true }));
     assert!(frame.extras::<FrameMeta>().is_none());
 }
+
+// =========================================================================
+// Job extensions (codec-specific config via dyn dispatch)
+// =========================================================================
+
+#[test]
+fn encode_job_extensions_concrete() {
+    use mock_anim::MockEncodeExtensions;
+
+    let config = MockEncoderConfig::new();
+    let mut job = config.job();
+
+    // Extensions accessible on concrete job
+    let ext = job.extensions_mut().unwrap();
+    let mock_ext = ext.downcast_mut::<MockEncodeExtensions>().unwrap();
+    mock_ext.optimize = true;
+    mock_ext.custom_tag = Some("test".into());
+
+    // Read back
+    let ext = job.extensions().unwrap();
+    let mock_ext = ext.downcast_ref::<MockEncodeExtensions>().unwrap();
+    assert!(mock_ext.optimize);
+    assert_eq!(mock_ext.custom_tag.as_deref(), Some("test"));
+}
+
+#[test]
+fn encode_job_extensions_through_dyn_job() {
+    use mock_anim::MockEncodeExtensions;
+
+    let config = MockEncoderConfig::new();
+    let dyn_config: &dyn DynEncoderConfig = &config;
+    let mut job = dyn_config.dyn_job();
+
+    // Generic setup
+    job.set_limits(ResourceLimits::none());
+
+    // Codec-specific setup via extensions
+    let ext = job.extensions_mut().unwrap();
+    let mock_ext = ext.downcast_mut::<MockEncodeExtensions>().unwrap();
+    mock_ext.optimize = true;
+
+    // Read back through dyn
+    let ext = job.extensions().unwrap();
+    let mock_ext = ext.downcast_ref::<MockEncodeExtensions>().unwrap();
+    assert!(mock_ext.optimize);
+
+    // Still usable for encoding after extensions access
+    let enc = job.into_encoder().unwrap();
+    let buf = make_rgb8_buffer(2, 2);
+    let output = enc.encode(buf.as_slice()).unwrap();
+    assert!(!output.is_empty());
+}
+
+#[test]
+fn decode_job_extensions_through_dyn_job() {
+    use mock_anim::MockDecodeExtensions;
+
+    let config = MockDecoderConfig;
+    let dyn_config: &dyn zc::decode::DynDecoderConfig = &config;
+    let mut job = dyn_config.dyn_job();
+
+    // Codec-specific setup via extensions
+    let ext = job.extensions_mut().unwrap();
+    let mock_ext = ext.downcast_mut::<MockDecodeExtensions>().unwrap();
+    mock_ext.strict_parsing = true;
+
+    // Read back
+    let ext = job.extensions().unwrap();
+    let mock_ext = ext.downcast_ref::<MockDecodeExtensions>().unwrap();
+    assert!(mock_ext.strict_parsing);
+
+    // Still usable for decoding
+    let buf = make_rgb8_buffer(2, 2);
+    let data = encode_single_frame(&buf);
+    let dec = job.into_decoder(Cow::Owned(data), &[]).unwrap();
+    let output = dec.decode().unwrap();
+    assert_eq!(output.width(), 2);
+}
+
+#[test]
+fn extensions_wrong_type_returns_none() {
+    let config = MockEncoderConfig::new();
+    let dyn_config: &dyn DynEncoderConfig = &config;
+    let job = dyn_config.dyn_job();
+
+    // Extensions exist but wrong downcast type returns None
+    let ext = job.extensions().unwrap();
+    assert!(ext.downcast_ref::<u32>().is_none());
+}

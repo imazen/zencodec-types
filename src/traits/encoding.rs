@@ -176,6 +176,43 @@ pub trait EncodeJob<'a>: Sized {
         self
     }
 
+    /// Access codec-specific extensions for this job.
+    ///
+    /// Returns a reference to a `'static` extension type stored inside
+    /// the job. Callers downcast via [`Any::downcast_ref`] to the codec's
+    /// extension type. Returns `None` if the codec has no extensions.
+    ///
+    /// The extension type must be `'static` (no borrowed data), but the
+    /// *reference* borrows from the job, which is fine.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// if let Some(ext) = job.extensions() {
+    ///     if let Some(jpeg) = ext.downcast_ref::<JpegEncodeExtensions>() {
+    ///         // read codec-specific state
+    ///     }
+    /// }
+    /// ```
+    fn extensions(&self) -> Option<&dyn core::any::Any> {
+        None
+    }
+
+    /// Mutable access to codec-specific extensions.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// if let Some(ext) = job.extensions_mut() {
+    ///     if let Some(jpeg) = ext.downcast_mut::<JpegEncodeExtensions>() {
+    ///         jpeg.optimize_huffman = true;
+    ///     }
+    /// }
+    /// ```
+    fn extensions_mut(&mut self) -> Option<&mut dyn core::any::Any> {
+        None
+    }
+
     /// Create a one-shot encoder for a single image.
     fn encoder(self) -> Result<Self::Enc, Self::Error>;
 
