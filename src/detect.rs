@@ -63,6 +63,23 @@ pub trait SourceEncodingDetails: Any + Send + Sync {
     fn is_lossless(&self) -> bool {
         false
     }
+
+    /// Source bits per pixel (all channels combined).
+    ///
+    /// For example: PNG24 = 24, PNG32 = 32, PNG48 = 48, PNG64 = 64,
+    /// 8-bit palette = 8, grayscale = 8 or 16.
+    /// Returns `None` when not available from headers.
+    fn source_bits_per_pixel(&self) -> Option<u16> {
+        None
+    }
+
+    /// Number of entries in the source palette, if palette-based.
+    ///
+    /// Returns `Some(n)` for indexed PNG, GIF (global palette size), etc.
+    /// Returns `None` for truecolor formats or when not applicable.
+    fn source_palette_size(&self) -> Option<u16> {
+        None
+    }
 }
 
 // Downcast helper — avoids requiring callers to import `core::any::Any`.
