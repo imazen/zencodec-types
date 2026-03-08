@@ -1690,23 +1690,26 @@ fn output_info_full_decode() {
 
 #[test]
 fn decode_cost_limits_check() {
-    use zc::decode::DecodeCost;
+    use zc::decode::{DecodeCost, OutputInfo};
+    use zenpixels::PixelDescriptor;
 
-    let cost = DecodeCost::new(100, 50, None);
+    // 10x5 RGBA8 → 200 output bytes, 50 pixels
+    let info = OutputInfo::full_decode(10, 5, PixelDescriptor::RGBA8_SRGB);
+    let cost = DecodeCost::from_output_info(&info);
 
     let limits = ResourceLimits::none()
         .with_max_pixels(100)
-        .with_max_memory(200);
+        .with_max_memory(300);
     assert!(limits.check_decode_cost(&cost).is_ok());
 
     // peak_memory=None falls back to output_bytes
-    let limits = ResourceLimits::none().with_max_memory(50);
+    let limits = ResourceLimits::none().with_max_memory(100);
     let err = limits.check_decode_cost(&cost).unwrap_err();
     assert!(matches!(
         err,
         LimitExceeded::Memory {
-            actual: 100,
-            max: 50
+            actual: 200,
+            max: 100
         }
     ));
 }
@@ -1714,8 +1717,10 @@ fn decode_cost_limits_check() {
 #[test]
 fn encode_cost_limits_check() {
     use zc::encode::EncodeCost;
+    use zenpixels::PixelDescriptor;
 
-    let cost = EncodeCost::new(100, 50, Some(80));
+    // 10x5 RGB8 → 150 input bytes, 50 pixels, peak_memory=80
+    let cost = EncodeCost::for_input(10, 5, PixelDescriptor::RGB8_SRGB).with_peak_memory(80);
 
     let limits = ResourceLimits::none()
         .with_max_pixels(100)

@@ -1041,8 +1041,9 @@ pub struct DecodeCost {
 impl DecodeCost {
     /// Create a decode cost estimate from raw values.
     ///
-    /// Prefer [`from_output_info`](DecodeCost::from_output_info) when you have
-    /// an [`OutputInfo`] — it computes `output_bytes` and `pixel_count` for you.
+    /// Prefer [`from_output_info`](DecodeCost::from_output_info) — it computes
+    /// `output_bytes` and `pixel_count` for you.
+    #[deprecated(since = "0.2.0", note = "use DecodeCost::from_output_info() instead")]
     pub const fn new(output_bytes: u64, pixel_count: u64, peak_memory: Option<u64>) -> Self {
         Self {
             output_bytes,
@@ -1121,8 +1122,9 @@ pub struct EncodeCost {
 impl EncodeCost {
     /// Create an encode cost estimate from raw values.
     ///
-    /// Prefer [`for_input`](EncodeCost::for_input) when you have dimensions and
-    /// a pixel descriptor — it computes `input_bytes` and `pixel_count` for you.
+    /// Prefer [`for_input`](EncodeCost::for_input) — it computes
+    /// `input_bytes` and `pixel_count` for you.
+    #[deprecated(since = "0.2.0", note = "use EncodeCost::for_input() instead")]
     pub const fn new(input_bytes: u64, pixel_count: u64, peak_memory: Option<u64>) -> Self {
         Self {
             input_bytes,
