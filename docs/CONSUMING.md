@@ -13,7 +13,7 @@ zenpng = "0.1"
 zenpixels = { version = "0.1", features = ["buffer"] }
 ```
 
-Each codec crate re-exports `zencodec` as `zc`, so you don't need to depend on it directly. Import the traits from `zc::encode` and `zc::decode`.
+Each codec crate re-exports `zencodec`, so you don't need to depend on it directly. Import the traits from `zencodec::encode` and `zencodec::decode`.
 
 For codec-agnostic multi-format dispatch, use `zencodecs` instead of individual codec crates.
 
@@ -23,7 +23,7 @@ The flow is always **Config → Job → Encoder → output**.
 
 ```rust
 use zenjpeg::JpegEncoderConfig;
-use zc::encode::{EncoderConfig, EncodeJob, Encoder};
+use zencodec::encode::{EncoderConfig, EncodeJob, Encoder};
 use zenpixels::{PixelBuffer, PixelDescriptor};
 
 // 1. Create a reusable config (Clone + Send + Sync, share across threads)
@@ -52,7 +52,7 @@ The flow is **Config → Job → (probe) → Decoder → output**.
 ```rust
 use std::borrow::Cow;
 use zenjpeg::JpegDecoderConfig;
-use zc::decode::{DecoderConfig, DecodeJob, Decode};
+use zencodec::decode::{DecoderConfig, DecodeJob, Decode};
 
 let config = JpegDecoderConfig::new();
 let job = config.job();
@@ -92,7 +92,7 @@ If none of your preferences match, the decoder returns its native format. It wil
 You can also check format support before decoding:
 
 ```rust
-use zc::decode::{is_format_available, negotiate_pixel_format};
+use zencodec::decode::{is_format_available, negotiate_pixel_format};
 
 // Does this decoder support RGBA8 output at all?
 let supported = JpegDecoderConfig::supported_descriptors();
@@ -104,7 +104,7 @@ if is_format_available(PixelFormat::Rgba8, supported) {
 On the encode side, check whether the encoder accepts your pixel format:
 
 ```rust
-use zc::encode::best_encode_format;
+use zencodec::encode::best_encode_format;
 
 let supported = JpegEncoderConfig::supported_descriptors();
 if let Some(fmt) = best_encode_format(my_pixels.descriptor(), supported) {
@@ -117,8 +117,8 @@ if let Some(fmt) = best_encode_format(my_pixels.descriptor(), supported) {
 For code that works with any codec — plugin systems, multi-format pipelines, format-selection-at-runtime — use the `Dyn*` traits:
 
 ```rust
-use zc::encode::{DynEncoderConfig, BoxedError};
-use zc::decode::DynDecoderConfig;
+use zencodec::encode::{DynEncoderConfig, BoxedError};
+use zencodec::decode::DynDecoderConfig;
 use zenpixels::PixelSlice;
 
 fn encode_any(
@@ -166,7 +166,7 @@ match result {
 Before calling optional methods, check whether the codec supports them:
 
 ```rust
-use zc::encode::EncoderConfig;
+use zencodec::encode::EncoderConfig;
 
 let caps = JpegEncoderConfig::capabilities();
 
@@ -203,7 +203,7 @@ if caps.streaming()   { /* streaming_decoder() works */ }
 Protect against oversized or malicious inputs:
 
 ```rust
-use zc::ResourceLimits;
+use zencodec::ResourceLimits;
 
 let limits = ResourceLimits::none()
     .with_max_width(8192)
@@ -251,8 +251,8 @@ The codec checks the stop token periodically during encode/decode. How often dep
 Policies control security-relevant behavior on a per-job basis:
 
 ```rust
-use zc::encode::EncodePolicy;
-use zc::decode::DecodePolicy;
+use zencodec::encode::EncodePolicy;
+use zencodec::decode::DecodePolicy;
 
 // Strip all metadata
 let enc_policy = EncodePolicy::strip_all();
@@ -302,7 +302,7 @@ The `FullFrameDecoder` composites internally — it handles disposal, blending, 
 
 ```rust
 use std::borrow::Cow;
-use zc::decode::{DecodeJob, FullFrameDecoder};
+use zencodec::decode::{DecodeJob, FullFrameDecoder};
 
 let job = config.job();
 let mut frame_dec = job.full_frame_decoder(Cow::Borrowed(&gif_bytes), &[])?;
@@ -322,7 +322,7 @@ while let Some(frame) = frame_dec.render_next_frame(None)? {
 ### Encoding Animation
 
 ```rust
-use zc::encode::{EncodeJob, FullFrameEncoder};
+use zencodec::encode::{EncodeJob, FullFrameEncoder};
 
 let job = config.job()
     .with_canvas_size(640, 480)
@@ -342,7 +342,7 @@ let output = frame_enc.finish(None)?;
 For codecs that support it (check `capabilities().streaming()`), streaming decode yields scanline batches without buffering the entire image:
 
 ```rust
-use zc::decode::StreamingDecode;
+use zencodec::decode::StreamingDecode;
 
 let mut stream = job.streaming_decoder(Cow::Borrowed(&data), &[])?;
 let info = stream.info(); // dimensions, format, metadata
@@ -360,7 +360,7 @@ Strip height is codec-determined — it might be one row, eight rows (JPEG MCU h
 For zero-copy decoding into caller-provided buffers:
 
 ```rust
-use zc::decode::{DecodeRowSink, SinkError};
+use zencodec::decode::{DecodeRowSink, SinkError};
 use zenpixels::{PixelDescriptor, PixelSliceMut};
 
 struct MyBuffer {
@@ -405,7 +405,7 @@ The codec calls `begin()` once, then `provide_next_buffer()` for each strip of r
 ## Format Detection
 
 ```rust
-use zc::ImageFormat;
+use zencodec::ImageFormat;
 
 let format = ImageFormat::from_magic(&file_bytes);
 match format {
@@ -439,7 +439,7 @@ output.into_vec();   // Vec<u8> — take ownership
 You can query how an image was originally encoded — useful for re-encoding at matching quality or for diagnostics. Available from both `ImageInfo` (after probe) and `DecodeOutput` (after decode):
 
 ```rust
-use zc::SourceEncodingDetails;
+use zencodec::SourceEncodingDetails;
 
 // From probe (no decode needed):
 let info = job.probe(&data)?;
@@ -498,7 +498,7 @@ match encoder.encode(pixels) {
     Err(e) => {
         // e is the codec's error type (e.g., JpegError)
         // Check if it's an unsupported operation:
-        use zc::CodecErrorExt;
+        use zencodec::CodecErrorExt;
         if let Some(op) = e.unsupported_operation() {
             println!("not supported: {op}");
         }
@@ -513,7 +513,7 @@ With the dyn API, errors are `BoxedError`. Downcast to the concrete type if need
 Control threading behavior per-job via `ResourceLimits`:
 
 ```rust
-use zc::ThreadingPolicy;
+use zencodec::ThreadingPolicy;
 
 let limits = ResourceLimits::none()
     .with_threading(ThreadingPolicy::SingleThread);     // force single-threaded

@@ -28,7 +28,7 @@ DECODE:  DecoderConfig → DecodeJob<'a> → Decode  (or StreamingDecode, FullFr
 Your error type must implement `From<UnsupportedOperation>`. This lets default trait method implementations return proper errors for paths your codec doesn't support.
 
 ```rust
-use zc::UnsupportedOperation;
+use zencodec::UnsupportedOperation;
 
 #[derive(Debug)]
 pub enum MyError {
@@ -47,15 +47,15 @@ impl core::fmt::Display for MyError { /* ... */ }
 impl core::error::Error for MyError {}
 ```
 
-If your codec supports cancellation via `enough::Stop`, add a `From<StopReason>` impl too. If it checks `ResourceLimits`, add `From<zc::LimitExceeded>`.
+If your codec supports cancellation via `enough::Stop`, add a `From<StopReason>` impl too. If it checks `ResourceLimits`, add `From<zencodec::LimitExceeded>`.
 
 ## Implement Encoding
 
 ### Step 1: EncoderConfig
 
 ```rust
-use zc::encode::{EncodeCapabilities, EncodeJob, EncoderConfig};
-use zc::ImageFormat;
+use zencodec::encode::{EncodeCapabilities, EncodeJob, EncoderConfig};
+use zencodec::ImageFormat;
 use zenpixels::PixelDescriptor;
 
 #[derive(Clone, Debug)]
@@ -106,7 +106,7 @@ impl EncoderConfig for MyEncoderConfig {
     fn job(&self) -> MyEncodeJob<'_> {
         MyEncodeJob {
             config: self,
-            limits: zc::ResourceLimits::none(),
+            limits: zencodec::ResourceLimits::none(),
             stop: None,
             metadata: None,
         }
@@ -119,8 +119,8 @@ The `with_*` / getter pairs follow a pattern: if your codec doesn't support a kn
 ### Step 2: EncodeJob
 
 ```rust
-use zc::encode::EncodeJob;
-use zc::{Metadata, ResourceLimits};
+use zencodec::encode::EncodeJob;
+use zencodec::{Metadata, ResourceLimits};
 use enough::Stop;
 
 pub struct MyEncodeJob<'a> {
@@ -168,7 +168,7 @@ impl<'a> EncodeJob<'a> for MyEncodeJob<'a> {
 The `Encoder` trait has three mutually exclusive encode paths. Implement the ones your codec supports; the rest have default implementations that return `UnsupportedOperation`.
 
 ```rust
-use zc::encode::{EncodeOutput, Encoder};
+use zencodec::encode::{EncodeOutput, Encoder};
 use zenpixels::PixelSlice;
 
 pub struct MyEncoder<'a> {
@@ -221,7 +221,7 @@ Set the corresponding capability flags (`with_push_rows(true)`, `with_encode_fro
 ### Step 1: DecoderConfig
 
 ```rust
-use zc::decode::{DecodeCapabilities, DecodeJob, DecoderConfig};
+use zencodec::decode::{DecodeCapabilities, DecodeJob, DecoderConfig};
 
 static MY_DECODE_CAPS: DecodeCapabilities = DecodeCapabilities::new()
     .with_cheap_probe(true)  // probe() only reads the header
@@ -253,7 +253,7 @@ The decode job is where probing, limit checking, and executor creation happen. D
 
 ```rust
 use std::borrow::Cow;
-use zc::decode::{DecodeJob, OutputInfo};
+use zencodec::decode::{DecodeJob, OutputInfo};
 
 impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
     type Error = MyError;
@@ -316,7 +316,7 @@ impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
 ### Step 3: Decode
 
 ```rust
-use zc::decode::{Decode, DecodeOutput};
+use zencodec::decode::{Decode, DecodeOutput};
 
 impl<'a> Decode for MyDecoder<'a> {
     type Error = MyError;
@@ -370,7 +370,7 @@ on the concrete type.
 ### Define your probe struct
 
 ```rust
-use zc::SourceEncodingDetails;
+use zencodec::SourceEncodingDetails;
 
 /// PNG-specific source encoding properties.
 #[derive(Debug, Clone)]
@@ -444,7 +444,7 @@ Callers who only probe will get whatever the codec can provide from headers.
 The `preferred` parameter in `decoder()` is a ranked list of pixel formats the caller wants. Your decoder should pick the first format it can produce without lossy conversion:
 
 ```rust
-use zc::decode::negotiate_pixel_format;
+use zencodec::decode::negotiate_pixel_format;
 
 fn decoder(self, data: Cow<'a, [u8]>, preferred: &[PixelDescriptor])
     -> Result<MyDecoder<'a>, MyError>
