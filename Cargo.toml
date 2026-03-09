@@ -16,7 +16,7 @@ name = "zc"
 [dependencies]
 zenpixels = { path = "../zenpixels/zenpixels", features = ["buffer"] }
 enough = "0.4"
-whereat = "0.1"
+whereat = "0.1.3"
 
 [dev-dependencies]
 thiserror = "2"
