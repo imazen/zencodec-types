@@ -1341,7 +1341,7 @@ fn negotiate_same_format_different_metadata() {
     let available = &[PixelDescriptor::RGBA8]; // unknown transfer
     let picked = negotiate_pixel_format(preferred, available);
     // Returns the available entry (unknown transfer), not the preferred
-    assert_eq!(picked, PixelDescriptor::RGBA8);
+    assert_eq!(picked, Some(PixelDescriptor::RGBA8));
 }
 
 #[test]
@@ -1354,7 +1354,7 @@ fn negotiate_multiple_preferences_multiple_available() {
     let preferred = &[PixelDescriptor::RGBA8_SRGB, PixelDescriptor::GRAY8_SRGB];
     let available = &[PixelDescriptor::GRAY8_SRGB, PixelDescriptor::RGB8_SRGB];
     let picked = negotiate_pixel_format(preferred, available);
-    assert_eq!(picked, PixelDescriptor::GRAY8_SRGB);
+    assert_eq!(picked, Some(PixelDescriptor::GRAY8_SRGB));
 }
 
 #[test]
@@ -2124,12 +2124,13 @@ fn encode_output_extras_roundtrip() {
 }
 
 #[test]
-fn encode_output_clone_drops_extras() {
+fn encode_output_clone_preserves_extras() {
     let output = EncodeOutput::new(vec![1, 2, 3], ImageFormat::Jpeg).with_extras(42u32);
     assert_eq!(output.extras::<u32>(), Some(&42));
 
     let cloned = output.clone();
-    assert!(cloned.extras::<u32>().is_none());
+    // Extras are preserved via Arc (cheap ref-count bump)
+    assert_eq!(cloned.extras::<u32>(), Some(&42));
     // Data fields are preserved
     assert_eq!(cloned.data(), &[1, 2, 3]);
     assert_eq!(cloned.format(), ImageFormat::Jpeg);

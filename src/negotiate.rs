@@ -25,13 +25,11 @@ use zenpixels::{PixelDescriptor, PixelFormat};
 /// entry, so the descriptor accurately describes what the decoder produces).
 ///
 /// If no preferred descriptor matches any available format, returns
-/// `available[0]` — the decoder's default for this image.
+/// `Some(available[0])` — the decoder's default for this image.
 ///
-/// If `preferred` is empty, returns `available[0]` immediately.
+/// If `preferred` is empty, returns `Some(available[0])` immediately.
 ///
-/// # Panics
-///
-/// Panics if `available` is empty.
+/// Returns `None` if `available` is empty.
 ///
 /// # Example
 ///
@@ -45,31 +43,33 @@ use zenpixels::{PixelDescriptor, PixelFormat};
 /// // This image is a JPEG — decoder can only produce RGB8
 /// let available = &[PixelDescriptor::RGB8_SRGB];
 ///
-/// let picked = negotiate_pixel_format(preferred, available);
+/// let picked = negotiate_pixel_format(preferred, available).unwrap();
 /// assert_eq!(picked, PixelDescriptor::RGB8_SRGB);
 /// ```
 pub fn negotiate_pixel_format(
     preferred: &[PixelDescriptor],
     available: &[PixelDescriptor],
-) -> PixelDescriptor {
-    assert!(!available.is_empty(), "available formats must not be empty");
+) -> Option<PixelDescriptor> {
+    if available.is_empty() {
+        return None;
+    }
 
     for pref in preferred {
         // Tier 1: exact match
         for avail in available {
             if *avail == *pref {
-                return *avail;
+                return Some(*avail);
             }
         }
         // Tier 2: same physical pixel format, different color metadata
         for avail in available {
             if avail.pixel_format() == pref.pixel_format() {
-                return *avail;
+                return Some(*avail);
             }
         }
     }
 
-    available[0]
+    Some(available[0])
 }
 
 /// Select the best encode format for given pixel data.
@@ -130,7 +130,7 @@ mod tests {
         let available = &[PixelDescriptor::RGB8_SRGB, PixelDescriptor::RGBA8_SRGB];
         assert_eq!(
             negotiate_pixel_format(preferred, available),
-            PixelDescriptor::RGBA8_SRGB
+            Some(PixelDescriptor::RGBA8_SRGB)
         );
     }
 
@@ -139,7 +139,7 @@ mod tests {
         // Caller asks for sRGB, decoder produces unknown-transfer RGB8
         let preferred = &[PixelDescriptor::RGB8_SRGB];
         let available = &[PixelDescriptor::RGB8]; // Unknown transfer
-        let picked = negotiate_pixel_format(preferred, available);
+        let picked = negotiate_pixel_format(preferred, available).unwrap();
         assert_eq!(picked.pixel_format(), PixelDescriptor::RGB8.pixel_format());
         assert_eq!(picked, PixelDescriptor::RGB8); // returns the available entry
     }
@@ -151,7 +151,7 @@ mod tests {
         let available = &[PixelDescriptor::RGB8_SRGB];
         assert_eq!(
             negotiate_pixel_format(preferred, available),
-            PixelDescriptor::RGB8_SRGB
+            Some(PixelDescriptor::RGB8_SRGB)
         );
     }
 
@@ -162,7 +162,7 @@ mod tests {
         let available = &[PixelDescriptor::RGB8_SRGB, PixelDescriptor::RGBA8_SRGB];
         assert_eq!(
             negotiate_pixel_format(preferred, available),
-            PixelDescriptor::RGB8_SRGB
+            Some(PixelDescriptor::RGB8_SRGB)
         );
     }
 
@@ -171,7 +171,7 @@ mod tests {
         let available = &[PixelDescriptor::RGBA8_SRGB, PixelDescriptor::RGB8_SRGB];
         assert_eq!(
             negotiate_pixel_format(&[], available),
-            PixelDescriptor::RGBA8_SRGB
+            Some(PixelDescriptor::RGBA8_SRGB)
         );
     }
 
@@ -182,14 +182,16 @@ mod tests {
         let available = &[PixelDescriptor::RGBA8_SRGB, PixelDescriptor::RGB8_SRGB];
         assert_eq!(
             negotiate_pixel_format(preferred, available),
-            PixelDescriptor::RGB8_SRGB
+            Some(PixelDescriptor::RGB8_SRGB)
         );
     }
 
     #[test]
-    #[should_panic(expected = "available formats must not be empty")]
-    fn panics_on_empty_available() {
-        negotiate_pixel_format(&[PixelDescriptor::RGB8_SRGB], &[]);
+    fn empty_available_returns_none() {
+        assert_eq!(
+            negotiate_pixel_format(&[PixelDescriptor::RGB8_SRGB], &[]),
+            None
+        );
     }
 
     #[test]
