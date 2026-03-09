@@ -1,6 +1,7 @@
 //! Encode and decode output types.
 
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
 
@@ -22,7 +23,7 @@ pub struct EncodeOutput {
     format: ImageFormat,
     mime_type: &'static str,
     extension: &'static str,
-    extras: Option<Box<dyn Any + Send>>,
+    extras: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 impl EncodeOutput {
@@ -102,20 +103,25 @@ impl EncodeOutput {
     }
 
     /// Attach format-specific extras (e.g., encoding statistics, codec-specific metadata).
-    pub fn with_extras<T: Any + Send + 'static>(mut self, extras: T) -> Self {
-        self.extras = Some(Box::new(extras));
+    pub fn with_extras<T: Any + Send + Sync + 'static>(mut self, extras: T) -> Self {
+        self.extras = Some(Arc::new(extras));
         self
     }
 
     /// Borrow typed extras if present and the type matches.
-    pub fn extras<T: Any + Send + 'static>(&self) -> Option<&T> {
+    pub fn extras<T: Any + Send + Sync + 'static>(&self) -> Option<&T> {
         self.extras.as_ref()?.downcast_ref()
     }
 
     /// Take typed extras, consuming them from this output.
-    pub fn take_extras<T: Any + Send + 'static>(&mut self) -> Option<T> {
-        let extras = self.extras.take()?;
-        extras.downcast().ok().map(|b| *b)
+    ///
+    /// Returns `Some(T)` only when this is the sole reference to the extras
+    /// (i.e. no clones are holding an `Arc` to the same value). Returns
+    /// `None` if the type doesn't match or other references exist.
+    pub fn take_extras<T: Any + Send + Sync + 'static>(&mut self) -> Option<T> {
+        let arc = self.extras.take()?;
+        let arc_t: Arc<T> = arc.downcast().ok()?;
+        Arc::try_unwrap(arc_t).ok()
     }
 }
 
@@ -126,7 +132,7 @@ impl Clone for EncodeOutput {
             format: self.format,
             mime_type: self.mime_type,
             extension: self.extension,
-            extras: None,
+            extras: self.extras.clone(),
         }
     }
 }
@@ -170,7 +176,7 @@ pub struct DecodeOutput {
     pixels: PixelBuffer,
     info: ImageInfo,
     source_encoding: Option<Box<dyn SourceEncodingDetails>>,
-    extras: Option<Box<dyn Any + Send>>,
+    extras: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 impl DecodeOutput {
@@ -218,20 +224,25 @@ impl DecodeOutput {
     }
 
     /// Attach format-specific extras (e.g., JPEG gain maps, MPF data).
-    pub fn with_extras<T: Any + Send + 'static>(mut self, extras: T) -> Self {
-        self.extras = Some(Box::new(extras));
+    pub fn with_extras<T: Any + Send + Sync + 'static>(mut self, extras: T) -> Self {
+        self.extras = Some(Arc::new(extras));
         self
     }
 
     /// Borrow typed extras if present and the type matches.
-    pub fn extras<T: Any + Send + 'static>(&self) -> Option<&T> {
+    pub fn extras<T: Any + Send + Sync + 'static>(&self) -> Option<&T> {
         self.extras.as_ref()?.downcast_ref()
     }
 
     /// Take typed extras, consuming them from this output.
-    pub fn take_extras<T: Any + Send + 'static>(&mut self) -> Option<T> {
-        let extras = self.extras.take()?;
-        extras.downcast().ok().map(|b| *b)
+    ///
+    /// Returns `Some(T)` only when this is the sole reference to the extras
+    /// (i.e. no clones are holding an `Arc` to the same value). Returns
+    /// `None` if the type doesn't match or other references exist.
+    pub fn take_extras<T: Any + Send + Sync + 'static>(&mut self) -> Option<T> {
+        let arc = self.extras.take()?;
+        let arc_t: Arc<T> = arc.downcast().ok()?;
+        Arc::try_unwrap(arc_t).ok()
     }
 
     /// Borrow the pixel data as a [`PixelSlice`].
@@ -390,7 +401,7 @@ pub struct OwnedFullFrame {
     pixels: PixelBuffer,
     duration_ms: u32,
     frame_index: u32,
-    extras: Option<Box<dyn Any + Send>>,
+    extras: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 impl OwnedFullFrame {
@@ -430,20 +441,25 @@ impl OwnedFullFrame {
     }
 
     /// Attach format-specific extras (e.g., per-frame codec metadata).
-    pub fn with_extras<T: Any + Send + 'static>(mut self, extras: T) -> Self {
-        self.extras = Some(Box::new(extras));
+    pub fn with_extras<T: Any + Send + Sync + 'static>(mut self, extras: T) -> Self {
+        self.extras = Some(Arc::new(extras));
         self
     }
 
     /// Borrow typed extras if present and the type matches.
-    pub fn extras<T: Any + Send + 'static>(&self) -> Option<&T> {
+    pub fn extras<T: Any + Send + Sync + 'static>(&self) -> Option<&T> {
         self.extras.as_ref()?.downcast_ref()
     }
 
     /// Take typed extras, consuming them from this frame.
-    pub fn take_extras<T: Any + Send + 'static>(&mut self) -> Option<T> {
-        let extras = self.extras.take()?;
-        extras.downcast().ok().map(|b| *b)
+    ///
+    /// Returns `Some(T)` only when this is the sole reference to the extras
+    /// (i.e. no clones are holding an `Arc` to the same value). Returns
+    /// `None` if the type doesn't match or other references exist.
+    pub fn take_extras<T: Any + Send + Sync + 'static>(&mut self) -> Option<T> {
+        let arc = self.extras.take()?;
+        let arc_t: Arc<T> = arc.downcast().ok()?;
+        Arc::try_unwrap(arc_t).ok()
     }
 }
 
