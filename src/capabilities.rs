@@ -285,70 +285,87 @@ impl EncodeCapabilities {
 
     // --- Const builder methods ---
 
+    /// Set whether the encoder embeds ICC color profiles.
     pub const fn with_icc(mut self, v: bool) -> Self {
         self.icc = v;
         self
     }
+    /// Set whether the encoder embeds EXIF data.
     pub const fn with_exif(mut self, v: bool) -> Self {
         self.exif = v;
         self
     }
+    /// Set whether the encoder embeds XMP data.
     pub const fn with_xmp(mut self, v: bool) -> Self {
         self.xmp = v;
         self
     }
+    /// Set whether the encoder embeds CICP color description.
     pub const fn with_cicp(mut self, v: bool) -> Self {
         self.cicp = v;
         self
     }
+    /// Set whether cooperative cancellation is supported.
     pub const fn with_cancel(mut self, v: bool) -> Self {
         self.cancel = v;
         self
     }
+    /// Set whether animation encoding is supported.
     pub const fn with_animation(mut self, v: bool) -> Self {
         self.animation = v;
         self
     }
+    /// Set whether row-level (`push_rows`/`finish`) encoding is supported.
     pub const fn with_row_level(mut self, v: bool) -> Self {
         self.row_level = v;
         self
     }
+    /// Set whether pull-from-source (`encode_from`) encoding is supported.
     pub const fn with_pull(mut self, v: bool) -> Self {
         self.pull = v;
         self
     }
+    /// Set whether lossy encoding is supported.
     pub const fn with_lossy(mut self, v: bool) -> Self {
         self.lossy = v;
         self
     }
+    /// Set whether lossless encoding is supported.
     pub const fn with_lossless(mut self, v: bool) -> Self {
         self.lossless = v;
         self
     }
+    /// Set whether HDR content is supported.
     pub const fn with_hdr(mut self, v: bool) -> Self {
         self.hdr = v;
         self
     }
+    /// Set whether native grayscale encoding is supported.
     pub const fn with_native_gray(mut self, v: bool) -> Self {
         self.native_gray = v;
         self
     }
+    /// Set whether native 16-bit per channel encoding is supported.
     pub const fn with_native_16bit(mut self, v: bool) -> Self {
         self.native_16bit = v;
         self
     }
+    /// Set whether native f32 pixel data is supported.
     pub const fn with_native_f32(mut self, v: bool) -> Self {
         self.native_f32 = v;
         self
     }
+    /// Set whether native alpha channel is supported.
     pub const fn with_native_alpha(mut self, v: bool) -> Self {
         self.native_alpha = v;
         self
     }
+    /// Set whether the encoder enforces `max_pixels` limits.
     pub const fn with_enforces_max_pixels(mut self, v: bool) -> Self {
         self.enforces_max_pixels = v;
         self
     }
+    /// Set whether the encoder enforces `max_memory_bytes` limits.
     pub const fn with_enforces_max_memory(mut self, v: bool) -> Self {
         self.enforces_max_memory = v;
         self
@@ -607,70 +624,87 @@ impl DecodeCapabilities {
 
     // --- Const builder methods ---
 
+    /// Set whether the decoder extracts ICC color profiles.
     pub const fn with_icc(mut self, v: bool) -> Self {
         self.icc = v;
         self
     }
+    /// Set whether the decoder extracts EXIF data.
     pub const fn with_exif(mut self, v: bool) -> Self {
         self.exif = v;
         self
     }
+    /// Set whether the decoder extracts XMP data.
     pub const fn with_xmp(mut self, v: bool) -> Self {
         self.xmp = v;
         self
     }
+    /// Set whether the decoder extracts CICP color description.
     pub const fn with_cicp(mut self, v: bool) -> Self {
         self.cicp = v;
         self
     }
+    /// Set whether cooperative cancellation is supported.
     pub const fn with_cancel(mut self, v: bool) -> Self {
         self.cancel = v;
         self
     }
+    /// Set whether animation decoding is supported.
     pub const fn with_animation(mut self, v: bool) -> Self {
         self.animation = v;
         self
     }
+    /// Set whether `probe()` is cheap (header parse only).
     pub const fn with_cheap_probe(mut self, v: bool) -> Self {
         self.cheap_probe = v;
         self
     }
+    /// Set whether `decode_into()` is implemented.
     pub const fn with_decode_into(mut self, v: bool) -> Self {
         self.decode_into = v;
         self
     }
+    /// Set whether streaming row-level decode is supported.
     pub const fn with_row_level(mut self, v: bool) -> Self {
         self.row_level = v;
         self
     }
+    /// Set whether HDR content is supported.
     pub const fn with_hdr(mut self, v: bool) -> Self {
         self.hdr = v;
         self
     }
+    /// Set whether native grayscale decoding is supported.
     pub const fn with_native_gray(mut self, v: bool) -> Self {
         self.native_gray = v;
         self
     }
+    /// Set whether native 16-bit per channel decoding is supported.
     pub const fn with_native_16bit(mut self, v: bool) -> Self {
         self.native_16bit = v;
         self
     }
+    /// Set whether native f32 pixel data is supported.
     pub const fn with_native_f32(mut self, v: bool) -> Self {
         self.native_f32 = v;
         self
     }
+    /// Set whether native alpha channel is supported.
     pub const fn with_native_alpha(mut self, v: bool) -> Self {
         self.native_alpha = v;
         self
     }
+    /// Set whether the decoder enforces `max_pixels` limits.
     pub const fn with_enforces_max_pixels(mut self, v: bool) -> Self {
         self.enforces_max_pixels = v;
         self
     }
+    /// Set whether the decoder enforces `max_memory_bytes` limits.
     pub const fn with_enforces_max_memory(mut self, v: bool) -> Self {
         self.enforces_max_memory = v;
         self
     }
+    /// Set whether the decoder enforces `max_input_bytes` limits.
     pub const fn with_enforces_max_input_bytes(mut self, v: bool) -> Self {
         self.enforces_max_input_bytes = v;
         self
