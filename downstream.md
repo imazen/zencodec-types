@@ -26,15 +26,12 @@ Audit date: 2026-03-08. Covers all users under `~/work/` and `~/work/zen/`.
 | zencodecs | `zen/zencodecs` | 0.1.0 | Umbrella crate, dispatches to codec crates via traits |
 | zcimg | `zen/zencodecs/zcimg` | 0.1.0 | CLI tool using zencodecs (**BROKEN: does not compile**) |
 
-### Consumer Crates (use traits / types)
+### Consumer Crates
 
 | Crate | Path | Version | Dep Type | Notes |
 |-------|------|---------|----------|-------|
-| zenimage | `zen/zenimage` | 0.1.0 | required | Uses only `ImageFormat` + `ResourceLimits` bridge; reimplements everything else |
 | imageflow4 | `zen/imageflow4/imageflow_core` | 4.0.0-alpha.1 | required | 100% dyn dispatch, legacy + new pipeline |
 | imageflow (old) | `work/imageflow/imageflow_core` | 0.1.0 | optional `zen-codecs` | Identical code to imageflow4 adapter layer |
-| zensquoosh-codecs | `zen/zensquoosh/crates/zensquoosh-codecs` | 0.1.0 | required (WASM) | **BROKEN: does not compile** |
-| coefficient | `work/coefficient` | 0.1.0 | dev-dep only | Uses only `PixelBufferConvertExt` re-export in one example |
 
 ---
 
@@ -45,12 +42,6 @@ Audit date: 2026-03-08. Covers all users under `~/work/` and `~/work/zen/`.
 - `encoded.bytes()` called but method is `.data()` or `.into_vec()`
 - `decoded.into_rgba8()` / `into_rgb8()` / `into_gray8()` don't exist on `DecodeOutput`
 - `ImageFormat::detect()` doesn't exist (should be `ImageFormatRegistry::common().detect()`)
-
-### zensquoosh-codecs (`zen/zensquoosh/crates/zensquoosh-codecs`)
-- `decoded.into_rgba8()` / `into_rgb8()` / `into_gray8()` don't exist on `DecodeOutput`
-- `zencodec_types::ChannelLayout` doesn't exist (it's in `zenpixels`)
-- `rgba.into_contiguous_buf()` doesn't exist on `PixelBuffer`
-- `rgba.as_ref()` assumes `ImgVec`, not `PixelBuffer`
 
 ### zentiff (`zen/zentiff`) — feature declared, zero implementation
 - `zencodec = ["dep:zencodec-types"]` feature exists but no source file references zencodec-types
@@ -195,7 +186,7 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 |---|---------|----------|
 | 1 | Double pixel conversion on first `push_rows` call (Raw path) | Low (perf) |
 | 2 | Gray8 encode: per-byte `flat_map` expansion to RGB | Low (perf) |
-| 3 | GrayF32 encode: two allocations (gray u8 → RGB) | Low (perf) |
+| 3 | GrayF32 encode: two allocations (gray u8 -> RGB) | Low (perf) |
 | 4 | Decode format negotiation incomplete — doesn't use prefs to choose RGB vs RGBA | Medium |
 | 5 | `enforces_max_input_bytes` not reported despite being enforced | Low |
 | 6 | `with_policy` not implemented — metadata policy ignored | Low |
@@ -259,7 +250,7 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 | # | Finding | Severity |
 |---|---------|----------|
 | 1 | HEIF container parsed up to 5 times per decode (ICC, EXIF, XMP, gain map, header) | High (perf) |
-| 2 | 16-bit path: two intermediate allocations (Vec\<u16> → Vec\<Rgba\<u16>> → PixelBuffer) | Medium (perf) |
+| 2 | 16-bit path: two intermediate allocations (Vec\<u16> -> Vec\<Rgba\<u16>> -> PixelBuffer) | Medium (perf) |
 | 3 | Grid streaming copies all tile data upfront via `into_owned()` | Medium (perf) |
 | 4 | `probe()` eagerly extracts all metadata (should be cheap header-only) | Medium |
 | 5 | `DecodePolicy` completely ignored | Low |
@@ -291,24 +282,12 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 |---|---------|----------|
 | 1 | **zcimg subcrate does not compile** (4+ API mismatches) | High |
 | 2 | AVIF decode doesn't forward limits to job (inconsistent with other codecs) | Medium |
-| 3 | UltraHDR RGB→RGBA encode: per-pixel `extend_from_slice`, 16MB alloc for 1MP | Medium (perf) |
+| 3 | UltraHDR RGB->RGBA encode: per-pixel `extend_from_slice`, 16MB alloc for 1MP | Medium (perf) |
 | 4 | `encode_rgba8` scans every pixel for alpha (no opaque fast path) | Low (perf) |
 | 5 | Doesn't query `CodecCapabilities` | Low |
 | 6 | Doesn't use `SourceEncodingDetails` from decode output | Low |
 | 7 | No `StreamingDecode` / `FullFrameDecoder` usage (documented limitation) | Low |
 | 8 | No `DecodePolicy` / `EncodePolicy` forwarding | Low |
-
-### zenimage (v0.1.0) — `zen/zenimage`
-
-**Role:** High-level image processing. Parallel type ecosystem.
-
-| # | Finding | Severity |
-|---|---------|----------|
-| 1 | Massive type duplication — reimplements nearly every zencodec-types concept | Architectural |
-| 2 | `ResourceLimits` conversion loses information in both directions | Medium |
-| 3 | No format negotiation | Low |
-| 4 | `pub mod zencodec { pub use zc::*; }` re-export appears to be dead code | Low |
-| 5 | Uses only `ImageFormat` + `ResourceLimits` from zencodec-types | Note |
 
 ### imageflow4 (v4.0.0-alpha.1) — `zen/imageflow4/imageflow_core`
 
@@ -329,15 +308,24 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 ### imageflow (old, v0.1.0) — `work/imageflow/imageflow_core`
 Identical adapter code to imageflow4. All findings from imageflow4 apply.
 
-### coefficient (v0.1.0) — `work/coefficient`
-Dev-dep only. Uses `PixelBufferConvertExt` re-export in one example. Should import from `zenpixels-convert` directly.
+---
 
-### zensquoosh-codecs (v0.1.0) — `zen/zensquoosh/crates/zensquoosh-codecs`
-**BROKEN.** Does not compile. See "Broken Crates" section above.
+## Unimportant TODOs
+
+These crates are low-priority — broken prototypes, minimal usage, or parallel architecture.
+
+### zenimage (`zen/zenimage`, v0.1.0)
+Uses only `ImageFormat` + `ResourceLimits` bridge from zencodec-types. Reimplements everything else (traits, capabilities, policies, metadata, pixel types, output types). `ResourceLimits` conversion loses information in both directions. `pub mod zencodec { pub use zc::*; }` re-export is dead code. Would need `pub mod zencodec` renamed if crate becomes `zencodec`.
+
+### zensquoosh-codecs (`zen/zensquoosh/crates/zensquoosh-codecs`, v0.1.0)
+**BROKEN.** Does not compile — calls `decoded.into_rgba8()` etc. which don't exist, imports `zencodec_types::ChannelLayout` which is in `zenpixels`, calls `rgba.into_contiguous_buf()` which doesn't exist on `PixelBuffer`.
+
+### coefficient (`work/coefficient`, v0.1.0)
+Dev-dep only. Uses `PixelBufferConvertExt` re-export in one example. Should import from `zenpixels-convert` directly.
 
 ---
 
-## Rename Migration Notes (zencodec-types → zencodec)
+## Rename Migration Notes (zencodec-types -> zencodec)
 
 ### Import paths to update
 
@@ -366,12 +354,11 @@ If the crate is renamed to `zencodec`:
 ### Crates requiring changes (by effort)
 
 **Trivial** (Cargo.toml path only, feature works as-is):
-- zentiff, zenbitmaps, ultrahdr, zensquoosh-codecs, coefficient
+- zentiff, zenbitmaps, ultrahdr
 - zenavif, zenwebp, zenjxl, zengif, heic-decoder-rs (just delete explicit feature def, change dep name)
 
 **Small** (Cargo.toml + source import renames):
 - zenjpeg, zenpng, zencodecs (update `use zencodec_types` / `package = "zencodec-types"` references)
 
 **Medium** (architectural touches):
-- zenimage (`pub mod zencodec` conflicts with crate name — rename module)
 - imageflow4 / imageflow (multiple import sites + adapter layer)
