@@ -11,80 +11,9 @@ use crate::metadata::Metadata;
 use crate::{ImageFormat, Orientation};
 use zenpixels::{ColorPrimaries, TransferFunction};
 
-/// Re-export CICP from zenpixels — the canonical definition.
+// Re-export color types from zenpixels — the canonical definitions.
 pub use zenpixels::Cicp;
-
-/// Content Light Level Info (CEA-861.3).
-///
-/// Describes the light level of HDR content. Used alongside [`MasteringDisplay`]
-/// to guide tone mapping on displays with different capabilities.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub struct ContentLightLevel {
-    /// Maximum Content Light Level in cd/m² (nits).
-    /// Peak luminance of any single pixel in the content.
-    pub max_content_light_level: u16,
-    /// Maximum Frame-Average Light Level in cd/m² (nits).
-    /// Peak average luminance of any single frame.
-    pub max_frame_average_light_level: u16,
-}
-
-impl ContentLightLevel {
-    /// Create content light level info.
-    pub const fn new(max_content_light_level: u16, max_frame_average_light_level: u16) -> Self {
-        Self {
-            max_content_light_level,
-            max_frame_average_light_level,
-        }
-    }
-}
-
-/// Mastering Display Color Volume (SMPTE ST 2086).
-///
-/// Describes the color volume of the display used to master HDR content.
-/// Chromaticity values are in units of 0.00002 (as per the spec).
-/// Luminance values are in units of 0.0001 cd/m².
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub struct MasteringDisplay {
-    /// Display primaries chromaticity [R, G, B], each as [x, y].
-    /// Values in units of 0.00002. (50000 = 1.0)
-    pub primaries: [[u16; 2]; 3],
-    /// White point chromaticity [x, y].
-    /// Values in units of 0.00002. (50000 = 1.0)
-    pub white_point: [u16; 2],
-    /// Maximum display luminance in units of 0.0001 cd/m².
-    pub max_luminance: u32,
-    /// Minimum display luminance in units of 0.0001 cd/m².
-    pub min_luminance: u32,
-}
-
-impl MasteringDisplay {
-    /// Create mastering display metadata.
-    pub const fn new(
-        primaries: [[u16; 2]; 3],
-        white_point: [u16; 2],
-        max_luminance: u32,
-        min_luminance: u32,
-    ) -> Self {
-        Self {
-            primaries,
-            white_point,
-            max_luminance,
-            min_luminance,
-        }
-    }
-
-    /// Maximum display luminance in cd/m² (nits).
-    pub fn max_luminance_nits(&self) -> f64 {
-        self.max_luminance as f64 * 0.0001
-    }
-
-    /// Minimum display luminance in cd/m² (nits).
-    pub fn min_luminance_nits(&self) -> f64 {
-        self.min_luminance as f64 * 0.0001
-    }
-}
+pub use zenpixels::{ContentLightLevel, MasteringDisplay};
 
 /// Source color description from the image file.
 ///
@@ -615,16 +544,13 @@ mod tests {
 
     #[test]
     fn image_info_hdr_metadata() {
-        let clli = ContentLightLevel {
-            max_content_light_level: 4000,
-            max_frame_average_light_level: 1000,
-        };
-        let mdcv = MasteringDisplay {
-            primaries: [[34000, 16000], [13250, 34500], [7500, 3000]],
-            white_point: [15635, 16450],
-            max_luminance: 40000000,
-            min_luminance: 50,
-        };
+        let clli = ContentLightLevel::new(4000, 1000);
+        let mdcv = MasteringDisplay::new(
+            [[0.680, 0.320], [0.265, 0.690], [0.150, 0.060]],
+            [0.3127, 0.3290],
+            4000.0,
+            0.005,
+        );
         let info = ImageInfo::new(3840, 2160, ImageFormat::Avif)
             .with_cicp(Cicp::BT2100_PQ)
             .with_content_light_level(clli)
@@ -639,7 +565,7 @@ mod tests {
         );
         assert_eq!(
             info.source_color.mastering_display.unwrap().max_luminance,
-            40000000
+            4000.0
         );
     }
 
@@ -677,7 +603,7 @@ mod tests {
     #[test]
     fn cicp_display_srgb() {
         let s = alloc::format!("{}", Cicp::SRGB);
-        assert_eq!(s, "BT.709/sRGB / sRGB / BT.601 (full range)");
+        assert_eq!(s, "BT.709/sRGB / sRGB / Identity/RGB (full range)");
     }
 
     #[test]
