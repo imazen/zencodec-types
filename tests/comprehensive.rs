@@ -19,7 +19,7 @@ use zencodec::encode::{
     EncoderConfig, FullFrameEncoder,
 };
 use zencodec::{
-    CodecErrorExt, FullFrame, ImageFormat, ImageInfo, LimitExceeded, Metadata,
+    CodecErrorExt, FullFrame, ImageFormat, ImageInfo, ImageSequence, LimitExceeded, Metadata,
     Orientation, OrientationHint, ResourceLimits, ThreadingPolicy, UnsupportedOperation,
 };
 use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
@@ -1265,8 +1265,11 @@ fn image_format_eq_hash_copy() {
 #[test]
 fn image_info_comprehensive_builder() {
     let info = ImageInfo::new(100, 200, ImageFormat::Avif)
-        .with_frame_count(10)
-        .with_animation(true)
+        .with_sequence(ImageSequence::Animation {
+            frame_count: Some(10),
+            loop_count: None,
+            random_access: false,
+        })
         .with_orientation(Orientation::Rotate90)
         .with_alpha(true)
         .with_icc_profile(vec![1, 2, 3])
@@ -1276,8 +1279,8 @@ fn image_info_comprehensive_builder() {
     assert_eq!(info.width, 100);
     assert_eq!(info.height, 200);
     assert_eq!(info.format, ImageFormat::Avif);
-    assert_eq!(info.frame_count, Some(10));
-    assert!(info.has_animation);
+    assert_eq!(info.frame_count(), Some(10));
+    assert!(info.is_animation());
     assert_eq!(info.orientation, Orientation::Rotate90);
     assert!(info.has_alpha);
     assert_eq!(

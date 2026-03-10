@@ -340,7 +340,10 @@ pub trait DecodeJob<'a>: Sized {
 // ===========================================================================
 
 /// Deprecated: use [`zencodec::helpers::copy_decode_to_sink`](crate::helpers::copy_decode_to_sink).
-#[deprecated(since = "0.2.0", note = "use zencodec::helpers::copy_decode_to_sink instead")]
+#[deprecated(
+    since = "0.2.0",
+    note = "use zencodec::helpers::copy_decode_to_sink instead"
+)]
 pub fn push_decoder_via_full_decode<'a, J>(
     job: J,
     data: Cow<'a, [u8]>,

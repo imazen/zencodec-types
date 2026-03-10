@@ -178,7 +178,10 @@ pub trait FullFrameDecoder: Sized {
 }
 
 /// Deprecated: use [`zencodec::helpers::copy_frame_to_sink`](crate::helpers::copy_frame_to_sink).
-#[deprecated(since = "0.2.0", note = "use zencodec::helpers::copy_frame_to_sink instead")]
+#[deprecated(
+    since = "0.2.0",
+    note = "use zencodec::helpers::copy_frame_to_sink instead"
+)]
 pub fn render_frame_to_sink_via_copy<D: FullFrameDecoder>(
     decoder: &mut D,
     stop: Option<&dyn Stop>,

@@ -272,7 +272,7 @@ impl ResourceLimits {
     pub fn check_image_info(&self, info: &crate::ImageInfo) -> Result<(), LimitExceeded> {
         self.check_dimensions(info.width, info.height)?;
         if let Some(max) = self.max_frames
-            && let Some(count) = info.frame_count
+            && let Some(count) = info.frame_count()
             && count > max
         {
             return Err(LimitExceeded::Frames { actual: count, max });
@@ -286,7 +286,6 @@ impl ResourceLimits {
     pub fn check_output_info(&self, info: &crate::OutputInfo) -> Result<(), LimitExceeded> {
         self.check_dimensions(info.width, info.height)
     }
-
 }
 
 /// A resource limit was exceeded.
@@ -569,14 +568,26 @@ mod tests {
             .with_max_pixels(16_000_000)
             .with_max_frames(100);
 
-        let info = ImageInfo::new(3840, 2160, ImageFormat::Avif).with_frame_count(50);
+        let info = ImageInfo::new(3840, 2160, ImageFormat::Avif).with_sequence(
+            crate::ImageSequence::Animation {
+                frame_count: Some(50),
+                loop_count: None,
+                random_access: false,
+            },
+        );
         assert!(limits.check_image_info(&info).is_ok());
 
         let big = ImageInfo::new(5000, 4000, ImageFormat::Jpeg);
         let err = limits.check_image_info(&big).unwrap_err();
         assert!(matches!(err, LimitExceeded::Width { .. }));
 
-        let many_frames = ImageInfo::new(100, 100, ImageFormat::Gif).with_frame_count(200);
+        let many_frames = ImageInfo::new(100, 100, ImageFormat::Gif).with_sequence(
+            crate::ImageSequence::Animation {
+                frame_count: Some(200),
+                loop_count: None,
+                random_access: false,
+            },
+        );
         let err = limits.check_image_info(&many_frames).unwrap_err();
         assert_eq!(
             err,
@@ -586,7 +597,6 @@ mod tests {
             }
         );
     }
-
 
     #[test]
     fn limit_exceeded_display() {

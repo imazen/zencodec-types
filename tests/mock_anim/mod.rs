@@ -18,7 +18,10 @@ use zencodec::decode::{
 use zencodec::encode::{
     EncodeCapabilities, EncodeJob, EncodeOutput, Encoder, EncoderConfig, FullFrameEncoder,
 };
-use zencodec::{FullFrame, ImageFormat, ImageInfo, Metadata, ResourceLimits, UnsupportedOperation};
+use zencodec::{
+    FullFrame, ImageFormat, ImageInfo, ImageSequence, Metadata, ResourceLimits,
+    UnsupportedOperation,
+};
 
 use enough::{Stop, StopReason};
 use zencodec::decode::{DecodeRowSink, SinkError};
@@ -233,9 +236,16 @@ impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
 
     fn probe(&self, data: &[u8]) -> Result<ImageInfo, MockError> {
         let (w, h, fc, _bpp) = parse_mock_header(data)?;
-        Ok(ImageInfo::new(w, h, ImageFormat::Pnm)
-            .with_frame_count(fc)
-            .with_animation(fc > 1))
+        let sequence = if fc > 1 {
+            ImageSequence::Animation {
+                frame_count: Some(fc),
+                loop_count: None,
+                random_access: false,
+            }
+        } else {
+            ImageSequence::Single
+        };
+        Ok(ImageInfo::new(w, h, ImageFormat::Pnm).with_sequence(sequence))
     }
 
     fn output_info(&self, data: &[u8]) -> Result<OutputInfo, MockError> {
@@ -385,9 +395,13 @@ impl FullFrameDecoder for MockFullFrameDec {
 
     fn info(&self) -> &ImageInfo {
         Box::leak(Box::new(
-            ImageInfo::new(self.width, self.height, ImageFormat::Pnm)
-                .with_frame_count(self.frame_count)
-                .with_animation(true),
+            ImageInfo::new(self.width, self.height, ImageFormat::Pnm).with_sequence(
+                ImageSequence::Animation {
+                    frame_count: Some(self.frame_count),
+                    loop_count: None,
+                    random_access: false,
+                },
+            ),
         ))
     }
 

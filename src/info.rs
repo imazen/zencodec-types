@@ -13,6 +13,146 @@ use zenpixels::{ColorPrimaries, TransferFunction};
 
 // Re-export color types from zenpixels — the canonical definitions.
 pub use zenpixels::Cicp;
+
+// =========================================================================
+// ImageSequence
+// =========================================================================
+
+/// What kind of image sequence the file contains.
+///
+/// Determines which decoder trait is appropriate:
+/// - `Single` → [`Decode`](crate::decode::Decode)
+/// - `Animation` → [`FullFrameDecoder`](crate::decode::FullFrameDecoder)
+/// - `Multi` → future `MultiPageDecoder` (or `Decode` for primary only)
+///
+/// # Key invariant
+///
+/// The variant tells you which decoder trait applies. Code that sees `Multi`
+/// knows not to use `FullFrameDecoder`. Code that sees `Animation` knows
+/// `MultiPageDecoder` is wrong. `Single` means only `Decode` is needed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ImageSequence {
+    /// Single image. `Decode` returns it.
+    Single,
+
+    /// Temporal animation: frames share a canvas size, have durations,
+    /// and may use compositing (disposal, blending, reference slots).
+    ///
+    /// Use `FullFrameDecoder`.
+    Animation {
+        /// Number of displayed frames. `None` if unknown without full parse
+        /// (e.g., GIF requires scanning all frames to count them).
+        frame_count: Option<u32>,
+        /// Loop count: 0 = infinite, N = play N times. `None` = unspecified.
+        loop_count: Option<u32>,
+        /// Whether frame N can be rendered without decoding frames 0..N-1.
+        ///
+        /// True when all frames are full-canvas replacements (no disposal
+        /// dependencies). False for GIF/APNG with inter-frame disposal.
+        /// JXL is typically true (keyframe-based).
+        random_access: bool,
+    },
+
+    /// Multiple independent images in a single container.
+    ///
+    /// Pages may differ in dimensions, pixel format, color space, and
+    /// metadata. `Decode` returns the primary image only. Other images
+    /// require a `MultiPageDecoder` (future) or the codec's native API.
+    ///
+    /// Examples: multi-page TIFF, HEIF collections, ICO sizes, DICOM slices,
+    /// GeoTIFF spectral bands.
+    Multi {
+        /// Number of primary-level images, excluding thumbnails, masks,
+        /// and pyramid levels (those are reported via `Supplements`).
+        ///
+        /// `None` if unknown without full parse.
+        image_count: Option<u32>,
+        /// Whether image N can be decoded without decoding images 0..N-1.
+        ///
+        /// True for most container formats (TIFF IFDs, HEIF items, ICO
+        /// entries) where each image is independently addressable.
+        random_access: bool,
+    },
+}
+
+impl ImageSequence {
+    /// Frame/image count if known.
+    ///
+    /// - `Single` → `Some(1)`
+    /// - `Animation` → `frame_count` (may be `None`)
+    /// - `Multi` → `image_count` (may be `None`)
+    pub fn count(&self) -> Option<u32> {
+        match self {
+            Self::Single => Some(1),
+            Self::Animation { frame_count, .. } => *frame_count,
+            Self::Multi { image_count, .. } => *image_count,
+        }
+    }
+
+    /// Whether individual frames/images can be accessed without decoding all priors.
+    pub fn random_access(&self) -> bool {
+        match self {
+            Self::Single => true,
+            Self::Animation { random_access, .. } => *random_access,
+            Self::Multi { random_access, .. } => *random_access,
+        }
+    }
+
+    /// Whether this is an animation sequence.
+    pub fn is_animation(&self) -> bool {
+        matches!(self, Self::Animation { .. })
+    }
+
+    /// Whether this contains multiple independent images.
+    pub fn is_multi(&self) -> bool {
+        matches!(self, Self::Multi { .. })
+    }
+}
+
+impl Default for ImageSequence {
+    fn default() -> Self {
+        Self::Single
+    }
+}
+
+// =========================================================================
+// Supplements
+// =========================================================================
+
+/// Supplemental content that accompanies the primary image(s).
+///
+/// These are not independent viewable images — they modify or augment
+/// the primary content. Each supplement type implies a distinct access
+/// pattern and a future accessor trait.
+///
+/// Populated during probe. May be incomplete from `probe()` (cheap) and
+/// more complete from `probe_full()` (expensive).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Supplements {
+    /// Reduced-resolution versions (image pyramid, thumbnails).
+    ///
+    /// TIFF pyramids, HEIF thumbnails, JPEG JFIF thumbnails.
+    pub pyramid: bool,
+
+    /// HDR gain map for SDR/HDR tone mapping.
+    ///
+    /// JPEG Ultra HDR (ISO 21496-1), AVIF gain map, JXL gain map,
+    /// HEIF gain map.
+    pub gain_map: bool,
+
+    /// Depth map (portrait mode, 3D reconstruction).
+    ///
+    /// HEIF depth maps, Google Camera depth in JPEG.
+    pub depth_map: bool,
+
+    /// Other auxiliary images not covered by named fields.
+    ///
+    /// Alpha planes stored as separate images (HEIF), transparency masks
+    /// (TIFF), vendor-specific auxiliary data.
+    pub auxiliary: bool,
+}
 pub use zenpixels::{ContentLightLevel, MasteringDisplay};
 
 /// Source color description from the image file.
@@ -102,7 +242,6 @@ impl SourceColor {
             .map(|c| c.color_primaries_enum())
             .unwrap_or(ColorPrimaries::Bt709)
     }
-
 }
 
 /// Embedded non-color metadata from the image file.
@@ -143,6 +282,20 @@ impl EmbeddedMetadata {
 }
 
 /// Image metadata obtained from probing or decoding.
+///
+/// # Field scope by sequence type
+///
+/// | Field | Single | Animation | Multi |
+/// |-------|--------|-----------|-------|
+/// | `width`, `height` | The image | Canvas size | Primary image only |
+/// | `has_alpha` | The image | Canvas alpha | Primary image only |
+/// | `orientation` | The image | Canvas orientation | Primary image only |
+/// | `source_color` | The image | Overall color info | Primary image only |
+/// | `embedded_metadata` | The image | Container-level | Primary image only |
+///
+/// For `Multi`, other images may have completely different dimensions, color
+/// spaces, and metadata. Per-image information requires a future
+/// `MultiPageDecoder` or the codec's native API.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct ImageInfo {
@@ -154,10 +307,16 @@ pub struct ImageInfo {
     pub format: ImageFormat,
     /// Whether the image has an alpha channel.
     pub has_alpha: bool,
-    /// Whether the image contains animation (multiple frames).
-    pub has_animation: bool,
-    /// Number of frames (None if unknown without full parse).
-    pub frame_count: Option<u32>,
+    /// What kind of image sequence the file contains.
+    ///
+    /// For `Single`, all fields describe the one image.
+    /// For `Animation`, `width`/`height` are the canvas size.
+    /// For `Multi`, `width`/`height` describe the primary image only.
+    pub sequence: ImageSequence,
+    /// Supplemental content alongside the primary image(s).
+    ///
+    /// Pyramids, gain maps, depth maps, and other auxiliary data.
+    pub supplements: Supplements,
     /// EXIF orientation (1-8).
     ///
     /// When a codec applies orientation during decode (rotating the pixel
@@ -195,7 +354,7 @@ pub struct ImageInfo {
 impl ImageInfo {
     /// Create a new `ImageInfo` with the given dimensions and format.
     ///
-    /// Other fields default to no alpha, no animation, no metadata.
+    /// Other fields default to no alpha, single image, no metadata.
     /// Use the `with_*` builder methods to set them.
     pub fn new(width: u32, height: u32, format: ImageFormat) -> Self {
         Self {
@@ -203,8 +362,8 @@ impl ImageInfo {
             height,
             format,
             has_alpha: false,
-            has_animation: false,
-            frame_count: None,
+            sequence: ImageSequence::Single,
+            supplements: Supplements::default(),
             orientation: Orientation::Normal,
             source_color: SourceColor::default(),
             embedded_metadata: EmbeddedMetadata::default(),
@@ -219,16 +378,43 @@ impl ImageInfo {
         self
     }
 
-    /// Set whether the image is animated.
-    pub fn with_animation(mut self, has_animation: bool) -> Self {
-        self.has_animation = has_animation;
+    /// Set the image sequence type.
+    pub fn with_sequence(mut self, sequence: ImageSequence) -> Self {
+        self.sequence = sequence;
         self
     }
 
-    /// Set the frame count.
-    pub fn with_frame_count(mut self, count: u32) -> Self {
-        self.frame_count = Some(count);
+    /// Set supplemental content flags.
+    pub fn with_supplements(mut self, supplements: Supplements) -> Self {
+        self.supplements = supplements;
         self
+    }
+
+    // --- Compatibility helpers ---
+
+    /// Whether this file contains animation.
+    ///
+    /// Convenience for `matches!(self.sequence, ImageSequence::Animation { .. })`.
+    pub fn is_animation(&self) -> bool {
+        self.sequence.is_animation()
+    }
+
+    /// Whether this file contains multiple independent images.
+    pub fn is_multi_image(&self) -> bool {
+        self.sequence.is_multi()
+    }
+
+    /// Whether `Decode` returns only one of multiple images in this file.
+    ///
+    /// True for both animation and multi-image. When true, `Decode` returns
+    /// the primary image and additional images require specialized decoders.
+    pub fn has_additional_images(&self) -> bool {
+        !matches!(self.sequence, ImageSequence::Single)
+    }
+
+    /// Frame/image count from the sequence, if known.
+    pub fn frame_count(&self) -> Option<u32> {
+        self.sequence.count()
     }
 
     /// Set the bit depth (bits per channel). Convenience for `source_color.bit_depth`.
@@ -405,8 +591,8 @@ impl core::fmt::Debug for ImageInfo {
             .field("height", &self.height)
             .field("format", &self.format)
             .field("has_alpha", &self.has_alpha)
-            .field("has_animation", &self.has_animation)
-            .field("frame_count", &self.frame_count)
+            .field("sequence", &self.sequence)
+            .field("supplements", &self.supplements)
             .field("orientation", &self.orientation)
             .field("source_color", &self.source_color)
             .field("embedded_metadata", &self.embedded_metadata);
@@ -427,8 +613,8 @@ impl PartialEq for ImageInfo {
             && self.height == other.height
             && self.format == other.format
             && self.has_alpha == other.has_alpha
-            && self.has_animation == other.has_animation
-            && self.frame_count == other.frame_count
+            && self.sequence == other.sequence
+            && self.supplements == other.supplements
             && self.orientation == other.orientation
             && self.source_color == other.source_color
             && self.embedded_metadata == other.embedded_metadata
@@ -491,14 +677,17 @@ mod tests {
     fn image_info_builder() {
         let info = ImageInfo::new(10, 20, ImageFormat::Png)
             .with_alpha(true)
-            .with_animation(true)
-            .with_frame_count(5)
+            .with_sequence(ImageSequence::Animation {
+                frame_count: Some(5),
+                loop_count: None,
+                random_access: false,
+            })
             .with_icc_profile(alloc::vec![1, 2])
             .with_exif(alloc::vec![3, 4])
             .with_xmp(alloc::vec![5, 6]);
         assert!(info.has_alpha);
-        assert!(info.has_animation);
-        assert_eq!(info.frame_count, Some(5));
+        assert!(info.is_animation());
+        assert_eq!(info.frame_count(), Some(5));
         assert_eq!(
             info.source_color.icc_profile.as_deref(),
             Some([1, 2].as_slice())

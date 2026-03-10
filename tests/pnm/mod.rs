@@ -10,7 +10,9 @@ use std::borrow::Cow;
 
 use zencodec::decode::{Decode, DecodeCapabilities, DecodeJob, DecoderConfig};
 use zencodec::encode::{EncodeCapabilities, EncodeJob, EncodeOutput, Encoder, EncoderConfig};
-use zencodec::{ImageFormat, ImageInfo, Metadata, ResourceLimits, Unsupported, UnsupportedOperation};
+use zencodec::{
+    ImageFormat, ImageInfo, Metadata, ResourceLimits, Unsupported, UnsupportedOperation,
+};
 
 use enough::{Stop, StopReason};
 use whereat::{At, ErrorAtExt};
@@ -250,7 +252,7 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
 
     fn probe(&self, data: &[u8]) -> Result<ImageInfo, At<PnmError>> {
         let (w, h, _is_gray) = parse_pnm_header(data).map_err(|e| e.start_at())?;
-        let info = ImageInfo::new(w, h, ImageFormat::Pnm).with_frame_count(1);
+        let info = ImageInfo::new(w, h, ImageFormat::Pnm);
         Ok(info)
     }
 

@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn decode_output() {
         let buf = make_rgb8_buffer(2, 2);
-        let info = ImageInfo::new(2, 2, ImageFormat::Png).with_frame_count(1);
+        let info = ImageInfo::new(2, 2, ImageFormat::Png);
         let output = DecodeOutput::new(buf, info);
         assert_eq!(output.width(), 2);
         assert_eq!(output.height(), 2);

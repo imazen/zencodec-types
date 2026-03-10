@@ -41,6 +41,8 @@ pub enum UnsupportedOperation {
     AnimationDecode,
     /// A specific pixel format is not supported.
     PixelFormat,
+    /// All `MultiPageDecoder` methods (multi-image decode).
+    MultiImageDecode,
 }
 
 impl UnsupportedOperation {
@@ -54,6 +56,7 @@ impl UnsupportedOperation {
             Self::RowLevelDecode => "row_level_decode",
             Self::AnimationDecode => "animation_decode",
             Self::PixelFormat => "pixel_format",
+            Self::MultiImageDecode => "multi_image_decode",
         }
     }
 }
@@ -279,6 +282,7 @@ impl EncodeCapabilities {
             UnsupportedOperation::DecodeInto
             | UnsupportedOperation::RowLevelDecode
             | UnsupportedOperation::AnimationDecode
+            | UnsupportedOperation::MultiImageDecode
             | UnsupportedOperation::PixelFormat => false,
         }
     }
@@ -459,6 +463,7 @@ pub struct DecodeCapabilities {
     // Operation support
     stop: bool,
     animation: bool,
+    multi_image: bool,
     cheap_probe: bool,
     decode_into: bool,
     streaming: bool,
@@ -495,6 +500,7 @@ impl DecodeCapabilities {
             cicp: false,
             stop: false,
             animation: false,
+            multi_image: false,
             cheap_probe: false,
             decode_into: false,
             streaming: false,
@@ -535,6 +541,13 @@ impl DecodeCapabilities {
     /// Whether the codec supports decoding animation (multiple frames).
     pub const fn animation(&self) -> bool {
         self.animation
+    }
+    /// Whether this decoder supports multi-image containers (TIFF, HEIF, ICO).
+    ///
+    /// True for codecs with independently-addressable images.
+    /// False for single-image and animation-only codecs.
+    pub const fn multi_image(&self) -> bool {
+        self.multi_image
     }
     /// Whether `probe()` is cheap (header parse only, not a full decode).
     pub const fn cheap_probe(&self) -> bool {
@@ -615,6 +628,7 @@ impl DecodeCapabilities {
             UnsupportedOperation::DecodeInto => self.decode_into,
             UnsupportedOperation::RowLevelDecode => self.streaming,
             UnsupportedOperation::AnimationDecode => self.animation,
+            UnsupportedOperation::MultiImageDecode => self.multi_image,
             UnsupportedOperation::RowLevelEncode
             | UnsupportedOperation::PullEncode
             | UnsupportedOperation::AnimationEncode
@@ -652,6 +666,11 @@ impl DecodeCapabilities {
     /// Set whether animation decoding is supported.
     pub const fn with_animation(mut self, v: bool) -> Self {
         self.animation = v;
+        self
+    }
+    /// Set whether multi-image container decoding is supported.
+    pub const fn with_multi_image(mut self, v: bool) -> Self {
+        self.multi_image = v;
         self
     }
     /// Set whether `probe()` is cheap (header parse only).
@@ -728,6 +747,7 @@ impl fmt::Debug for DecodeCapabilities {
             .field("cicp", &self.cicp)
             .field("stop", &self.stop)
             .field("animation", &self.animation)
+            .field("multi_image", &self.multi_image)
             .field("cheap_probe", &self.cheap_probe)
             .field("decode_into", &self.decode_into)
             .field("streaming", &self.streaming)

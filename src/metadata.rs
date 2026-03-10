@@ -141,7 +141,6 @@ mod tests {
     #[test]
     fn metadata_roundtrip() {
         let info = crate::ImageInfo::new(100, 200, ImageFormat::Jpeg)
-            .with_frame_count(1)
             .with_icc_profile(alloc::vec![1, 2, 3])
             .with_exif(alloc::vec![4, 5])
             .with_cicp(Cicp::SRGB)
