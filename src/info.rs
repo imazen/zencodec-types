@@ -30,10 +30,11 @@ pub use zenpixels::Cicp;
 /// The variant tells you which decoder trait applies. Code that sees `Multi`
 /// knows not to use `FullFrameDecoder`. Code that sees `Animation` knows
 /// `MultiPageDecoder` is wrong. `Single` means only `Decode` is needed.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ImageSequence {
     /// Single image. `Decode` returns it.
+    #[default]
     Single,
 
     /// Temporal animation: frames share a canvas size, have durations,
@@ -110,11 +111,6 @@ impl ImageSequence {
     }
 }
 
-impl Default for ImageSequence {
-    fn default() -> Self {
-        Self::Single
-    }
-}
 
 // =========================================================================
 // Supplements
