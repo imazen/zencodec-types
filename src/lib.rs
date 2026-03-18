@@ -61,7 +61,10 @@ mod traits;
 
 pub use extensions::Extensions;
 pub use format::{ImageFormat, ImageFormatDefinition, ImageFormatRegistry};
-pub use info::{Cicp, ContentLightLevel, ImageInfo, ImageSequence, MasteringDisplay, Supplements};
+pub use info::{
+    Cicp, ContentLightLevel, ImageInfo, ImageSequence, MasteringDisplay, Resolution,
+    ResolutionUnit, Supplements,
+};
 pub use limits::{LimitExceeded, ResourceLimits, ThreadingPolicy};
 pub use metadata::Metadata;
 pub use orientation::{Orientation, OrientationHint};

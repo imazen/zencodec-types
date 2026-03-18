@@ -140,8 +140,13 @@ pub struct Supplements {
 
     /// Depth map (portrait mode, 3D reconstruction).
     ///
-    /// HEIF depth maps, Google Camera depth in JPEG.
+    /// HEIF depth maps, Google Camera depth in JPEG, AVIF depth auxiliary.
     pub depth_map: bool,
+
+    /// Segmentation mattes (portrait effects, hair, skin, teeth, glasses, sky).
+    ///
+    /// iPhone HEIC files with portrait mode or semantic segmentation.
+    pub segmentation_mattes: bool,
 
     /// Other auxiliary images not covered by named fields.
     ///
@@ -149,6 +154,48 @@ pub struct Supplements {
     /// (TIFF), vendor-specific auxiliary data.
     pub auxiliary: bool,
 }
+
+/// Physical pixel resolution (DPI or pixels-per-unit).
+///
+/// Sourced from JPEG JFIF density, PNG pHYs, TIFF XResolution/YResolution,
+/// BMP biXPelsPerMeter/biYPelsPerMeter, etc.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Resolution {
+    /// Horizontal pixels per unit.
+    pub x: f64,
+    /// Vertical pixels per unit.
+    pub y: f64,
+    /// Unit of measurement.
+    pub unit: ResolutionUnit,
+}
+
+impl Resolution {
+    /// Resolution in dots per inch. Converts from centimeters if needed.
+    pub fn dpi(&self) -> (f64, f64) {
+        match self.unit {
+            ResolutionUnit::Inch => (self.x, self.y),
+            ResolutionUnit::Centimeter => (self.x * 2.54, self.y * 2.54),
+            ResolutionUnit::Meter => (self.x * 0.0254, self.y * 0.0254),
+            ResolutionUnit::Unknown => (self.x, self.y),
+        }
+    }
+}
+
+/// Unit for [`Resolution`] values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum ResolutionUnit {
+    /// Dots per inch (JPEG JFIF, TIFF).
+    Inch,
+    /// Dots per centimeter (TIFF).
+    Centimeter,
+    /// Pixels per meter (PNG pHYs, BMP).
+    Meter,
+    /// Unit unknown or not specified.
+    #[default]
+    Unknown,
+}
+
 pub use zenpixels::{ContentLightLevel, MasteringDisplay};
 
 /// Source color description from the image file.
@@ -325,6 +372,12 @@ pub struct ImageInfo {
     /// [`display_height()`](ImageInfo::display_height) to get effective
     /// display dimensions regardless.
     pub orientation: Orientation,
+    /// Physical pixel resolution (DPI).
+    ///
+    /// From JPEG JFIF density, PNG pHYs, TIFF resolution tags, BMP
+    /// pels-per-meter, etc. `None` if the file doesn't specify resolution.
+    pub resolution: Option<Resolution>,
+
     /// Source color description (CICP, ICC, bit depth, HDR metadata).
     pub source_color: SourceColor,
     /// Embedded non-color metadata (EXIF, XMP).
@@ -361,6 +414,7 @@ impl ImageInfo {
             sequence: ImageSequence::Single,
             supplements: Supplements::default(),
             orientation: Orientation::Normal,
+            resolution: None,
             source_color: SourceColor::default(),
             embedded_metadata: EmbeddedMetadata::default(),
             source_encoding: None,
@@ -383,6 +437,12 @@ impl ImageInfo {
     /// Set supplemental content flags.
     pub fn with_supplements(mut self, supplements: Supplements) -> Self {
         self.supplements = supplements;
+        self
+    }
+
+    /// Set physical pixel resolution.
+    pub fn with_resolution(mut self, resolution: Resolution) -> Self {
+        self.resolution = Some(resolution);
         self
     }
 
