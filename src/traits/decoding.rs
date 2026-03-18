@@ -89,14 +89,15 @@ pub trait DecodeJob<'a>: Sized {
     ///
     /// Implements [`StreamingDecode`] for batch/scanline-level decode.
     /// Set to `()` if the codec does not support streaming decode.
-    type StreamDec: StreamingDecode<Error = Self::Error>;
+    type StreamDec: StreamingDecode<Error = Self::Error> + Send;
 
     /// Full-frame animation decoder type.
     ///
-    /// Must be `'static` — frame decoders own their data (typically by
+    /// Must be `'static` and `Send` — frame decoders own their data (typically by
     /// copying the input slice at construction time). This lets callers
-    /// drop the input buffer while still iterating frames.
-    type FullFrameDec: FullFrameDecoder<Error = Self::Error> + 'static;
+    /// drop the input buffer while still iterating frames, and use decoders
+    /// across thread boundaries (e.g., in pipeline `Source` implementations).
+    type FullFrameDec: FullFrameDecoder<Error = Self::Error> + Send + 'static;
 
     /// Set cooperative cancellation token.
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
@@ -301,6 +302,7 @@ pub trait DecodeJob<'a>: Sized {
     ) -> Result<Box<dyn DynFullFrameDecoder>, BoxedError>
     where
         Self: 'a,
+        Self::FullFrameDec: Send,
     {
         let dec = self
             .full_frame_decoder(data, preferred)
@@ -327,6 +329,7 @@ pub trait DecodeJob<'a>: Sized {
     ) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError>
     where
         Self: 'a,
+        Self::StreamDec: Send,
     {
         let dec = self
             .streaming_decoder(data, preferred)

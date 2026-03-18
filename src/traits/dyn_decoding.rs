@@ -62,7 +62,7 @@ impl<D: Decode> DynDecoder for DecoderShim<D> {
 ///
 /// Use [`as_any()`](DynFullFrameDecoder::as_any) to downcast back to the
 /// concrete codec type for format-specific animation controls.
-pub trait DynFullFrameDecoder {
+pub trait DynFullFrameDecoder: Send {
     /// Downcast to the concrete frame decoder type.
     fn as_any(&self) -> &dyn Any;
 
@@ -104,7 +104,7 @@ impl core::fmt::Debug for dyn DynFullFrameDecoder + '_ {
 
 pub(super) struct FullFrameDecoderShim<F>(pub(super) F);
 
-impl<F: FullFrameDecoder + 'static> DynFullFrameDecoder for FullFrameDecoderShim<F> {
+impl<F: FullFrameDecoder + Send + 'static> DynFullFrameDecoder for FullFrameDecoderShim<F> {
     fn as_any(&self) -> &dyn Any {
         &self.0
     }
@@ -157,7 +157,7 @@ impl<F: FullFrameDecoder + 'static> DynFullFrameDecoder for FullFrameDecoderShim
 ///
 /// Wraps [`StreamingDecode`] for dyn dispatch. Produced by
 /// [`DynDecodeJob::into_streaming_decoder`].
-pub trait DynStreamingDecoder {
+pub trait DynStreamingDecoder: Send {
     /// Pull the next batch of scanlines.
     fn next_batch(&mut self) -> Result<Option<(u32, PixelSlice<'_>)>, BoxedError>;
 
@@ -174,7 +174,7 @@ impl core::fmt::Debug for dyn DynStreamingDecoder + '_ {
 
 pub(super) struct StreamingDecoderShim<S>(pub(super) S);
 
-impl<S: StreamingDecode> DynStreamingDecoder for StreamingDecoderShim<S> {
+impl<S: StreamingDecode + Send> DynStreamingDecoder for StreamingDecoderShim<S> {
     fn next_batch(&mut self) -> Result<Option<(u32, PixelSlice<'_>)>, BoxedError> {
         self.0.next_batch().map_err(|e| Box::new(e) as BoxedError)
     }
@@ -283,6 +283,8 @@ impl<J> DecodeJobShim<J> {
 impl<'a, J> DynDecodeJob<'a> for DecodeJobShim<J>
 where
     J: DecodeJob<'a> + 'a,
+    J::StreamDec: Send,
+    J::FullFrameDec: Send,
 {
     fn set_stop(&mut self, stop: &'a dyn Stop) {
         let job = self.take();

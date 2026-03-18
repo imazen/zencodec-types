@@ -139,7 +139,7 @@ impl<E: Encoder> DynEncoder for EncoderShim<E> {
 ///
 /// Use [`as_any()`](DynFullFrameEncoder::as_any) to downcast back to the
 /// concrete codec type for format-specific animation controls.
-pub trait DynFullFrameEncoder {
+pub trait DynFullFrameEncoder: Send {
     /// Downcast to the concrete frame encoder type.
     fn as_any(&self) -> &dyn Any;
 
@@ -170,7 +170,7 @@ impl core::fmt::Debug for dyn DynFullFrameEncoder + '_ {
 
 pub(super) struct FullFrameEncoderShim<F>(pub(super) F);
 
-impl<F: FullFrameEncoder + 'static> DynFullFrameEncoder for FullFrameEncoderShim<F> {
+impl<F: FullFrameEncoder + Send + 'static> DynFullFrameEncoder for FullFrameEncoderShim<F> {
     fn as_any(&self) -> &dyn Any {
         &self.0
     }

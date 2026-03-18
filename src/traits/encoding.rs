@@ -131,10 +131,11 @@ pub trait EncodeJob<'a>: Sized {
 
     /// Full-frame animation encoder type (implements [`FullFrameEncoder`]).
     ///
-    /// Must be `'static` — frame encoders own their configuration
+    /// Must be `'static` and `Send` — frame encoders own their configuration
     /// (clone configs, convert stop tokens to owned form). This lets
-    /// callers use the encoder independently of the job's scope.
-    type FullFrameEnc: Sized + 'static;
+    /// callers use the encoder independently of the job's scope and across
+    /// thread boundaries (e.g., in pipeline `Sink` implementations).
+    type FullFrameEnc: Sized + Send + 'static;
 
     /// Set cooperative cancellation token.
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
@@ -276,7 +277,7 @@ pub trait EncodeJob<'a>: Sized {
     fn dyn_full_frame_encoder(self) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError>
     where
         Self: 'a,
-        Self::FullFrameEnc: FullFrameEncoder,
+        Self::FullFrameEnc: FullFrameEncoder + Send,
     {
         let enc = self
             .full_frame_encoder()
