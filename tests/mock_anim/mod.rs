@@ -570,7 +570,7 @@ impl EncoderConfig for MockEncoderConfig {
         self.alpha_quality
     }
 
-    fn job(&self) -> MockEncodeJob<'_> {
+    fn job(self) -> MockEncodeJob<'static> {
         MockEncodeJob {
             limits: ResourceLimits::none(),
             stop: None,

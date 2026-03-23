@@ -103,7 +103,7 @@ impl EncoderConfig for MyEncoderConfig {
         self.quality
     }
 
-    fn job(&self) -> MyEncodeJob<'_> {
+    fn job(self) -> MyEncodeJob<'static> {
         MyEncodeJob {
             config: self,
             limits: zencodec::ResourceLimits::none(),

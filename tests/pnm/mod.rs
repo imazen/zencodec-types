@@ -90,7 +90,7 @@ impl EncoderConfig for PnmEncoderConfig {
         &PNM_ENCODE_CAPS
     }
 
-    fn job(&self) -> PnmEncodeJob<'_> {
+    fn job(self) -> PnmEncodeJob<'static> {
         PnmEncodeJob {
             limits: ResourceLimits::none(),
             stop: None,

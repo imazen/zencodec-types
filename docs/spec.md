@@ -71,7 +71,7 @@ trait EncoderConfig: Clone + Send + Sync {
     fn is_lossless(&self) -> Option<bool>;      // default: None
     fn alpha_quality(&self) -> Option<f32>;     // default: None
 
-    fn job(&self) -> Self::Job<'_>;
+    fn job(self) -> Self::Job<'static>;
 }
 ```
 

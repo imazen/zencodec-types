@@ -1774,13 +1774,13 @@ fn config_reusable_multiple_jobs() {
     let buf2 = make_rgb8_buffer(4, 4);
 
     let data1 = {
-        let job = enc_config.job();
+        let job = enc_config.clone().job();
         let enc = job.encoder().unwrap();
         enc.encode(buf1.as_slice()).unwrap().into_vec()
     };
 
     let data2 = {
-        let job = enc_config.job();
+        let job = enc_config.clone().job();
         let enc = job.encoder().unwrap();
         enc.encode(buf2.as_slice()).unwrap().into_vec()
     };
