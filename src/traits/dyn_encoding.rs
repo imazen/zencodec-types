@@ -392,6 +392,6 @@ where
     }
 
     fn dyn_job(&self) -> Box<dyn DynEncodeJob<'static> + 'static> {
-        Box::new(EncodeJobShim(Some(self.clone().job())))
+        Box::new(EncodeJobShim(Some(self.clone().job::<'static>())))
     }
 }
