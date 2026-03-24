@@ -5,8 +5,7 @@ use alloc::boxed::Box;
 
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
-use crate::{DecodeCapabilities, ImageInfo, OutputInfo, ResourceLimits};
-use enough::Stop;
+use crate::{DecodeCapabilities, ImageInfo, OutputInfo, ResourceLimits, StopToken};
 use zenpixels::PixelDescriptor;
 
 use super::BoxedError;
@@ -100,7 +99,11 @@ pub trait DecodeJob<'a>: Sized {
     type FullFrameDec: FullFrameDecoder<Error = Self::Error> + Send + 'static;
 
     /// Set cooperative cancellation token.
-    fn with_stop(self, stop: &'a dyn Stop) -> Self;
+    ///
+    /// [`StopToken`](crate::StopToken) is `Clone + Send + Sync + 'static` —
+    /// an owned, type-erased stop. Convert any `Stop + 'static` with
+    /// `StopToken::new(stop)`.
+    fn with_stop(self, stop: StopToken) -> Self;
 
     /// Override resource limits for this operation.
     fn with_limits(self, limits: ResourceLimits) -> Self;

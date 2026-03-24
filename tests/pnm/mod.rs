@@ -197,7 +197,8 @@ impl PnmDecoderConfig {
 /// Per-operation decode job.
 pub struct PnmDecodeJob<'a> {
     limits: ResourceLimits,
-    stop: Option<&'a dyn Stop>,
+    stop: Option<zencodec::StopToken>,
+    _marker: core::marker::PhantomData<&'a ()>,
 }
 
 /// The actual PPM/PGM decoder (data bound at construction).
@@ -229,6 +230,7 @@ impl DecoderConfig for PnmDecoderConfig {
         PnmDecodeJob {
             limits: ResourceLimits::none(),
             stop: None,
+            _marker: core::marker::PhantomData,
         }
     }
 }
@@ -239,7 +241,7 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
     type StreamDec = Unsupported<At<PnmError>>;
     type FullFrameDec = Unsupported<At<PnmError>>;
 
-    fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
+    fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
         self.stop = Some(stop);
         self
     }

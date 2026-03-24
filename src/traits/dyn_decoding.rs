@@ -14,7 +14,7 @@ use core::any::Any;
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
 use crate::output::OwnedFullFrame;
-use crate::{DecodeCapabilities, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits};
+use crate::{DecodeCapabilities, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits, StopToken};
 use enough::Stop;
 use zenpixels::{PixelDescriptor, PixelSlice};
 
@@ -195,7 +195,7 @@ impl<S: StreamingDecode + Send> DynStreamingDecoder for StreamingDecoderShim<S> 
 /// then call one of the `into_*` methods to create a decoder.
 pub trait DynDecodeJob<'a> {
     /// Set cooperative cancellation token.
-    fn set_stop(&mut self, stop: &'a dyn Stop);
+    fn set_stop(&mut self, stop: StopToken);
 
     /// Override resource limits.
     fn set_limits(&mut self, limits: ResourceLimits);
@@ -286,7 +286,7 @@ where
     J::StreamDec: Send,
     J::FullFrameDec: Send,
 {
-    fn set_stop(&mut self, stop: &'a dyn Stop) {
+    fn set_stop(&mut self, stop: StopToken) {
         let job = self.take();
         self.put(job.with_stop(stop));
     }

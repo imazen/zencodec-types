@@ -176,18 +176,20 @@ impl DecoderConfig for MockDecoderConfig {
             orientation: None,
             start_frame: None,
             ext: MockDecodeExtensions::default(),
+            _marker: core::marker::PhantomData,
         }
     }
 }
 
 pub struct MockDecodeJob<'a> {
     limits: ResourceLimits,
-    stop: Option<&'a dyn Stop>,
+    stop: Option<zencodec::StopToken>,
     policy: Option<zencodec::decode::DecodePolicy>,
     crop: Option<(u32, u32, u32, u32)>,
     orientation: Option<zencodec::OrientationHint>,
     start_frame: Option<u32>,
     pub ext: MockDecodeExtensions,
+    _marker: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
@@ -196,7 +198,7 @@ impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
     type StreamDec = MockStreamDec<'a>;
     type FullFrameDec = MockFullFrameDec;
 
-    fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
+    fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
         self.stop = Some(stop);
         self
     }
@@ -260,7 +262,7 @@ impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
     ) -> Result<MockDec<'a>, MockError> {
         let (w, h, _, _) = parse_mock_header(&data)?;
         self.limits.check_dimensions(w, h)?;
-        if let Some(stop) = self.stop {
+        if let Some(ref stop) = self.stop {
             stop.check()?;
         }
         Ok(MockDec { data })

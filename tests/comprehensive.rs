@@ -1096,7 +1096,7 @@ fn decode_respects_cancellation() {
     let stopper = Stopper::cancelled();
 
     let config = MockDecoderConfig;
-    let job = config.job().with_stop(&stopper);
+    let job = config.job().with_stop(zencodec::StopToken::new(stopper));
     let err = job.decoder(Cow::Borrowed(&data), &[]).unwrap_err();
     assert!(format!("{err}").contains("cancelled"));
 }
