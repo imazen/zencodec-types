@@ -264,7 +264,7 @@ impl<J> EncodeJobShim<J> {
     }
 }
 
-impl<'a, J> DynEncodeJob for EncodeJobShim<J>
+impl<J> DynEncodeJob for EncodeJobShim<J>
 where
     J: EncodeJob,
     J::Enc: Encoder,
