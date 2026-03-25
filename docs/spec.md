@@ -545,16 +545,38 @@ Decode outputs carry three layers of information:
 3. **`Extensions` type-map** — supplementary decoded data. Accessed via
    `extras::<T>()`. Multiple types coexist.
 
-#### Discovery then access
+#### Discovery, opt-in, then access
 
-Use `ImageInfo.supplements` to discover what's available before accessing
-`extras()`. This avoids blind type probing:
+Supplement data flows through three stages:
+
+1. **Detection (always, cheap):** `ImageInfo.supplements` and `GainMapPresence`
+   are populated during probe/decode from container metadata. No pixel
+   decoding occurs. This tells the caller what's available.
+
+2. **Opt-in (caller decides):** Supplement pixel decode is **never automatic**.
+   Gain maps and depth maps require explicit opt-in because decoding them
+   is expensive (full AV1/HEVC decode at 1/4-1/8 primary resolution).
+   Opt-in happens via:
+   - Decode node params (e.g., `extract_gain_map: true` on `heic.decode`)
+   - Job-level extensions on `DecodeJob`
+   - Dedicated codec methods (e.g., `decode_gain_map()`)
+
+3. **Access (typed):** After opt-in decode, supplement pixels appear in
+   `extras()`:
 
 ```rust
+// Stage 1: discover (cheap, always available)
 if info.supplements.gain_map {
-    let gm = output.extras::<DecodedGainMap>().expect("supplements promised gain map");
+    // Stage 2: opt-in (caller must request decode separately)
+    // Stage 3: access decoded pixels
+    let gm = output.extras::<DecodedGainMap>().expect("opted in and decoded");
 }
 ```
+
+**Default behavior:** `Decode::decode()` decodes primary image pixels only.
+Supplements are detected but not pixel-decoded unless explicitly requested.
+Codecs that currently decode supplements unconditionally should be migrated
+to opt-in behavior.
 
 #### Normalized supplement types
 
