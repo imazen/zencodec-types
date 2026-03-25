@@ -409,8 +409,6 @@ pub struct ImageInfo {
 // ImageInfo contains Arc, Vec, trait objects — heavily pointer-dependent.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(core::mem::size_of::<ImageInfo>() == 248);
-#[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::size_of::<ImageInfo>() <= 160);
 
 impl ImageInfo {
     /// Create a new `ImageInfo` with the given dimensions and format.

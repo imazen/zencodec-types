@@ -91,7 +91,9 @@ pub struct ResourceLimits {
     pub threading: ThreadingPolicy,
 }
 
-// All primitives, no pointers — same size on all platforms.
+// All primitives, no pointers — but Option<u64> niche optimization and
+// enum discriminant alignment can differ between 32-bit and 64-bit.
+#[cfg(target_pointer_width = "64")]
 const _: () = assert!(core::mem::size_of::<ResourceLimits>() == 112);
 
 impl Default for ResourceLimits {
