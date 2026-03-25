@@ -350,6 +350,16 @@ pub struct ImageInfo {
     pub format: ImageFormat,
     /// Whether the image has an alpha channel.
     pub has_alpha: bool,
+    /// Whether the source encoding uses progressive or interlaced scan order.
+    ///
+    /// True for progressive JPEG (SOF2), interlaced PNG (Adam7), and
+    /// interlaced GIF. False for all other formats and non-interlaced
+    /// variants. This is a file-level structural property detectable
+    /// from headers (cheap probe).
+    ///
+    /// Used by [`DecodePolicy::allow_progressive`](crate::decode::DecodePolicy)
+    /// to reject progressive/interlaced input.
+    pub is_progressive: bool,
     /// What kind of image sequence the file contains.
     ///
     /// For `Single`, all fields describe the one image.
@@ -421,6 +431,7 @@ impl ImageInfo {
             height,
             format,
             has_alpha: false,
+            is_progressive: false,
             sequence: ImageSequence::Single,
             supplements: Supplements::default(),
             gain_map: GainMapPresence::default(),
@@ -436,6 +447,12 @@ impl ImageInfo {
     /// Set whether the image has alpha.
     pub fn with_alpha(mut self, has_alpha: bool) -> Self {
         self.has_alpha = has_alpha;
+        self
+    }
+
+    /// Set whether the source uses progressive or interlaced scan order.
+    pub fn with_progressive(mut self, progressive: bool) -> Self {
+        self.is_progressive = progressive;
         self
     }
 
@@ -664,6 +681,7 @@ impl core::fmt::Debug for ImageInfo {
             .field("height", &self.height)
             .field("format", &self.format)
             .field("has_alpha", &self.has_alpha)
+            .field("is_progressive", &self.is_progressive)
             .field("sequence", &self.sequence)
             .field("supplements", &self.supplements)
             .field("gain_map", &self.gain_map)
@@ -687,6 +705,7 @@ impl PartialEq for ImageInfo {
             && self.height == other.height
             && self.format == other.format
             && self.has_alpha == other.has_alpha
+            && self.is_progressive == other.is_progressive
             && self.sequence == other.sequence
             && self.supplements == other.supplements
             && self.gain_map == other.gain_map
