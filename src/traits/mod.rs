@@ -4,12 +4,12 @@
 //! ENCODE:
 //!                                  ┌→ Enc (implements Encoder)
 //! EncoderConfig → EncodeJob<'a> ──┤
-//!                                  └→ FullFrameEnc (implements FullFrameEncoder)
+//!                                  └→ AnimationFrameEnc (implements AnimationFrameEncoder)
 //!
 //! DECODE:
 //!                                  ┌→ Dec (implements Decode)
 //! DecoderConfig → DecodeJob<'a> ──┤→ StreamDec (implements StreamingDecode)
-//!                                  └→ FullFrameDec (implements FullFrameDecoder)
+//!                                  └→ AnimationFrameDec (implements AnimationFrameDecoder)
 //! ```
 //!
 //! Encoding and decoding are both **type-erased**: encoders accept any pixel
@@ -30,14 +30,14 @@ mod encoding;
 mod unsupported;
 
 #[allow(deprecated)]
-pub use decoder::{Decode, FullFrameDecoder, StreamingDecode, render_frame_to_sink_via_copy};
+pub use decoder::{AnimationFrameDecoder, Decode, StreamingDecode, render_frame_to_sink_via_copy};
 #[allow(deprecated)]
 pub use decoding::{DecodeJob, DecoderConfig, push_decoder_via_full_decode};
 pub use dyn_decoding::{
-    DynDecodeJob, DynDecoder, DynDecoderConfig, DynFullFrameDecoder, DynStreamingDecoder,
+    DynAnimationFrameDecoder, DynDecodeJob, DynDecoder, DynDecoderConfig, DynStreamingDecoder,
 };
-pub use dyn_encoding::{DynEncodeJob, DynEncoder, DynEncoderConfig, DynFullFrameEncoder};
-pub use encoder::{Encoder, FullFrameEncoder};
+pub use dyn_encoding::{DynAnimationFrameEncoder, DynEncodeJob, DynEncoder, DynEncoderConfig};
+pub use encoder::{AnimationFrameEncoder, Encoder};
 pub use encoding::{EncodeJob, EncoderConfig};
 pub use unsupported::Unsupported;
 

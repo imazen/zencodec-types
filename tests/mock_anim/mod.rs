@@ -3,23 +3,23 @@
 //! Supports RGB8 and RGBA8. Implements:
 //! - One-shot decode (Decode)
 //! - Streaming decode (StreamingDecode)
-//! - Full-frame animation decode (FullFrameDecoder)
+//! - Full-frame animation decode (AnimationFrameDecoder)
 //! - One-shot encode (Encoder) with push_rows + encode_from
-//! - Full-frame animation encode (FullFrameEncoder)
+//! - Full-frame animation encode (AnimationFrameEncoder)
 //!
 //! Used to exercise trait paths that the PNM codec doesn't cover.
 
 use std::borrow::Cow;
 
 use zencodec::decode::{
-    DecodeCapabilities, DecodeJob, DecodeOutput, DecoderConfig, FullFrameDecoder, OutputInfo,
+    AnimationFrameDecoder, DecodeCapabilities, DecodeJob, DecodeOutput, DecoderConfig, OutputInfo,
     StreamingDecode,
 };
 use zencodec::encode::{
-    EncodeCapabilities, EncodeJob, EncodeOutput, Encoder, EncoderConfig, FullFrameEncoder,
+    AnimationFrameEncoder, EncodeCapabilities, EncodeJob, EncodeOutput, Encoder, EncoderConfig,
 };
 use zencodec::{
-    FullFrame, ImageFormat, ImageInfo, ImageSequence, Metadata, ResourceLimits,
+    AnimationFrame, ImageFormat, ImageInfo, ImageSequence, Metadata, ResourceLimits,
     UnsupportedOperation,
 };
 
@@ -137,7 +137,7 @@ fn descriptor_for_bpp(bpp: u8) -> PixelDescriptor {
 }
 
 // =========================================================================
-// Decode: Config → Job → Decoder / StreamingDecoder / FullFrameDecoder
+// Decode: Config → Job → Decoder / StreamingDecoder / AnimationFrameDecoder
 // =========================================================================
 
 #[derive(Clone, Debug)]
@@ -196,7 +196,7 @@ impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
     type Error = MockError;
     type Dec = MockDec<'a>;
     type StreamDec = MockStreamDec<'a>;
-    type FullFrameDec = MockFullFrameDec;
+    type AnimationFrameDec = MockAnimationFrameDec;
 
     fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
         self.stop = Some(stop);
@@ -293,15 +293,15 @@ impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
         })
     }
 
-    fn full_frame_decoder(
+    fn animation_frame_decoder(
         self,
         data: Cow<'a, [u8]>,
         _preferred: &[PixelDescriptor],
-    ) -> Result<MockFullFrameDec, MockError> {
+    ) -> Result<MockAnimationFrameDec, MockError> {
         let (w, h, fc, bpp) = parse_mock_header(&data)?;
         self.limits.check_dimensions(w, h)?;
         let owned = data.into_owned();
-        Ok(MockFullFrameDec {
+        Ok(MockAnimationFrameDec {
             data: owned,
             width: w,
             height: h,
@@ -379,7 +379,7 @@ impl<'a> StreamingDecode for MockStreamDec<'a> {
 
 // --- Full-frame animation decoder ---
 
-pub struct MockFullFrameDec {
+pub struct MockAnimationFrameDec {
     data: Vec<u8>,
     width: u32,
     height: u32,
@@ -388,7 +388,7 @@ pub struct MockFullFrameDec {
     current_frame: u32,
 }
 
-impl FullFrameDecoder for MockFullFrameDec {
+impl AnimationFrameDecoder for MockAnimationFrameDec {
     type Error = MockError;
 
     fn wrap_sink_error(err: SinkError) -> MockError {
@@ -418,7 +418,7 @@ impl FullFrameDecoder for MockFullFrameDec {
     fn render_next_frame(
         &mut self,
         stop: Option<&dyn Stop>,
-    ) -> Result<Option<FullFrame<'_>>, MockError> {
+    ) -> Result<Option<AnimationFrame<'_>>, MockError> {
         if let Some(s) = stop {
             s.check()?;
         }
@@ -453,7 +453,7 @@ impl FullFrameDecoder for MockFullFrameDec {
         )
         .map_err(|e| MockError::InvalidData(format!("frame slice: {e}")))?;
 
-        let frame = FullFrame::new(ps, duration_ms, self.current_frame);
+        let frame = AnimationFrame::new(ps, duration_ms, self.current_frame);
         self.current_frame += 1;
         Ok(Some(frame))
     }
@@ -485,7 +485,7 @@ pub struct MockDecodeExtensions {
 }
 
 // =========================================================================
-// Encode: Config → Job → Encoder / FullFrameEncoder
+// Encode: Config → Job → Encoder / AnimationFrameEncoder
 // =========================================================================
 
 #[derive(Clone, Debug)]
@@ -598,7 +598,7 @@ pub struct MockEncodeJob {
 impl EncodeJob for MockEncodeJob {
     type Error = MockError;
     type Enc = MockEnc;
-    type FullFrameEnc = MockFullFrameEnc;
+    type AnimationFrameEnc = MockAnimationFrameEnc;
 
     fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
         self.stop = Some(stop);
@@ -647,8 +647,8 @@ impl EncodeJob for MockEncodeJob {
         })
     }
 
-    fn full_frame_encoder(self) -> Result<MockFullFrameEnc, MockError> {
-        Ok(MockFullFrameEnc {
+    fn animation_frame_encoder(self) -> Result<MockAnimationFrameEnc, MockError> {
+        Ok(MockAnimationFrameEnc {
             frames: Vec::new(),
             loop_count: self.loop_count.flatten(),
         })
@@ -751,13 +751,13 @@ impl Encoder for MockEnc {
 
 // --- Full-frame animation encoder ---
 
-pub struct MockFullFrameEnc {
+pub struct MockAnimationFrameEnc {
     frames: Vec<(Vec<u8>, u32, u32, u32, PixelDescriptor)>, // data, w, h, duration, desc
     #[allow(dead_code)]
     loop_count: Option<u32>,
 }
 
-impl FullFrameEncoder for MockFullFrameEnc {
+impl AnimationFrameEncoder for MockAnimationFrameEnc {
     type Error = MockError;
 
     fn reject(op: UnsupportedOperation) -> MockError {

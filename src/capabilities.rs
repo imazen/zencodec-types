@@ -31,13 +31,13 @@ pub enum UnsupportedOperation {
     RowLevelEncode,
     /// `Encoder::encode_from()` (pull-from-source encode).
     PullEncode,
-    /// All `FullFrameEncoder` methods (animation encoding).
+    /// All `AnimationFrameEncoder` methods (animation encoding).
     AnimationEncode,
     /// `Decoder::decode_into()` (decode into caller buffer).
     DecodeInto,
     /// `Decoder::decode_rows()` (row-level decode).
     RowLevelDecode,
-    /// All `FullFrameDecoder` methods (animation decoding).
+    /// All `AnimationFrameDecoder` methods (animation decoding).
     AnimationDecode,
     /// A specific pixel format is not supported.
     PixelFormat,

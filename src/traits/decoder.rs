@@ -1,6 +1,6 @@
 //! Decode execution traits: one-shot, streaming, and animation.
 
-use crate::output::{FullFrame, OwnedFullFrame};
+use crate::output::{AnimationFrame, OwnedAnimationFrame};
 use crate::sink::SinkError;
 use crate::{DecodeOutput, ImageInfo, OutputInfo};
 use enough::Stop;
@@ -63,7 +63,7 @@ pub trait StreamingDecode {
 /// sub-canvas positioning, reference slots, etc.) and yields
 /// full-canvas frames ready for display.
 ///
-/// Created by [`DecodeJob::full_frame_decoder()`](super::DecodeJob::full_frame_decoder)
+/// Created by [`DecodeJob::animation_frame_decoder()`](super::DecodeJob::animation_frame_decoder)
 /// with input data and format preferences already bound.
 ///
 /// # Frame index
@@ -74,11 +74,11 @@ pub trait StreamingDecode {
 ///
 /// # Borrowed vs owned
 ///
-/// [`render_next_frame()`](FullFrameDecoder::render_next_frame) returns a
-/// [`FullFrame`] that borrows the decoder's internal canvas — zero-copy
+/// [`render_next_frame()`](AnimationFrameDecoder::render_next_frame) returns a
+/// [`AnimationFrame`] that borrows the decoder's internal canvas — zero-copy
 /// but invalidated by the next call.
-/// [`render_next_frame_owned()`](FullFrameDecoder::render_next_frame_owned)
-/// copies to an [`OwnedFullFrame`] for independent ownership.
+/// [`render_next_frame_owned()`](AnimationFrameDecoder::render_next_frame_owned)
+/// copies to an [`OwnedAnimationFrame`] for independent ownership.
 ///
 /// # Cooperative cancellation
 ///
@@ -87,14 +87,14 @@ pub trait StreamingDecode {
 /// and returns early with [`StopReason`](enough::StopReason) if
 /// cancellation is requested.
 ///
-/// Because `FullFrameDec: 'static`, the decoder cannot borrow the
+/// Because `AnimationFrameDec: 'static`, the decoder cannot borrow the
 /// job's stop token. Instead, the caller passes a stop token per call.
 /// Codecs that also stored an owned stop at construction time (e.g. via
 /// [`Stopper`](https://docs.rs/almost-enough/latest/almost_enough/struct.Stopper.html))
 /// can combine the two with
 /// [`OrStop`](https://docs.rs/almost-enough/latest/almost_enough/struct.OrStop.html).
 /// Pass `None` when cancellation is not needed.
-pub trait FullFrameDecoder: Sized {
+pub trait AnimationFrameDecoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
@@ -134,18 +134,18 @@ pub trait FullFrameDecoder: Sized {
     /// Returns `Ok(Some(frame))` with the composited frame borrowing the
     /// decoder's internal canvas, or `Ok(None)` when all frames are consumed.
     ///
-    /// The returned [`FullFrame`] borrows the decoder's canvas buffer.
+    /// The returned [`AnimationFrame`] borrows the decoder's canvas buffer.
     /// Calling this method again invalidates the previous frame.
     ///
     /// Pass `None` if cancellation is not needed.
     fn render_next_frame(
         &mut self,
         stop: Option<&dyn Stop>,
-    ) -> Result<Option<FullFrame<'_>>, Self::Error>;
+    ) -> Result<Option<AnimationFrame<'_>>, Self::Error>;
 
     /// Render the next frame as an owned copy.
     ///
-    /// Default implementation calls [`render_next_frame()`](FullFrameDecoder::render_next_frame)
+    /// Default implementation calls [`render_next_frame()`](AnimationFrameDecoder::render_next_frame)
     /// and copies the pixel data. Codecs that produce owned data natively
     /// may override for efficiency.
     ///
@@ -153,7 +153,7 @@ pub trait FullFrameDecoder: Sized {
     fn render_next_frame_owned(
         &mut self,
         stop: Option<&dyn Stop>,
-    ) -> Result<Option<OwnedFullFrame>, Self::Error> {
+    ) -> Result<Option<OwnedAnimationFrame>, Self::Error> {
         match self.render_next_frame(stop)? {
             Some(frame) => Ok(Some(frame.to_owned_frame())),
             None => Ok(None),
@@ -182,7 +182,7 @@ pub trait FullFrameDecoder: Sized {
     since = "0.2.0",
     note = "use zencodec::helpers::copy_frame_to_sink instead"
 )]
-pub fn render_frame_to_sink_via_copy<D: FullFrameDecoder>(
+pub fn render_frame_to_sink_via_copy<D: AnimationFrameDecoder>(
     decoder: &mut D,
     stop: Option<&dyn Stop>,
     sink: &mut dyn crate::DecodeRowSink,

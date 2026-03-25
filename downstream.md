@@ -153,8 +153,8 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 | 2 | `EncodePolicy::allow_animation` and `deterministic` ignored | Low |
 | 3 | `output_info()` ignores grayscale — always reports RGB/RGBA | Medium (bug) |
 | 4 | `convert_info()` doesn't populate `bit_depth` or `channel_count` | Low |
-| 5 | `FullFrameEncoder` only handles 3 of 10 advertised pixel formats | Medium |
-| 6 | `FullFrameDecoder` copies file data even when `Cow::Owned` | Low (perf) |
+| 5 | `AnimationFrameEncoder` only handles 3 of 10 advertised pixel formats | Medium |
+| 6 | `AnimationFrameDecoder` copies file data even when `Cow::Owned` | Low (perf) |
 | 7 | APNG finish discards caller's stop token, uses `Unstoppable` | Medium (bug) |
 | 8 | Hardcoded 120s timeout on all encode ops, not configurable | Low |
 | 9 | BGRA8 swizzle via per-pixel `flat_map` + collect (allocation) | Low (perf) |
@@ -170,12 +170,12 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 | 1 | Decode errors wrapped as `Error::Encode` (wrong variant) | Medium (bug) |
 | 2 | `push_decoder` and `streaming_decoder` ignore `preferred` parameter | Medium |
 | 3 | `apply_descriptor_color` clones config up to 4x (deep clone with Vec fields) | Medium (perf) |
-| 4 | Double data copy in `full_frame_decoder` (probe + animation each copy) | Medium (perf) |
+| 4 | Double data copy in `animation_frame_decoder` (probe + animation each copy) | Medium (perf) |
 | 5 | `build_config` copies EXIF/ICC/XMP metadata unnecessarily | Low (perf) |
 | 6 | Gray8 encode expands to 3x RGB buffer despite claiming `native_gray` | Medium |
 | 7 | `native_f32: true` claimed but always quantizes to u8/u16 | Low |
 | 8 | Format negotiation reimplemented instead of using `negotiate_pixel_format` | Low |
-| 9 | `loop_count()` not implemented on `FullFrameDecoder` despite being available | Low |
+| 9 | `loop_count()` not implemented on `AnimationFrameDecoder` despite being available | Low |
 | 10 | BGRA->RGBA swizzle allocates new Vec (could be in-place) | Low (perf) |
 
 ### zenwebp (v0.3.2) — `zen/zenwebp`
@@ -190,7 +190,7 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 | 4 | Decode format negotiation incomplete — doesn't use prefs to choose RGB vs RGBA | Medium |
 | 5 | `enforces_max_input_bytes` not reported despite being enforced | Low |
 | 6 | `with_policy` not implemented — metadata policy ignored | Low |
-| 7 | `FullFrameEncoder::finish()` hardcodes 100ms last frame duration | Medium (bug) |
+| 7 | `AnimationFrameEncoder::finish()` hardcodes 100ms last frame duration | Medium (bug) |
 | 8 | Quality calibration table — **well done**, good cross-codec consistency | (positive) |
 | 9 | Resource limits thoroughly forwarded | (positive) |
 
@@ -203,7 +203,7 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 | 1 | `build_pixel_data` double-copies for U16/F32 (chunk + reconstruct + from_pixels) | Medium (perf) |
 | 2 | `generic_quality()` returns calibrated JXL value, not original generic value | Medium (bug) |
 | 3 | `row_level` encode capability not advertised despite being implemented | Medium |
-| 4 | `FullFrameDecoder::info()` panics before first `render_next_frame` | Medium (bug) |
+| 4 | `AnimationFrameDecoder::info()` panics before first `render_next_frame` | Medium (bug) |
 | 5 | `DecodePolicy` silently ignored | Low |
 | 6 | `enforces_max_memory` not reported despite being enforced | Low |
 | 7 | `native_16bit` encode capability not reported | Low |
@@ -286,7 +286,7 @@ Cancellation tokens accepted but not propagated to long-running inner loops.
 | 4 | `encode_rgba8` scans every pixel for alpha (no opaque fast path) | Low (perf) |
 | 5 | Doesn't query `CodecCapabilities` | Low |
 | 6 | Doesn't use `SourceEncodingDetails` from decode output | Low |
-| 7 | No `StreamingDecode` / `FullFrameDecoder` usage (documented limitation) | Low |
+| 7 | No `StreamingDecode` / `AnimationFrameDecoder` usage (documented limitation) | Low |
 | 8 | No `DecodePolicy` / `EncodePolicy` forwarding | Low |
 
 ### imageflow4 (v4.0.0-alpha.1) — `zen/imageflow4/imageflow_core`

@@ -5,13 +5,13 @@
 
 use core::marker::PhantomData;
 
-use crate::output::{FullFrame, OwnedFullFrame};
+use crate::output::{AnimationFrame, OwnedAnimationFrame};
 use crate::sink::SinkError;
 use crate::{ImageInfo, OutputInfo};
 use enough::Stop;
 use zenpixels::PixelSlice;
 
-use super::decoder::{FullFrameDecoder, StreamingDecode};
+use super::decoder::{AnimationFrameDecoder, StreamingDecode};
 
 /// Stub type for codecs that don't support an operation.
 ///
@@ -22,14 +22,14 @@ use super::decoder::{FullFrameDecoder, StreamingDecode};
 ///     type Error = At<MyError>;  // or just MyError
 ///     type Dec = MyDecoder<'a>;
 ///     type StreamDec = Unsupported<At<MyError>>;
-///     type FullFrameDec = Unsupported<At<MyError>>;
+///     type AnimationFrameDec = Unsupported<At<MyError>>;
 ///     // ...
 ///
 ///     fn streaming_decoder(self, ..) -> Result<Unsupported<At<MyError>>, At<MyError>> {
 ///         Err(MyError::from(UnsupportedOperation::RowLevelDecode).start_at())
 ///     }
 ///
-///     fn full_frame_decoder(self, ..) -> Result<Unsupported<At<MyError>>, At<MyError>> {
+///     fn animation_frame_decoder(self, ..) -> Result<Unsupported<At<MyError>>, At<MyError>> {
 ///         Err(MyError::from(UnsupportedOperation::AnimationDecode).start_at())
 ///     }
 /// }
@@ -51,7 +51,7 @@ impl<E: core::error::Error + Send + Sync + 'static> StreamingDecode for Unsuppor
     }
 }
 
-impl<E: core::error::Error + Send + Sync + 'static> FullFrameDecoder for Unsupported<E> {
+impl<E: core::error::Error + Send + Sync + 'static> AnimationFrameDecoder for Unsupported<E> {
     type Error = E;
 
     fn wrap_sink_error(_err: SinkError) -> E {
@@ -62,14 +62,17 @@ impl<E: core::error::Error + Send + Sync + 'static> FullFrameDecoder for Unsuppo
         unreachable!("Unsupported: full frame decode stub should never be constructed")
     }
 
-    fn render_next_frame(&mut self, _stop: Option<&dyn Stop>) -> Result<Option<FullFrame<'_>>, E> {
+    fn render_next_frame(
+        &mut self,
+        _stop: Option<&dyn Stop>,
+    ) -> Result<Option<AnimationFrame<'_>>, E> {
         unreachable!("Unsupported: full frame decode stub should never be constructed")
     }
 
     fn render_next_frame_owned(
         &mut self,
         _stop: Option<&dyn Stop>,
-    ) -> Result<Option<OwnedFullFrame>, E> {
+    ) -> Result<Option<OwnedAnimationFrame>, E> {
         unreachable!("Unsupported: full frame decode stub should never be constructed")
     }
 

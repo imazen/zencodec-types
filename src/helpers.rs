@@ -11,7 +11,7 @@ use zenpixels::PixelDescriptor;
 
 use crate::cost::OutputInfo;
 use crate::sink::SinkError;
-use crate::traits::{Decode, DecodeJob, FullFrameDecoder};
+use crate::traits::{AnimationFrameDecoder, Decode, DecodeJob};
 
 /// Implement `push_decoder` by doing a full decode and copying rows to the sink.
 ///
@@ -63,7 +63,7 @@ where
 
 /// Implement `render_next_frame_to_sink` by rendering a frame and copying rows.
 ///
-/// Codecs that implement [`FullFrameDecoder`] can use this to implement
+/// Codecs that implement [`AnimationFrameDecoder`] can use this to implement
 /// `render_next_frame_to_sink` without duplicating the row-copy logic:
 ///
 /// ```rust,ignore
@@ -75,7 +75,7 @@ where
 ///     zencodec::helpers::copy_frame_to_sink(self, stop, sink)
 /// }
 /// ```
-pub fn copy_frame_to_sink<D: FullFrameDecoder>(
+pub fn copy_frame_to_sink<D: AnimationFrameDecoder>(
     decoder: &mut D,
     stop: Option<&dyn Stop>,
     sink: &mut dyn crate::DecodeRowSink,

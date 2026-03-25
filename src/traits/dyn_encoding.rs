@@ -2,7 +2,7 @@
 //!
 //! Mirrors the generic encode hierarchy with dyn-safe traits:
 //!
-//!   DynEncoderConfig → DynEncodeJob → DynEncoder / DynFullFrameEncoder
+//!   DynEncoderConfig → DynEncodeJob → DynEncoder / DynAnimationFrameEncoder
 //!
 //! Each layer is a separate trait with blanket impls via private shim structs.
 //! Every method from the generic traits is exposed.
@@ -21,14 +21,14 @@
 use alloc::boxed::Box;
 use core::any::Any;
 
+use crate::StopToken;
 use crate::format::ImageFormat;
 use crate::{EncodeCapabilities, EncodeOutput, Metadata, ResourceLimits};
 use enough::Stop;
-use crate::StopToken;
 use zenpixels::{PixelDescriptor, PixelSlice, PixelSliceMut};
 
 use super::BoxedError;
-use super::encoder::{Encoder, FullFrameEncoder};
+use super::encoder::{AnimationFrameEncoder, Encoder};
 use super::encoding::{EncodeJob, EncoderConfig};
 
 // ===========================================================================
@@ -128,19 +128,19 @@ impl<E: Encoder> DynEncoder for EncoderShim<E> {
 }
 
 // ===========================================================================
-// DynFullFrameEncoder
+// DynAnimationFrameEncoder
 // ===========================================================================
 
 /// Object-safe full-frame animation encoder.
 ///
-/// Wraps [`FullFrameEncoder`] for dyn dispatch. Produced by
-/// [`DynEncodeJob::into_full_frame_encoder`].
+/// Wraps [`AnimationFrameEncoder`] for dyn dispatch. Produced by
+/// [`DynEncodeJob::into_animation_frame_encoder`].
 ///
 /// # Downcasting
 ///
-/// Use [`as_any()`](DynFullFrameEncoder::as_any) to downcast back to the
+/// Use [`as_any()`](DynAnimationFrameEncoder::as_any) to downcast back to the
 /// concrete codec type for format-specific animation controls.
-pub trait DynFullFrameEncoder: Send {
+pub trait DynAnimationFrameEncoder: Send {
     /// Downcast to the concrete frame encoder type.
     fn as_any(&self) -> &dyn Any;
 
@@ -162,16 +162,18 @@ pub trait DynFullFrameEncoder: Send {
     fn finish(self: Box<Self>, stop: Option<&dyn Stop>) -> Result<EncodeOutput, BoxedError>;
 }
 
-impl core::fmt::Debug for dyn DynFullFrameEncoder + '_ {
+impl core::fmt::Debug for dyn DynAnimationFrameEncoder + '_ {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("DynFullFrameEncoder")
+        f.debug_struct("DynAnimationFrameEncoder")
             .finish_non_exhaustive()
     }
 }
 
-pub(super) struct FullFrameEncoderShim<F>(pub(super) F);
+pub(super) struct AnimationFrameEncoderShim<F>(pub(super) F);
 
-impl<F: FullFrameEncoder + Send + 'static> DynFullFrameEncoder for FullFrameEncoderShim<F> {
+impl<F: AnimationFrameEncoder + Send + 'static> DynAnimationFrameEncoder
+    for AnimationFrameEncoderShim<F>
+{
     fn as_any(&self) -> &dyn Any {
         &self.0
     }
@@ -209,7 +211,7 @@ impl<F: FullFrameEncoder + Send + 'static> DynFullFrameEncoder for FullFrameEnco
 /// Wraps [`EncodeJob`] for dyn dispatch. Produced by
 /// [`DynEncoderConfig::dyn_job`]. Use the `set_*` methods to configure,
 /// then call [`into_encoder`](DynEncodeJob::into_encoder) or
-/// [`into_full_frame_encoder`](DynEncodeJob::into_full_frame_encoder).
+/// [`into_animation_frame_encoder`](DynEncodeJob::into_animation_frame_encoder).
 pub trait DynEncodeJob {
     /// Set cooperative cancellation token.
     fn set_stop(&mut self, stop: StopToken);
@@ -245,8 +247,9 @@ pub trait DynEncodeJob {
     /// Create the full-frame animation encoder (consumes this job).
     ///
     /// The returned encoder is `'static` — it owns its configuration.
-    fn into_full_frame_encoder(self: Box<Self>)
-    -> Result<Box<dyn DynFullFrameEncoder>, BoxedError>;
+    fn into_animation_frame_encoder(
+        self: Box<Self>,
+    ) -> Result<Box<dyn DynAnimationFrameEncoder>, BoxedError>;
 }
 
 struct EncodeJobShim<J>(Option<J>);
@@ -265,7 +268,7 @@ impl<'a, J> DynEncodeJob for EncodeJobShim<J>
 where
     J: EncodeJob,
     J::Enc: Encoder,
-    J::FullFrameEnc: FullFrameEncoder,
+    J::AnimationFrameEnc: AnimationFrameEncoder,
 {
     fn set_stop(&mut self, stop: StopToken) {
         let job = self.take();
@@ -311,14 +314,14 @@ where
         Ok(Box::new(EncoderShim(enc)))
     }
 
-    fn into_full_frame_encoder(
+    fn into_animation_frame_encoder(
         mut self: Box<Self>,
-    ) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError> {
+    ) -> Result<Box<dyn DynAnimationFrameEncoder>, BoxedError> {
         let job = self.take();
         let enc = job
-            .full_frame_encoder()
+            .animation_frame_encoder()
             .map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(FullFrameEncoderShim(enc)))
+        Ok(Box::new(AnimationFrameEncoderShim(enc)))
     }
 }
 
@@ -329,8 +332,8 @@ where
 /// Object-safe encoder configuration.
 ///
 /// Blanket-implemented for all [`EncoderConfig`] types whose encoder
-/// implements [`Encoder`] and full-frame encoder implements [`FullFrameEncoder`].
-/// Codecs without animation support should set `type FullFrameEnc = ()`.
+/// implements [`Encoder`] and full-frame encoder implements [`AnimationFrameEncoder`].
+/// Codecs without animation support should set `type AnimationFrameEnc = ()`.
 ///
 /// ```rust,ignore
 /// fn save(config: &dyn DynEncoderConfig, pixels: &[u8], w: u32, h: u32) -> Result<Vec<u8>, BoxedError> {
@@ -374,7 +377,7 @@ impl<C> DynEncoderConfig for C
 where
     C: EncoderConfig + 'static,
     <C::Job as EncodeJob>::Enc: Encoder,
-    <C::Job as EncodeJob>::FullFrameEnc: FullFrameEncoder,
+    <C::Job as EncodeJob>::AnimationFrameEnc: AnimationFrameEncoder,
 {
     fn as_any(&self) -> &dyn Any {
         self

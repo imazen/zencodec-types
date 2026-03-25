@@ -6,7 +6,7 @@ zencodec's current `ImageInfo` has `has_animation: bool` and `frame_count: Optio
 This conflates "multiple images in a file" with "temporal animation frames."
 
 TIFF, HEIF, DICOM, and ICO contain multiple independent images that are NOT animation.
-Forcing them through `FullFrameDecoder` causes data corruption: compositing applied to
+Forcing them through `AnimationFrameDecoder` causes data corruption: compositing applied to
 independent pages, fixed canvas cropping variable-size pages, format negotiation committed
 once for heterogeneous content.
 
@@ -25,7 +25,7 @@ Replaces `has_animation: bool` + `frame_count: Option<u32>` on `ImageInfo`.
 ///
 /// Determines which decoder trait is appropriate:
 /// - `Single` → `Decode`
-/// - `Animation` → `FullFrameDecoder`
+/// - `Animation` → `AnimationFrameDecoder`
 /// - `Multi` → future `MultiPageDecoder` (or `Decode` for primary only)
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -36,7 +36,7 @@ pub enum ImageSequence {
     /// Temporal animation: frames share a canvas size, have durations,
     /// and may use compositing (disposal, blending, reference slots).
     ///
-    /// Use `FullFrameDecoder`.
+    /// Use `AnimationFrameDecoder`.
     Animation {
         /// Number of displayed frames. `None` if unknown without full parse
         /// (e.g., GIF requires scanning all frames to count them).
@@ -95,7 +95,7 @@ pub enum ImageSequence {
 ```
 
 **Key invariant**: the variant tells you which decoder trait applies. Code that sees `Multi`
-knows not to use `FullFrameDecoder`. Code that sees `Animation` knows `MultiPageDecoder`
+knows not to use `AnimationFrameDecoder`. Code that sees `Animation` knows `MultiPageDecoder`
 is wrong. `Single` means only `Decode` is needed.
 
 **Scope boundary**: `Multi` tells callers *what's there* (N decodable images). It does not
@@ -298,7 +298,7 @@ Replace the `animation: bool` field:
 pub struct DecodeCapabilities {
     // REMOVED: animation: bool
 
-    /// Whether this decoder supports `FullFrameDecoder` (animation decode).
+    /// Whether this decoder supports `AnimationFrameDecoder` (animation decode).
     ///
     /// True only for codecs with temporal animation (GIF, APNG, WebP anim,
     /// AVIF sequence, JXL animation). False for multi-image containers
@@ -321,7 +321,7 @@ And corresponding `UnsupportedOperation` variants:
 ```rust
 pub enum UnsupportedOperation {
     // EXISTING (unchanged):
-    AnimationDecode,    // FullFrameDecoder methods
+    AnimationDecode,    // AnimationFrameDecoder methods
 
     // NEW:
     MultiImageDecode,   // Future MultiPageDecoder methods
@@ -329,7 +329,7 @@ pub enum UnsupportedOperation {
 }
 ```
 
-## Changes to FullFrameDecoder
+## Changes to AnimationFrameDecoder
 
 No structural changes. Documentation clarified:
 
@@ -342,13 +342,13 @@ No structural changes. Documentation clarified:
 ///
 /// **Not for multi-image containers.** Files with `ImageSequence::Multi`
 /// contain independent images that may differ in dimensions and format.
-/// Using `FullFrameDecoder` for such files would apply compositing to
+/// Using `AnimationFrameDecoder` for such files would apply compositing to
 /// independent images, force a fixed canvas size, and silently destroy data.
 /// Use `MultiPageDecoder` (future) or the codec's native API instead.
 ```
 
-`FullFrame` keeps `duration_ms` — this is animation-specific and reinforces
-that `FullFrameDecoder` is for temporal content.
+`AnimationFrame` keeps `duration_ms` — this is animation-specific and reinforces
+that `AnimationFrameDecoder` is for temporal content.
 
 ## Future: MultiPageDecoder (not implemented now)
 
@@ -389,7 +389,7 @@ pub trait MultiPageDecoder: Sized {
 }
 ```
 
-Key differences from `FullFrameDecoder`:
+Key differences from `AnimationFrameDecoder`:
 - No canvas size — each page has its own dimensions
 - No compositing — pages are independent
 - No `duration_ms` — pages are not temporal
@@ -423,7 +423,7 @@ trait PyramidDecoder {
 
 **Depth map, auxiliary**: Similar pattern with typed selection.
 
-All of these are independent from `Decode`, `FullFrameDecoder`, and `MultiPageDecoder`.
+All of these are independent from `Decode`, `AnimationFrameDecoder`, and `MultiPageDecoder`.
 `Supplements` tells callers what's available; the accessor traits provide access.
 
 ## Tangent: OutputInfo dual-role cleanup
@@ -580,7 +580,7 @@ match &info.sequence {
     ImageSequence::Single => { /* done */ }
 
     ImageSequence::Animation { random_access, .. } => {
-        let mut dec = config.job().full_frame_decoder(data.into(), &preferred)?;
+        let mut dec = config.job().animation_frame_decoder(data.into(), &preferred)?;
         while let Some(frame) = dec.render_next_frame(None)? {
             process_frame(frame.pixels(), frame.duration_ms());
         }
@@ -619,7 +619,7 @@ if info.supplements.gain_map {
 | `ImageInfo::with_supplements()` | New builder method | No |
 | `DecodeCapabilities.multi_image` | New field | No (`#[non_exhaustive]`, getter-based) |
 | `UnsupportedOperation::MultiImageDecode` | New variant | No (`#[non_exhaustive]`) |
-| `FullFrameDecoder` docs | Clarify animation-only | No |
+| `AnimationFrameDecoder` docs | Clarify animation-only | No |
 | `DecodeJob` docs | Clarify primary-image semantics | No |
 | `probe()` docs | Clarify scope and cost | No |
 

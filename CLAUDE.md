@@ -12,8 +12,8 @@ Read this before modifying any traits.
 Tiny, stable crate defining the common interface that all zen* codecs implement:
 
 - **Encode**: `EncoderConfig` → `EncodeJob` → `Encoder` (type-erased, accepts any `PixelSlice`)
-- **Encode animation**: `EncodeJob` → `FullFrameEncoder` (push frames one at a time)
-- **Decode**: `DecoderConfig` → `DecodeJob` → `Decode` (one-shot), `StreamingDecode` (scanline batches), or `FullFrameDecoder` (animation)
+- **Encode animation**: `EncodeJob` → `AnimationFrameEncoder` (push frames one at a time)
+- **Decode**: `DecoderConfig` → `DecodeJob` → `Decode` (one-shot), `StreamingDecode` (scanline batches), or `AnimationFrameDecoder` (animation)
 - **Dyn dispatch**: `DynEncoderConfig` / `DynDecoderConfig` for codec-agnostic pipelines
 - **Metadata**: `ImageInfo`, `Metadata`, `OutputInfo`, `Orientation`
 - **Format detection**: `ImageFormat::from_magic()`, `ImageFormatRegistry`
@@ -29,7 +29,7 @@ Tiny, stable crate defining the common interface that all zen* codecs implement:
 - No codec-specific types here (those live in codec crates)
 - No `CodecError` here — each codec has its own error type (associated type on trait)
 - Traits use GATs for lifetime-parameterized Job types
-- `EncodeJob::Enc`/`FullFrameEnc` have NO trait bounds — codecs implement whichever
+- `EncodeJob::Enc`/`AnimationFrameEnc` have NO trait bounds — codecs implement whichever
   encode approach they support (type-erased `Encoder`, animation, or both)
 - **zenpixels pixel types: use but NEVER re-export.** `PixelDescriptor`, `PixelSlice`,
   `PixelSliceMut`, `PixelBuffer`, `PixelFormat`, `ChannelLayout`, `ChannelType`,

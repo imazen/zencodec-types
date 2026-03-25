@@ -323,20 +323,20 @@ impl core::fmt::Debug for DecodeOutput {
 
 /// A composited full-canvas animation frame, borrowing the decoder's canvas.
 ///
-/// Returned by [`FullFrameDecoder::render_next_frame()`](crate::decode::FullFrameDecoder::render_next_frame).
+/// Returned by [`AnimationFrameDecoder::render_next_frame()`](crate::decode::AnimationFrameDecoder::render_next_frame).
 /// The pixel data borrows the decoder's internal canvas buffer — calling
 /// `render_next_frame()` again invalidates this borrow.
 ///
-/// Use [`to_owned_frame()`](FullFrame::to_owned_frame) to copy the pixel data
+/// Use [`to_owned_frame()`](AnimationFrame::to_owned_frame) to copy the pixel data
 /// if you need to retain the frame across calls.
 #[non_exhaustive]
-pub struct FullFrame<'a> {
+pub struct AnimationFrame<'a> {
     pixels: PixelSlice<'a>,
     duration_ms: u32,
     frame_index: u32,
 }
 
-impl<'a> FullFrame<'a> {
+impl<'a> AnimationFrame<'a> {
     /// Create a full frame borrowing pixel data.
     pub fn new(pixels: PixelSlice<'a>, duration_ms: u32, frame_index: u32) -> Self {
         Self {
@@ -355,7 +355,7 @@ impl<'a> FullFrame<'a> {
     ///
     /// Zero means platform-dependent minimum display time for most formats.
     /// For JXL, zero-duration frames are compositing helpers and are never
-    /// yielded by [`FullFrameDecoder`](crate::decode::FullFrameDecoder).
+    /// yielded by [`AnimationFrameDecoder`](crate::decode::AnimationFrameDecoder).
     pub fn duration_ms(&self) -> u32 {
         self.duration_ms
     }
@@ -369,7 +369,7 @@ impl<'a> FullFrame<'a> {
     }
 
     /// Copy pixel data to produce an owned frame.
-    pub fn to_owned_frame(&self) -> OwnedFullFrame {
+    pub fn to_owned_frame(&self) -> OwnedAnimationFrame {
         let ps = &self.pixels;
         let w = ps.width();
         let h = ps.rows();
@@ -386,7 +386,7 @@ impl<'a> FullFrame<'a> {
         let pixels = PixelBuffer::from_vec(data, w, h, desc)
             .expect("to_owned_frame: buffer sized correctly");
 
-        OwnedFullFrame {
+        OwnedAnimationFrame {
             pixels,
             duration_ms: self.duration_ms,
             frame_index: self.frame_index,
@@ -395,9 +395,9 @@ impl<'a> FullFrame<'a> {
     }
 }
 
-impl core::fmt::Debug for FullFrame<'_> {
+impl core::fmt::Debug for AnimationFrame<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("FullFrame")
+        f.debug_struct("AnimationFrame")
             .field("pixels", &self.pixels)
             .field("duration_ms", &self.duration_ms)
             .field("frame_index", &self.frame_index)
@@ -407,17 +407,17 @@ impl core::fmt::Debug for FullFrame<'_> {
 
 /// A composited full-canvas animation frame with owned pixel data.
 ///
-/// Produced by [`FullFrame::to_owned_frame()`] or
-/// [`FullFrameDecoder::render_next_frame_owned()`](crate::decode::FullFrameDecoder::render_next_frame_owned).
+/// Produced by [`AnimationFrame::to_owned_frame()`] or
+/// [`AnimationFrameDecoder::render_next_frame_owned()`](crate::decode::AnimationFrameDecoder::render_next_frame_owned).
 #[non_exhaustive]
-pub struct OwnedFullFrame {
+pub struct OwnedAnimationFrame {
     pixels: PixelBuffer,
     duration_ms: u32,
     frame_index: u32,
     extensions: Extensions,
 }
 
-impl OwnedFullFrame {
+impl OwnedAnimationFrame {
     /// Create an owned frame from a [`PixelBuffer`].
     pub fn new(pixels: PixelBuffer, duration_ms: u32, frame_index: u32) -> Self {
         Self {
@@ -448,9 +448,9 @@ impl OwnedFullFrame {
         self.frame_index
     }
 
-    /// Borrow as a [`FullFrame`].
-    pub fn as_full_frame(&self) -> FullFrame<'_> {
-        FullFrame::new(self.pixels.as_slice(), self.duration_ms, self.frame_index)
+    /// Borrow as a [`AnimationFrame`].
+    pub fn as_animation_frame(&self) -> AnimationFrame<'_> {
+        AnimationFrame::new(self.pixels.as_slice(), self.duration_ms, self.frame_index)
     }
 
     /// Attach a typed extension value (e.g., per-frame codec metadata).
@@ -485,9 +485,9 @@ impl OwnedFullFrame {
     }
 }
 
-impl core::fmt::Debug for OwnedFullFrame {
+impl core::fmt::Debug for OwnedAnimationFrame {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("OwnedFullFrame")
+        f.debug_struct("OwnedAnimationFrame")
             .field("pixels", &self.pixels)
             .field("duration_ms", &self.duration_ms)
             .field("frame_index", &self.frame_index)
@@ -570,10 +570,10 @@ mod tests {
     }
 
     #[test]
-    fn full_frame_borrowed() {
+    fn animation_frame_borrowed() {
         let buf = make_rgba8_buffer(4, 4);
         let ps = buf.as_slice();
-        let frame = FullFrame::new(ps, 100, 0);
+        let frame = AnimationFrame::new(ps, 100, 0);
         assert_eq!(frame.duration_ms(), 100);
         assert_eq!(frame.frame_index(), 0);
         assert_eq!(frame.pixels().width(), 4);
@@ -581,10 +581,10 @@ mod tests {
     }
 
     #[test]
-    fn full_frame_to_owned() {
+    fn animation_frame_to_owned() {
         let buf = make_rgb8_buffer(2, 2);
         let ps = buf.as_slice();
-        let frame = FullFrame::new(ps, 50, 3);
+        let frame = AnimationFrame::new(ps, 50, 3);
         let owned = frame.to_owned_frame();
         assert_eq!(owned.duration_ms(), 50);
         assert_eq!(owned.frame_index(), 3);
@@ -593,40 +593,40 @@ mod tests {
     }
 
     #[test]
-    fn owned_full_frame_as_full_frame() {
+    fn owned_animation_frame_as_animation_frame() {
         let buf = make_rgb8_buffer(2, 2);
-        let owned = OwnedFullFrame::new(buf, 100, 5);
-        let borrowed = owned.as_full_frame();
+        let owned = OwnedAnimationFrame::new(buf, 100, 5);
+        let borrowed = owned.as_animation_frame();
         assert_eq!(borrowed.duration_ms(), 100);
         assert_eq!(borrowed.frame_index(), 5);
     }
 
     #[test]
-    fn owned_full_frame_into_buffer() {
+    fn owned_animation_frame_into_buffer() {
         let buf = make_rgb8_buffer(3, 3);
-        let owned = OwnedFullFrame::new(buf, 200, 0);
+        let owned = OwnedAnimationFrame::new(buf, 200, 0);
         let recovered = owned.into_buffer();
         assert_eq!(recovered.width(), 3);
         assert_eq!(recovered.height(), 3);
     }
 
     #[test]
-    fn full_frame_debug() {
+    fn animation_frame_debug() {
         let buf = make_gray8_buffer(2, 2);
         let ps = buf.as_slice();
-        let frame = FullFrame::new(ps, 100, 3);
+        let frame = AnimationFrame::new(ps, 100, 3);
         let s = alloc::format!("{:?}", frame);
-        assert!(s.contains("FullFrame"));
+        assert!(s.contains("AnimationFrame"));
         assert!(s.contains("duration_ms: 100"));
         assert!(s.contains("frame_index: 3"));
     }
 
     #[test]
-    fn owned_full_frame_debug() {
+    fn owned_animation_frame_debug() {
         let buf = make_rgb8_buffer(2, 2);
-        let owned = OwnedFullFrame::new(buf, 50, 1);
+        let owned = OwnedAnimationFrame::new(buf, 50, 1);
         let s = alloc::format!("{:?}", owned);
-        assert!(s.contains("OwnedFullFrame"));
+        assert!(s.contains("OwnedAnimationFrame"));
         assert!(s.contains("duration_ms: 50"));
         assert!(s.contains("frame_index: 1"));
     }

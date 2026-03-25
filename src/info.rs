@@ -23,13 +23,13 @@ pub use zenpixels::Cicp;
 ///
 /// Determines which decoder trait is appropriate:
 /// - `Single` → [`Decode`](crate::decode::Decode)
-/// - `Animation` → [`FullFrameDecoder`](crate::decode::FullFrameDecoder)
+/// - `Animation` → [`AnimationFrameDecoder`](crate::decode::AnimationFrameDecoder)
 /// - `Multi` → future `MultiPageDecoder` (or `Decode` for primary only)
 ///
 /// # Key invariant
 ///
 /// The variant tells you which decoder trait applies. Code that sees `Multi`
-/// knows not to use `FullFrameDecoder`. Code that sees `Animation` knows
+/// knows not to use `AnimationFrameDecoder`. Code that sees `Animation` knows
 /// `MultiPageDecoder` is wrong. `Single` means only `Decode` is needed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -41,7 +41,7 @@ pub enum ImageSequence {
     /// Temporal animation: frames share a canvas size, have durations,
     /// and may use compositing (disposal, blending, reference slots).
     ///
-    /// Use `FullFrameDecoder`.
+    /// Use `AnimationFrameDecoder`.
     Animation {
         /// Number of displayed frames. `None` if unknown without full parse
         /// (e.g., GIF requires scanning all frames to count them).

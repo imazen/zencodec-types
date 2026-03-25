@@ -19,8 +19,8 @@ Layer 3: Executor   (borrows pixel data or file bytes, consumes self)
 **Executor** borrows the actual pixels or file bytes. It consumes itself to produce output — single-shot by design. This prevents use-after-encode/decode bugs at the type level.
 
 ```text
-ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder (or FullFrameEncoder)
-DECODE:  DecoderConfig → DecodeJob<'a> → Decode  (or StreamingDecode, FullFrameDecoder)
+ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder (or AnimationFrameEncoder)
+DECODE:  DecoderConfig → DecodeJob<'a> → Decode  (or StreamingDecode, AnimationFrameDecoder)
 ```
 
 ## Define Your Error Type
@@ -133,7 +133,7 @@ pub struct MyEncodeJob<'a> {
 impl<'a> EncodeJob<'a> for MyEncodeJob<'a> {
     type Error = MyError;
     type Enc = MyEncoder<'a>;
-    type FullFrameEnc = (); // Set to () if no animation support
+    type AnimationFrameEnc = (); // Set to () if no animation support
 
     fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
         self.stop = Some(stop);
@@ -154,14 +154,14 @@ impl<'a> EncodeJob<'a> for MyEncodeJob<'a> {
         Ok(MyEncoder { job: self })
     }
 
-    fn full_frame_encoder(self) -> Result<(), MyError> {
+    fn animation_frame_encoder(self) -> Result<(), MyError> {
         // Return UnsupportedOperation for features you don't support.
         Err(UnsupportedOperation::AnimationEncode.into())
     }
 }
 ```
 
-**Important:** `type FullFrameEnc = ()` is the standard rejection stub. `FullFrameEncoder` is implemented for `()` — all methods return `UnsupportedOperation`. This means the dyn dispatch blanket impls work correctly even for codecs without animation.
+**Important:** `type AnimationFrameEnc = ()` is the standard rejection stub. `AnimationFrameEncoder` is implemented for `()` — all methods return `UnsupportedOperation`. This means the dyn dispatch blanket impls work correctly even for codecs without animation.
 
 ### Step 3: Encoder
 
@@ -259,7 +259,7 @@ impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
     type Error = MyError;
     type Dec = MyDecoder<'a>;
     type StreamDec = ();       // () stub if no streaming support
-    type FullFrameDec = ();    // () stub if no animation support
+    type AnimationFrameDec = ();    // () stub if no animation support
 
     fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
         self.stop = Some(stop);
@@ -305,7 +305,7 @@ impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
         Err(UnsupportedOperation::RowLevelDecode.into())
     }
 
-    fn full_frame_decoder(self, _: Cow<'a, [u8]>, _: &[PixelDescriptor])
+    fn animation_frame_decoder(self, _: Cow<'a, [u8]>, _: &[PixelDescriptor])
         -> Result<(), MyError>
     {
         Err(UnsupportedOperation::AnimationDecode.into())
@@ -492,15 +492,15 @@ fn encode(self, pixels: PixelSlice<'_>) -> Result<EncodeOutput, MyError> {
 
 You don't implement `DynEncoderConfig`, `DynEncodeJob`, etc. Blanket implementations generate the object-safe wrappers automatically from your generic trait impls. Once you implement `EncoderConfig`, your codec works with `&dyn DynEncoderConfig` — no extra code.
 
-The only requirement: your `EncodeJob::Enc` type must implement `Encoder` and your `EncodeJob::FullFrameEnc` must implement `FullFrameEncoder` (which `()` satisfies). Same pattern on the decode side.
+The only requirement: your `EncodeJob::Enc` type must implement `Encoder` and your `EncodeJob::AnimationFrameEnc` must implement `AnimationFrameEncoder` (which `()` satisfies). Same pattern on the decode side.
 
 ## Animation Support
 
-If your codec supports animation, implement `FullFrameEncoder` (encode) and `FullFrameDecoder` (decode) on real types instead of `()`.
+If your codec supports animation, implement `AnimationFrameEncoder` (encode) and `AnimationFrameDecoder` (decode) on real types instead of `()`.
 
-**Encode side:** Set `type FullFrameEnc = MyFrameEncoder` on your `EncodeJob`. The caller uses `EncodeJob::full_frame_encoder()` to get it. Your `FullFrameEncoder` accepts frames via `push_frame(pixels, duration_ms, stop)`, then `finish(stop)` produces the final `EncodeOutput`.
+**Encode side:** Set `type AnimationFrameEnc = MyFrameEncoder` on your `EncodeJob`. The caller uses `EncodeJob::animation_frame_encoder()` to get it. Your `AnimationFrameEncoder` accepts frames via `push_frame(pixels, duration_ms, stop)`, then `finish(stop)` produces the final `EncodeOutput`.
 
-**Decode side:** Set `type FullFrameDec = MyFrameDecoder` on your `DecodeJob`. It composites internally and yields full-canvas frames — the caller calls `render_next_frame(stop)` repeatedly until it returns `Ok(None)`. Each `FullFrame` carries composited pixel data, duration, and frame index.
+**Decode side:** Set `type AnimationFrameDec = MyFrameDecoder` on your `DecodeJob`. It composites internally and yields full-canvas frames — the caller calls `render_next_frame(stop)` repeatedly until it returns `Ok(None)`. Each `AnimationFrame` carries composited pixel data, duration, and frame index.
 
 Set `with_animation(true)` on your capabilities struct.
 
