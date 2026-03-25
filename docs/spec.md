@@ -484,7 +484,7 @@ EXIF orientation (1-8 enum) and decode-time orientation strategy
 Encoded image bytes. `#[non_exhaustive]`.
 
 Fields: `data: Vec<u8>`, `format: ImageFormat`, `mime_type`, `extension`,
-`extras: Option<Box<dyn Any + Send>>`.
+`extensions: Extensions` (type-map, see Extensions section below).
 
 Methods: `new()`, `data()`, `into_vec()`, `format()`, `mime_type()`, `extension()`,
 `with_extras<T>()`, `extras<T>()`, `take_extras<T>()`.
@@ -496,8 +496,8 @@ Clone drops extras. PartialEq/Eq skip extras.
 Decoded image with owned pixels. `#[non_exhaustive]`.
 
 Fields: `pixels: PixelBuffer`, `info: ImageInfo`,
-`source_encoding: Option<Box<dyn SourceEncodingDetails>>`,
-`extras: Option<Box<dyn Any + Send>>`.
+`source_encoding: Option<Arc<dyn SourceEncodingDetails>>`,
+`extensions: Extensions` (type-map, see Extensions section below).
 
 Methods: `pixels()`, `into_buffer()`, `info()`, `width()`, `height()`,
 `has_alpha()`, `descriptor()`, `format()`, `metadata()`,
@@ -513,10 +513,85 @@ Borrowed animation frame. Fields: `pixels: PixelSlice<'a>`, `duration_ms: u32`,
 ### `OwnedAnimationFrame`
 
 Owned animation frame. Fields: `pixels: PixelBuffer`, `duration_ms: u32`,
-`frame_index: u32`, `extras: Option<Box<dyn Any + Send>>`.
+`frame_index: u32`, `extensions: Extensions` (type-map).
 
 Methods: `pixels()`, `into_buffer()`, `as_animation_frame()`,
 `with_extras<T>()`, `extras<T>()`, `take_extras<T>()`.
+
+### Extensions type-map
+
+`DecodeOutput`, `EncodeOutput`, and `OwnedAnimationFrame` use an `Extensions`
+type-map (not a single `Box<dyn Any>`). Multiple independently-typed values
+can be stored simultaneously, keyed by `TypeId`. At most one value per
+concrete type. Values are `Arc`-wrapped for cheap cloning.
+
+```rust
+output.with_extras(gain_map).with_extras(depth_map) // both stored
+output.extras::<DecodedGainMap>()  // access gain map
+output.extras::<DecodedDepthMap>() // access depth map (independent)
+```
+
+### Supplementary decode data conventions
+
+Decode outputs carry three layers of information:
+
+1. **`ImageInfo`** — structured, cross-codec metadata available from probe and
+   decode. Always populated. Includes `supplements` flags for discovery.
+
+2. **`SourceEncodingDetails`** — cross-codec encoding analysis (quality estimate,
+   lossless detection). Accessed via `source_encoding_details()` and
+   `codec_details::<T>()` for the concrete probe struct.
+
+3. **`Extensions` type-map** — supplementary decoded data. Accessed via
+   `extras::<T>()`. Multiple types coexist.
+
+#### Discovery then access
+
+Use `ImageInfo.supplements` to discover what's available before accessing
+`extras()`. This avoids blind type probing:
+
+```rust
+if info.supplements.gain_map {
+    let gm = output.extras::<DecodedGainMap>().expect("supplements promised gain map");
+}
+```
+
+#### Normalized supplement types
+
+Cross-codec supplement types (defined in zencodec) that all codecs should use:
+
+| Type | When to use | Producers |
+|------|-------------|-----------|
+| `DecodedGainMap` | Decoded gain map pixels + ISO 21496-1 metadata | JPEG (UltraHDR), AVIF (tmap), JXL (jhgm), HEIC (Apple) |
+| `DecodedDepthMap` | Decoded depth map pixels | HEIC (Apple), JXL (extra channel) |
+
+When a codec produces a gain map, it MUST use `DecodedGainMap` (not a
+codec-specific type) so that consumers work codec-agnostically.
+
+#### Codec-specific extras
+
+Genuinely per-codec data that cannot be normalized belongs in `extras()` with
+the codec's own type. Examples:
+
+- JPEG `DecodedExtras` — DCT coefficients, quantization tables, raw APP markers
+- HEIC `HeicAuxiliaryInfo` — auxiliary image type list (URNs)
+- TIFF `TiffPageInfo` — multi-page IFD metadata
+
+These require `extras::<zenjpeg::DecodedExtras>()` — the caller must know the
+codec type. This is intentional: the data is codec-specific by nature.
+
+#### What goes where
+
+| Data | Location | Access |
+|------|----------|--------|
+| Dimensions, alpha, format, progressive | `ImageInfo` fields | Direct field access |
+| ICC, EXIF, XMP, CICP, HDR metadata | `ImageInfo.source_color` / `embedded_metadata` | Direct field access |
+| Orientation, resolution, supplements flags | `ImageInfo` fields | Direct field access |
+| Quality estimate, lossless detection | `SourceEncodingDetails` trait | `source_encoding_details()` |
+| Codec-specific probe data (encoder family, DQT tables, chroma subsampling) | Concrete probe struct | `codec_details::<JpegProbe>()` |
+| Gain map pixels + metadata | `DecodedGainMap` in extensions | `extras::<DecodedGainMap>()` |
+| Depth map pixels | `DecodedDepthMap` in extensions | `extras::<DecodedDepthMap>()` |
+| Codec-specific decode artifacts | Codec's own type in extensions | `extras::<CodecSpecificType>()` |
 
 ---
 
