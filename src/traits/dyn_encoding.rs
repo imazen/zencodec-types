@@ -10,7 +10,7 @@
 //! ```rust,ignore
 //! fn save(config: &dyn DynEncoderConfig, data: &[u8], w: u32, h: u32) -> Result<Vec<u8>, BoxedError> {
 //!     let mut job = config.dyn_job();
-//!     job.set_metadata(&meta);
+//!     job.set_metadata(meta);
 //!     job.set_limits(limits);
 //!     let encoder = job.into_encoder()?;
 //!     let output = encoder.encode_srgba8(data, true, w, h, w)?;
@@ -223,7 +223,7 @@ pub trait DynEncodeJob {
     fn set_policy(&mut self, policy: crate::EncodePolicy);
 
     /// Set metadata (ICC, EXIF, XMP) to embed.
-    fn set_metadata(&mut self, meta: &Metadata);
+    fn set_metadata(&mut self, meta: Metadata);
 
     /// Set animation canvas dimensions.
     fn set_canvas_size(&mut self, width: u32, height: u32);
@@ -285,7 +285,7 @@ where
         self.put(job.with_policy(policy));
     }
 
-    fn set_metadata(&mut self, meta: &Metadata) {
+    fn set_metadata(&mut self, meta: Metadata) {
         let job = self.take();
         self.put(job.with_metadata(meta));
     }

@@ -114,8 +114,8 @@ impl EncodeJob for PnmEncodeJob {
         self
     }
 
-    fn with_metadata(mut self, meta: &Metadata) -> Self {
-        self.metadata = Some(meta.clone());
+    fn with_metadata(mut self, meta: Metadata) -> Self {
+        self.metadata = Some(meta);
         self
     }
 

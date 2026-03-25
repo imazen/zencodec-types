@@ -163,8 +163,12 @@ pub trait EncodeJob: Sized {
 
     /// Set metadata (ICC, EXIF, XMP) to embed in the output.
     ///
+    /// Takes ownership — callers that need to reuse the metadata should
+    /// `.clone()` before passing. The `Arc<[u8]>` fields inside `Metadata`
+    /// make cloning cheap (ref-count bump, no byte copying).
+    ///
     /// The codec embeds what the format supports, silently skips the rest.
-    fn with_metadata(self, meta: &Metadata) -> Self;
+    fn with_metadata(self, meta: Metadata) -> Self;
 
     /// Set animation canvas dimensions.
     ///
@@ -254,7 +258,7 @@ pub trait EncodeJob: Sized {
     ///
     /// // Erase the codec type
     /// let encode = config.job()
-    ///     .with_metadata(&meta)
+    ///     .with_metadata(meta)
     ///     .dyn_encoder()?;
     ///
     /// // No generics from here on

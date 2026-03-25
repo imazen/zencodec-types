@@ -558,7 +558,7 @@ fn dyn_encode_job_set_methods() {
     let mut job = dyn_config.dyn_job();
     job.set_limits(ResourceLimits::none());
     job.set_policy(EncodePolicy::preserve_all());
-    job.set_metadata(&meta);
+    job.set_metadata(meta);
     job.set_canvas_size(4, 4);
     job.set_loop_count(Some(0));
 
@@ -767,7 +767,7 @@ fn metadata_roundtrip_via_encode_job() {
 
     // Pass metadata through the encode job
     let config = MockEncoderConfig::new();
-    let job = config.job().with_metadata(&meta);
+    let job = config.job().with_metadata(meta);
     let enc = job.encoder().unwrap();
     let buf = make_rgb8_buffer(2, 2);
     let _output = enc.encode(buf.as_slice()).unwrap();
