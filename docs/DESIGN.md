@@ -133,8 +133,6 @@ The cost: animation executors can't borrow the job's `&dyn Stop` token. Instead,
 each method takes `stop: Option<&dyn Stop>` as a parameter. This is slightly more
 verbose but avoids the alternative of requiring callers to `Arc` their stop tokens.
 
-See `docs/lifetime.md` for the `where Self: 'a` bound explanation.
-
 ## DecodeRowSink: begin/provide_next_buffer/finish
 
 `DecodeRowSink` uses a three-phase lifecycle instead of the earlier single
