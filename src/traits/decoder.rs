@@ -177,15 +177,3 @@ pub trait AnimationFrameDecoder: Sized {
     ) -> Result<Option<OutputInfo>, Self::Error>;
 }
 
-/// Deprecated: use [`zencodec::helpers::copy_frame_to_sink`](crate::helpers::copy_frame_to_sink).
-#[deprecated(
-    since = "0.2.0",
-    note = "use zencodec::helpers::copy_frame_to_sink instead"
-)]
-pub fn render_frame_to_sink_via_copy<D: AnimationFrameDecoder>(
-    decoder: &mut D,
-    stop: Option<&dyn Stop>,
-    sink: &mut dyn crate::DecodeRowSink,
-) -> Result<Option<OutputInfo>, D::Error> {
-    crate::helpers::copy_frame_to_sink(decoder, stop, sink)
-}

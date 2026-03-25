@@ -3,7 +3,7 @@
 //! ```text
 //! ENCODE:
 //!                                  ┌→ Enc (implements Encoder)
-//! EncoderConfig → EncodeJob<'a> ──┤
+//! EncoderConfig → EncodeJob ──────┤
 //!                                  └→ AnimationFrameEnc (implements AnimationFrameEncoder)
 //!
 //! DECODE:
@@ -29,10 +29,8 @@ mod encoder;
 mod encoding;
 mod unsupported;
 
-#[allow(deprecated)]
-pub use decoder::{AnimationFrameDecoder, Decode, StreamingDecode, render_frame_to_sink_via_copy};
-#[allow(deprecated)]
-pub use decoding::{DecodeJob, DecoderConfig, push_decoder_via_full_decode};
+pub use decoder::{AnimationFrameDecoder, Decode, StreamingDecode};
+pub use decoding::{DecodeJob, DecoderConfig};
 pub use dyn_decoding::{
     DynAnimationFrameDecoder, DynDecodeJob, DynDecoder, DynDecoderConfig, DynStreamingDecoder,
 };

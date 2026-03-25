@@ -341,24 +341,3 @@ pub trait DecodeJob<'a>: Sized {
     }
 }
 
-// ===========================================================================
-// Deprecated aliases — use zencodec::helpers:: instead
-// ===========================================================================
-
-/// Deprecated: use [`zencodec::helpers::copy_decode_to_sink`](crate::helpers::copy_decode_to_sink).
-#[deprecated(
-    since = "0.2.0",
-    note = "use zencodec::helpers::copy_decode_to_sink instead"
-)]
-pub fn push_decoder_via_full_decode<'a, J>(
-    job: J,
-    data: Cow<'a, [u8]>,
-    sink: &mut dyn crate::DecodeRowSink,
-    preferred: &[PixelDescriptor],
-    wrap_sink_error: fn(crate::sink::SinkError) -> J::Error,
-) -> Result<OutputInfo, J::Error>
-where
-    J: DecodeJob<'a>,
-{
-    crate::helpers::copy_decode_to_sink(job, data, sink, preferred, wrap_sink_error)
-}

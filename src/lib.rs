@@ -118,7 +118,7 @@ pub(crate) use sink::DecodeRowSink;
 ///
 /// ```text
 ///                                  ┌→ Enc (implements Encoder)
-/// EncoderConfig → EncodeJob<'a> ──┤
+/// EncoderConfig → EncodeJob ──────┤
 ///                                  └→ AnimationFrameEnc (implements AnimationFrameEncoder)
 /// ```
 ///
@@ -166,10 +166,8 @@ pub mod encode {
 /// use the `Dyn*` variants for codec-agnostic operation.
 pub mod decode {
     // Traits — config, job, execution
-    #[allow(deprecated)]
     pub use crate::traits::{
         AnimationFrameDecoder, Decode, DecodeJob, DecoderConfig, StreamingDecode,
-        push_decoder_via_full_decode, render_frame_to_sink_via_copy,
     };
 
     // Object-safe dyn dispatch
