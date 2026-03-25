@@ -14,10 +14,11 @@ exclude = ["CLAUDE.md", "docs/"]
 name = "zencodec"
 
 [dependencies]
-zenpixels = { version = "0.2.0", path = "../zenpixels/zenpixels" }
+zenpixels = { version = "0.2.0" }
 almost-enough = { version = "0.4.2", default-features = false, features = ["alloc"] }
 enough = "0.4.2"
 whereat = "0.1.4"
 
 [dev-dependencies]
 thiserror = "2"
+walkdir = "2.5.0"
