@@ -86,30 +86,16 @@ pub use enough;
 pub use enough::Unstoppable;
 /// Owned, clonable, type-erased stop token.
 ///
-/// Wraps `Arc<dyn Stop>` — `Clone` is a cheap Arc increment.
-/// Use `StopToken::new(stop)` to convert any `Stop + 'static`.
-/// `Unstoppable` converts to a no-op token.
-#[derive(Clone)]
-pub struct StopToken(alloc::sync::Arc<dyn enough::Stop>);
+/// Re-exported from [`almost_enough::StopToken`]. Wraps any `Stop` in an
+/// enum that avoids vtable dispatch for `Stopper`/`SyncStopper`/`Unstoppable`,
+/// collapses nested tokens, and is `Clone + Send + Sync + 'static`.
+pub use almost_enough::StopToken;
 
-impl StopToken {
-    /// Create a new stop token from any `Stop + 'static`.
-    pub fn new(stop: impl enough::Stop + 'static) -> Self {
-        Self(alloc::sync::Arc::new(stop))
-    }
-}
-
-impl enough::Stop for StopToken {
-    #[inline]
-    fn check(&self) -> Result<(), enough::StopReason> {
-        self.0.check()
-    }
-
-    #[inline]
-    fn may_stop(&self) -> bool {
-        self.0.may_stop()
-    }
-}
+// StopToken is Option<Arc<dyn Stop + Send + Sync>> — a fat pointer.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(core::mem::size_of::<StopToken>() == 16);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(core::mem::size_of::<StopToken>() <= 8);
 
 // =========================================================================
 // pub(crate) re-exports — keep internal `use crate::Foo` paths working
