@@ -7,8 +7,8 @@ use crate::{EncodeCapabilities, Metadata, ResourceLimits};
 use zenpixels::PixelDescriptor;
 
 use super::BoxedError;
-use super::dyn_encoding::{DynEncoder, DynFullFrameEncoder, FullFrameEncoderShim};
-use super::encoder::{Encoder, FullFrameEncoder};
+use super::dyn_encoding::{DynEncoder, DynAnimationFrameEncoder, AnimationFrameEncoderShim};
+use super::encoder::{Encoder, AnimationFrameEncoder};
 
 // ===========================================================================
 // Encoder configuration
@@ -126,7 +126,7 @@ pub trait EncoderConfig: Clone + Send + Sync {
 ///
 /// Created by [`EncoderConfig::job()`]. Binds metadata, limits, and
 /// cancellation for a single encode operation. Produces either an `Enc`
-/// (single image via per-format traits) or a `FullFrameEnc` (animation
+/// (single image via per-format traits) or a `AnimationFrameEnc` (animation
 /// via full-frame encoder).
 pub trait EncodeJob: Sized {
     /// The codec-specific error type.
@@ -135,13 +135,13 @@ pub trait EncodeJob: Sized {
     /// Single-image encoder type (implements [`Encoder`]).
     type Enc: Sized + 'static;
 
-    /// Full-frame animation encoder type (implements [`FullFrameEncoder`]).
+    /// Full-frame animation encoder type (implements [`AnimationFrameEncoder`]).
     ///
     /// Must be `'static` and `Send` — frame encoders own their configuration
     /// (clone configs, convert stop tokens to owned form). This lets
     /// callers use the encoder independently of the job's scope and across
     /// thread boundaries (e.g., in pipeline `Sink` implementations).
-    type FullFrameEnc: Sized + Send + 'static;
+    type AnimationFrameEnc: Sized + Send + 'static;
 
     /// Set cooperative cancellation token.
     ///
@@ -181,7 +181,7 @@ pub trait EncodeJob: Sized {
     /// - `Some(n)` = loop `n` times
     /// - `None` = format default
     ///
-    /// Must be set before [`full_frame_encoder()`](EncodeJob::full_frame_encoder)
+    /// Must be set before [`animation_frame_encoder()`](EncodeJob::animation_frame_encoder)
     /// because formats write the loop count before frame data.
     fn with_loop_count(self, _count: Option<u32>) -> Self {
         self
@@ -230,7 +230,7 @@ pub trait EncodeJob: Sized {
     /// Create a full-frame animation encoder.
     ///
     /// Set loop count and canvas size before calling this.
-    fn full_frame_encoder(self) -> Result<Self::FullFrameEnc, Self::Error>;
+    fn animation_frame_encoder(self) -> Result<Self::AnimationFrameEnc, Self::Error>;
 
     // --- Type-erased convenience methods ---
 
@@ -270,26 +270,26 @@ pub trait EncodeJob: Sized {
 
     /// Create a type-erased full-frame animation encoder.
     ///
-    /// Only available when `FullFrameEnc` implements [`FullFrameEncoder`].
+    /// Only available when `AnimationFrameEnc` implements [`AnimationFrameEncoder`].
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let mut enc = config.job()
     ///     .with_loop_count(Some(0))
-    ///     .dyn_full_frame_encoder()?;
+    ///     .dyn_animation_frame_encoder()?;
     ///
     /// enc.push_frame(frame1_pixels, 100, None)?;
     /// enc.push_frame(frame2_pixels, 100, None)?;
     /// let output = enc.finish(None)?;
     /// ```
-    fn dyn_full_frame_encoder(self) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError>
+    fn dyn_animation_frame_encoder(self) -> Result<Box<dyn DynAnimationFrameEncoder>, BoxedError>
     where
-        Self::FullFrameEnc: FullFrameEncoder + Send,
+        Self::AnimationFrameEnc: AnimationFrameEncoder + Send,
     {
         let enc = self
-            .full_frame_encoder()
+            .animation_frame_encoder()
             .map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(FullFrameEncoderShim(enc)))
+        Ok(Box::new(AnimationFrameEncoderShim(enc)))
     }
 }

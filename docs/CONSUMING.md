@@ -186,7 +186,7 @@ if let Some([min, max]) = caps.quality_range() {
 // Advanced encode paths
 if caps.push_rows()   { /* push_rows() + finish() is supported */ }
 if caps.encode_from() { /* encode_from() callback is supported */ }
-if caps.animation() { /* full_frame_encoder() works */ }
+if caps.animation() { /* animation_frame_encoder() works */ }
 ```
 
 Decode capabilities follow the same pattern:
@@ -194,7 +194,7 @@ Decode capabilities follow the same pattern:
 ```rust
 let caps = JpegDecoderConfig::capabilities();
 if caps.cheap_probe() { /* probe() is fast, reads header only */ }
-if caps.animation()   { /* full_frame_decoder() works */ }
+if caps.animation()   { /* animation_frame_decoder() works */ }
 if caps.streaming()   { /* streaming_decoder() works */ }
 ```
 
@@ -298,14 +298,14 @@ Color management is not the codec's job. Decoders return native pixels with ICC/
 
 ### Decoding Animation
 
-The `FullFrameDecoder` composites internally — it handles disposal, blending, sub-canvas positioning, and reference slots, then yields full-canvas frames ready for display.
+The `AnimationFrameDecoder` composites internally — it handles disposal, blending, sub-canvas positioning, and reference slots, then yields full-canvas frames ready for display.
 
 ```rust
 use std::borrow::Cow;
-use zencodec::decode::{DecodeJob, FullFrameDecoder};
+use zencodec::decode::{DecodeJob, AnimationFrameDecoder};
 
 let job = config.job();
-let mut frame_dec = job.full_frame_decoder(Cow::Borrowed(&gif_bytes), &[])?;
+let mut frame_dec = job.animation_frame_decoder(Cow::Borrowed(&gif_bytes), &[])?;
 
 println!("frames: {:?}", frame_dec.frame_count());
 println!("loop count: {:?}", frame_dec.loop_count()); // Some(0) = infinite
@@ -322,13 +322,13 @@ while let Some(frame) = frame_dec.render_next_frame(None)? {
 ### Encoding Animation
 
 ```rust
-use zencodec::encode::{EncodeJob, FullFrameEncoder};
+use zencodec::encode::{EncodeJob, AnimationFrameEncoder};
 
 let job = config.job()
     .with_canvas_size(640, 480)
     .with_loop_count(Some(0)); // infinite loop
 
-let mut frame_enc = job.full_frame_encoder()?;
+let mut frame_enc = job.animation_frame_encoder()?;
 
 // Push full-canvas frames (pixels, duration_ms, stop token):
 frame_enc.push_frame(frame1_pixels, 100, None)?;

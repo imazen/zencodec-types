@@ -25,19 +25,19 @@ in their public APIs.
 ENCODE:
                                  ┌→ Enc (Encoder)
 EncoderConfig → EncodeJob<'a> ──┤
-                                 └→ FullFrameEnc (FullFrameEncoder, 'static)
+                                 └→ AnimationFrameEnc (AnimationFrameEncoder, 'static)
 
 DECODE:
                                  ┌→ Dec (Decode)
 DecoderConfig → DecodeJob<'a> ──┤→ StreamDec (StreamingDecode)
-                                 └→ FullFrameDec (FullFrameDecoder, 'static)
+                                 └→ AnimationFrameDec (AnimationFrameDecoder, 'static)
 ```
 
 Each layer has object-safe `Dyn*` variants for codec-agnostic dispatch:
 
 ```text
-DynEncoderConfig → DynEncodeJob → DynEncoder / DynFullFrameEncoder
-DynDecoderConfig → DynDecodeJob → DynDecoder / DynStreamingDecoder / DynFullFrameDecoder
+DynEncoderConfig → DynEncodeJob → DynEncoder / DynAnimationFrameEncoder
+DynDecoderConfig → DynDecodeJob → DynDecoder / DynStreamingDecoder / DynAnimationFrameDecoder
 ```
 
 Blanket impls generate the dyn API automatically from the generic traits.
@@ -81,7 +81,7 @@ trait EncoderConfig: Clone + Send + Sync {
 trait EncodeJob<'a>: Sized {
     type Error: core::error::Error + Send + Sync + 'static;
     type Enc: Sized;                    // single-image encoder
-    type FullFrameEnc: Sized + 'static; // animation encoder
+    type AnimationFrameEnc: Sized + 'static; // animation encoder
 
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
     fn with_limits(self, limits: ResourceLimits) -> Self;
@@ -95,13 +95,13 @@ trait EncodeJob<'a>: Sized {
     fn extensions_mut(&mut self) -> Option<&mut dyn Any>; // default: None
 
     fn encoder(self) -> Result<Self::Enc, Self::Error>;
-    fn full_frame_encoder(self) -> Result<Self::FullFrameEnc, Self::Error>;
+    fn animation_frame_encoder(self) -> Result<Self::AnimationFrameEnc, Self::Error>;
 
     // Type-erased convenience (default impls via shims)
     fn dyn_encoder(self) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>
         where Self: 'a, Self::Enc: Encoder;
-    fn dyn_full_frame_encoder(self) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError>
-        where Self: 'a, Self::FullFrameEnc: FullFrameEncoder;
+    fn dyn_animation_frame_encoder(self) -> Result<Box<dyn DynAnimationFrameEncoder>, BoxedError>
+        where Self: 'a, Self::AnimationFrameEnc: AnimationFrameEncoder;
 }
 ```
 
@@ -134,10 +134,10 @@ trait Encoder: Sized {
 
 Three mutually exclusive paths: `encode()`/`encode_srgba8()`, `push_rows()+finish()`, `encode_from()`.
 
-### `FullFrameEncoder` (animation encode)
+### `AnimationFrameEncoder` (animation encode)
 
 ```rust
-trait FullFrameEncoder: Sized {
+trait AnimationFrameEncoder: Sized {
     type Error: core::error::Error + Send + Sync + 'static;
 
     fn reject(op: UnsupportedOperation) -> Self::Error;
@@ -149,8 +149,8 @@ trait FullFrameEncoder: Sized {
 ```
 
 Full-canvas frames only. Animation encoder is `'static` — it owns its data.
-Codecs without animation set `type FullFrameEnc = ()` (unit implements
-`FullFrameEncoder` with all methods returning `Err`).
+Codecs without animation set `type AnimationFrameEnc = ()` (unit implements
+`AnimationFrameEncoder` with all methods returning `Err`).
 
 ---
 
@@ -178,7 +178,7 @@ trait DecodeJob<'a>: Sized {
     type Error: core::error::Error + Send + Sync + 'static;
     type Dec: Decode<Error = Self::Error>;
     type StreamDec: StreamingDecode<Error = Self::Error>;
-    type FullFrameDec: FullFrameDecoder<Error = Self::Error> + 'static;
+    type AnimationFrameDec: AnimationFrameDecoder<Error = Self::Error> + 'static;
 
     fn with_stop(self, stop: &'a dyn Stop) -> Self;
     fn with_limits(self, limits: ResourceLimits) -> Self;
@@ -208,12 +208,12 @@ trait DecodeJob<'a>: Sized {
         preferred: &[PixelDescriptor]) -> Result<OutputInfo, Self::Error>;
     fn streaming_decoder(self, data: Cow<'a, [u8]>, preferred: &[PixelDescriptor])
         -> Result<Self::StreamDec, Self::Error>;
-    fn full_frame_decoder(self, data: Cow<'a, [u8]>, preferred: &[PixelDescriptor])
-        -> Result<Self::FullFrameDec, Self::Error>;
+    fn animation_frame_decoder(self, data: Cow<'a, [u8]>, preferred: &[PixelDescriptor])
+        -> Result<Self::AnimationFrameDec, Self::Error>;
 
     // Type-erased convenience (default impls via shims)
     fn dyn_decoder(...) -> Result<Box<dyn DynDecoder + 'a>, BoxedError>;
-    fn dyn_full_frame_decoder(...) -> Result<Box<dyn DynFullFrameDecoder>, BoxedError>;
+    fn dyn_animation_frame_decoder(...) -> Result<Box<dyn DynAnimationFrameDecoder>, BoxedError>;
     fn dyn_streaming_decoder(...) -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError>;
 }
 ```
@@ -243,10 +243,10 @@ trait StreamingDecode {
 `impl StreamingDecode for ()` is the rejection stub — set `type StreamDec = ()`
 for codecs that don't support streaming.
 
-### `FullFrameDecoder` (animation decode, composited full-canvas frames)
+### `AnimationFrameDecoder` (animation decode, composited full-canvas frames)
 
 ```rust
-trait FullFrameDecoder: Sized {
+trait AnimationFrameDecoder: Sized {
     type Error: core::error::Error + Send + Sync + 'static;
 
     fn wrap_sink_error(err: SinkError) -> Self::Error;
@@ -255,9 +255,9 @@ trait FullFrameDecoder: Sized {
     fn loop_count(&self) -> Option<u32>;        // default: None
 
     fn render_next_frame(&mut self, stop: Option<&dyn Stop>)
-        -> Result<Option<FullFrame<'_>>, Self::Error>;
+        -> Result<Option<AnimationFrame<'_>>, Self::Error>;
     fn render_next_frame_owned(&mut self, stop: Option<&dyn Stop>)
-        -> Result<Option<OwnedFullFrame>, Self::Error>;   // default: copies from render_next_frame
+        -> Result<Option<OwnedAnimationFrame>, Self::Error>;   // default: copies from render_next_frame
     fn render_next_frame_to_sink(&mut self, stop: Option<&dyn Stop>,
         sink: &mut dyn DecodeRowSink) -> Result<Option<OutputInfo>, Self::Error>;
 }
@@ -308,7 +308,7 @@ trait DynEncodeJob<'a> {
     fn extensions(&self) -> Option<&dyn Any>;
     fn extensions_mut(&mut self) -> Option<&mut dyn Any>;
     fn into_encoder(self: Box<Self>) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>;
-    fn into_full_frame_encoder(self: Box<Self>) -> Result<Box<dyn DynFullFrameEncoder>, BoxedError>;
+    fn into_animation_frame_encoder(self: Box<Self>) -> Result<Box<dyn DynAnimationFrameEncoder>, BoxedError>;
 }
 
 trait DynEncoder {
@@ -322,7 +322,7 @@ trait DynEncoder {
         source: &mut dyn FnMut(u32, PixelSliceMut<'_>) -> usize) -> Result<EncodeOutput, BoxedError>;
 }
 
-trait DynFullFrameEncoder {
+trait DynAnimationFrameEncoder {
     fn as_any(&self) -> &dyn Any;       // downcast to concrete encoder
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
@@ -363,16 +363,16 @@ trait DynDecodeJob<'a> {
     fn into_streaming_decoder(self: Box<Self>, data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor])
         -> Result<Box<dyn DynStreamingDecoder + 'a>, BoxedError>;
-    fn into_full_frame_decoder(self: Box<Self>, data: Cow<'a, [u8]>,
+    fn into_animation_frame_decoder(self: Box<Self>, data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor])
-        -> Result<Box<dyn DynFullFrameDecoder>, BoxedError>;
+        -> Result<Box<dyn DynAnimationFrameDecoder>, BoxedError>;
 }
 
 trait DynDecoder {
     fn decode(self: Box<Self>) -> Result<DecodeOutput, BoxedError>;
 }
 
-trait DynFullFrameDecoder {
+trait DynAnimationFrameDecoder {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
@@ -380,7 +380,7 @@ trait DynFullFrameDecoder {
     fn frame_count(&self) -> Option<u32>;
     fn loop_count(&self) -> Option<u32>;
     fn render_next_frame_owned(&mut self, stop: Option<&dyn Stop>)
-        -> Result<Option<OwnedFullFrame>, BoxedError>;
+        -> Result<Option<OwnedAnimationFrame>, BoxedError>;
     fn render_next_frame_to_sink(&mut self, stop: Option<&dyn Stop>,
         sink: &mut dyn DecodeRowSink) -> Result<Option<OutputInfo>, BoxedError>;
 }
@@ -394,7 +394,7 @@ trait DynStreamingDecoder {
 ### Downcasting rules
 
 - `DynEncoderConfig`, `DynDecoderConfig`: `as_any()` — configs are `'static`
-- `DynFullFrameEncoder`, `DynFullFrameDecoder`: `as_any()`, `as_any_mut()`, `into_any()` — frame decoders/encoders are `'static`
+- `DynAnimationFrameEncoder`, `DynAnimationFrameDecoder`: `as_any()`, `as_any_mut()`, `into_any()` — frame decoders/encoders are `'static`
 - `DynEncoder`, `DynDecoder`, `DynStreamingDecoder`: **no downcasting** — they borrow `'a` data
 
 Use `extensions()`/`extensions_mut()` on jobs for codec-specific access through the dyn pipeline.
@@ -505,17 +505,17 @@ Methods: `pixels()`, `into_buffer()`, `info()`, `width()`, `height()`,
 `take_source_encoding_details()`,
 `with_extras<T>()`, `extras<T>()`, `take_extras<T>()`.
 
-### `FullFrame<'a>`
+### `AnimationFrame<'a>`
 
 Borrowed animation frame. Fields: `pixels: PixelSlice<'a>`, `duration_ms: u32`,
 `frame_index: u32`. Method: `to_owned_frame()`.
 
-### `OwnedFullFrame`
+### `OwnedAnimationFrame`
 
 Owned animation frame. Fields: `pixels: PixelBuffer`, `duration_ms: u32`,
 `frame_index: u32`, `extras: Option<Box<dyn Any + Send>>`.
 
-Methods: `pixels()`, `into_buffer()`, `as_full_frame()`,
+Methods: `pixels()`, `into_buffer()`, `as_animation_frame()`,
 `with_extras<T>()`, `extras<T>()`, `take_extras<T>()`.
 
 ---
@@ -649,7 +649,7 @@ Walk an error chain looking for a specific cause type.
 ### `Unsupported<E>`
 
 Generic stub type for unsupported decode modes. Implements `StreamingDecode`
-and `FullFrameDecoder` with unreachable bodies. Use as `type StreamDec = Unsupported<E>`.
+and `AnimationFrameDecoder` with unreachable bodies. Use as `type StreamDec = Unsupported<E>`.
 
 ---
 

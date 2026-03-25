@@ -34,8 +34,8 @@ Executor   →  borrows pixel data or file bytes, consumes self to produce outpu
 ```
 
 ```text
-ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder / FullFrameEncoder
-DECODE:  DecoderConfig → DecodeJob<'a> → Decode / StreamingDecode / FullFrameDecoder
+ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder / AnimationFrameEncoder
+DECODE:  DecoderConfig → DecodeJob<'a> → Decode / StreamingDecode / AnimationFrameDecoder
 ```
 
 Config lives in a struct and gets shared across threads. A web server keeps one `JpegEncoderConfig` at quality 85 for all requests. Job borrows stack-local data (cancellation token, resource limits, metadata). Executor borrows pixels or bytes and consumes itself to produce output.
@@ -43,8 +43,8 @@ Config lives in a struct and gets shared across threads. A web server keeps one 
 Each layer also has object-safe `Dyn*` variants for codec-agnostic dispatch:
 
 ```text
-DynEncoderConfig → DynEncodeJob → DynEncoder / DynFullFrameEncoder
-DynDecoderConfig → DynDecodeJob → DynDecoder / DynStreamingDecoder / DynFullFrameDecoder
+DynEncoderConfig → DynEncodeJob → DynEncoder / DynAnimationFrameEncoder
+DynDecoderConfig → DynDecodeJob → DynDecoder / DynStreamingDecoder / DynAnimationFrameDecoder
 ```
 
 Blanket impls generate the dyn API automatically — codec authors implement the generic traits and get dyn dispatch for free.
@@ -82,8 +82,8 @@ let pixels = decoded.into_buffer();
 
 | Module | Contents |
 |--------|----------|
-| `zencodec::encode` | `EncoderConfig`, `EncodeJob`, `Encoder`, `FullFrameEncoder`, `EncodeOutput`, `EncodeCapabilities`, `EncodePolicy`, dyn dispatch traits |
-| `zencodec::decode` | `DecoderConfig`, `DecodeJob`, `Decode`, `StreamingDecode`, `FullFrameDecoder`, `DecodeOutput`, `DecodeCapabilities`, `DecodePolicy`, `DecodeRowSink`, dyn dispatch traits, format negotiation |
+| `zencodec::encode` | `EncoderConfig`, `EncodeJob`, `Encoder`, `AnimationFrameEncoder`, `EncodeOutput`, `EncodeCapabilities`, `EncodePolicy`, dyn dispatch traits |
+| `zencodec::decode` | `DecoderConfig`, `DecodeJob`, `Decode`, `StreamingDecode`, `AnimationFrameDecoder`, `DecodeOutput`, `DecodeCapabilities`, `DecodePolicy`, `DecodeRowSink`, dyn dispatch traits, format negotiation |
 | root | `ImageFormat`, `ImageInfo`, `Metadata`, `Orientation`, `OrientationHint`, `ResourceLimits`, `UnsupportedOperation` |
 
 ## License

@@ -2,7 +2,7 @@
 //!
 //! Mirrors the generic decode hierarchy with dyn-safe traits:
 //!
-//!   DynDecoderConfig → DynDecodeJob → DynDecoder / DynFullFrameDecoder / DynStreamingDecoder
+//!   DynDecoderConfig → DynDecodeJob → DynDecoder / DynAnimationFrameDecoder / DynStreamingDecoder
 //!
 //! Each layer is a separate trait with blanket impls via private shim structs.
 //! Every method from the generic traits is exposed.
@@ -13,13 +13,13 @@ use core::any::Any;
 
 use crate::format::ImageFormat;
 use crate::orientation::OrientationHint;
-use crate::output::OwnedFullFrame;
+use crate::output::OwnedAnimationFrame;
 use crate::{DecodeCapabilities, DecodeOutput, ImageInfo, OutputInfo, ResourceLimits, StopToken};
 use enough::Stop;
 use zenpixels::{PixelDescriptor, PixelSlice};
 
 use super::BoxedError;
-use super::decoder::{Decode, FullFrameDecoder, StreamingDecode};
+use super::decoder::{Decode, AnimationFrameDecoder, StreamingDecode};
 use super::decoding::{DecodeJob, DecoderConfig};
 
 // ===========================================================================
@@ -50,19 +50,19 @@ impl<D: Decode> DynDecoder for DecoderShim<D> {
 }
 
 // ===========================================================================
-// DynFullFrameDecoder
+// DynAnimationFrameDecoder
 // ===========================================================================
 
 /// Object-safe full-frame animation decoder.
 ///
-/// Wraps [`FullFrameDecoder`] for dyn dispatch. Produced by
-/// [`DynDecodeJob::into_full_frame_decoder`].
+/// Wraps [`AnimationFrameDecoder`] for dyn dispatch. Produced by
+/// [`DynDecodeJob::into_animation_frame_decoder`].
 ///
 /// # Downcasting
 ///
-/// Use [`as_any()`](DynFullFrameDecoder::as_any) to downcast back to the
+/// Use [`as_any()`](DynAnimationFrameDecoder::as_any) to downcast back to the
 /// concrete codec type for format-specific animation controls.
-pub trait DynFullFrameDecoder: Send {
+pub trait DynAnimationFrameDecoder: Send {
     /// Downcast to the concrete frame decoder type.
     fn as_any(&self) -> &dyn Any;
 
@@ -85,7 +85,7 @@ pub trait DynFullFrameDecoder: Send {
     fn render_next_frame_owned(
         &mut self,
         stop: Option<&dyn Stop>,
-    ) -> Result<Option<OwnedFullFrame>, BoxedError>;
+    ) -> Result<Option<OwnedAnimationFrame>, BoxedError>;
 
     /// Render the next frame directly into a caller-owned sink.
     fn render_next_frame_to_sink(
@@ -95,16 +95,16 @@ pub trait DynFullFrameDecoder: Send {
     ) -> Result<Option<OutputInfo>, BoxedError>;
 }
 
-impl core::fmt::Debug for dyn DynFullFrameDecoder + '_ {
+impl core::fmt::Debug for dyn DynAnimationFrameDecoder + '_ {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("DynFullFrameDecoder")
+        f.debug_struct("DynAnimationFrameDecoder")
             .finish_non_exhaustive()
     }
 }
 
-pub(super) struct FullFrameDecoderShim<F>(pub(super) F);
+pub(super) struct AnimationFrameDecoderShim<F>(pub(super) F);
 
-impl<F: FullFrameDecoder + Send + 'static> DynFullFrameDecoder for FullFrameDecoderShim<F> {
+impl<F: AnimationFrameDecoder + Send + 'static> DynAnimationFrameDecoder for AnimationFrameDecoderShim<F> {
     fn as_any(&self) -> &dyn Any {
         &self.0
     }
@@ -132,7 +132,7 @@ impl<F: FullFrameDecoder + Send + 'static> DynFullFrameDecoder for FullFrameDeco
     fn render_next_frame_owned(
         &mut self,
         stop: Option<&dyn Stop>,
-    ) -> Result<Option<OwnedFullFrame>, BoxedError> {
+    ) -> Result<Option<OwnedAnimationFrame>, BoxedError> {
         self.0
             .render_next_frame_owned(stop)
             .map_err(|e| Box::new(e) as BoxedError)
@@ -257,11 +257,11 @@ pub trait DynDecodeJob<'a> {
     ///
     /// The returned decoder is `'static` — it owns all its data.
     /// Pass `Cow::Owned(vec)` to avoid a copy.
-    fn into_full_frame_decoder(
+    fn into_animation_frame_decoder(
         self: Box<Self>,
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFullFrameDecoder>, BoxedError>;
+    ) -> Result<Box<dyn DynAnimationFrameDecoder>, BoxedError>;
 }
 
 struct DecodeJobShim<J>(Option<J>);
@@ -284,7 +284,7 @@ impl<'a, J> DynDecodeJob<'a> for DecodeJobShim<J>
 where
     J: DecodeJob<'a> + 'a,
     J::StreamDec: Send,
-    J::FullFrameDec: Send,
+    J::AnimationFrameDec: Send,
 {
     fn set_stop(&mut self, stop: StopToken) {
         let job = self.take();
@@ -377,16 +377,16 @@ where
         Ok(Box::new(StreamingDecoderShim(dec)))
     }
 
-    fn into_full_frame_decoder(
+    fn into_animation_frame_decoder(
         mut self: Box<Self>,
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFullFrameDecoder>, BoxedError> {
+    ) -> Result<Box<dyn DynAnimationFrameDecoder>, BoxedError> {
         let job = self.take();
         let dec = job
-            .full_frame_decoder(data, preferred)
+            .animation_frame_decoder(data, preferred)
             .map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(FullFrameDecoderShim(dec)))
+        Ok(Box::new(AnimationFrameDecoderShim(dec)))
     }
 }
 

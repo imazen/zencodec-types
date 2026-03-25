@@ -102,7 +102,7 @@ impl EncoderConfig for PnmEncoderConfig {
 impl EncodeJob for PnmEncodeJob {
     type Error = At<PnmError>;
     type Enc = PnmEnc;
-    type FullFrameEnc = (); // no animation
+    type AnimationFrameEnc = (); // no animation
 
     fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
         self.stop = Some(stop);
@@ -126,7 +126,7 @@ impl EncodeJob for PnmEncodeJob {
         Ok(PnmEnc { stop })
     }
 
-    fn full_frame_encoder(self) -> Result<(), At<PnmError>> {
+    fn animation_frame_encoder(self) -> Result<(), At<PnmError>> {
         Err(PnmError::from(UnsupportedOperation::AnimationEncode).start_at())
     }
 }
@@ -239,7 +239,7 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
     type Error = At<PnmError>;
     type Dec = PnmDec<'a>;
     type StreamDec = Unsupported<At<PnmError>>;
-    type FullFrameDec = Unsupported<At<PnmError>>;
+    type AnimationFrameDec = Unsupported<At<PnmError>>;
 
     fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
         self.stop = Some(stop);
@@ -298,7 +298,7 @@ impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
         Err(PnmError::from(UnsupportedOperation::RowLevelDecode).start_at())
     }
 
-    fn full_frame_decoder(
+    fn animation_frame_decoder(
         self,
         _data: Cow<'a, [u8]>,
         _preferred: &[PixelDescriptor],

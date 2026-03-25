@@ -148,13 +148,13 @@ pub trait Encoder: Sized {
 /// # Cooperative cancellation
 ///
 /// Each method takes an `Option<&dyn Stop>` token for cooperative
-/// cancellation. Because `FullFrameEnc: 'static`, the encoder cannot
+/// cancellation. Because `AnimationFrameEnc: 'static`, the encoder cannot
 /// borrow the job's stop token. Instead, the caller passes a stop
 /// token per call. Codecs that also stored an owned stop at
 /// construction time can combine the two with
 /// [`OrStop`](https://docs.rs/almost-enough/latest/almost_enough/struct.OrStop.html).
 /// Pass `None` when cancellation is not needed.
-pub trait FullFrameEncoder: Sized {
+pub trait AnimationFrameEncoder: Sized {
     /// The codec-specific error type.
     type Error: core::error::Error + Send + Sync + 'static;
 
@@ -179,8 +179,8 @@ pub trait FullFrameEncoder: Sized {
 }
 
 /// Trivial rejection impl — codecs that don't support animation set
-/// `type FullFrameEnc = ()` and `full_frame_encoder()` returns an error.
-impl FullFrameEncoder for () {
+/// `type AnimationFrameEnc = ()` and `animation_frame_encoder()` returns an error.
+impl AnimationFrameEncoder for () {
     type Error = crate::UnsupportedOperation;
 
     fn reject(op: crate::UnsupportedOperation) -> Self::Error {

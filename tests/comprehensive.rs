@@ -12,14 +12,14 @@ use mock_anim::{MockDecoderConfig, MockEncoderConfig};
 
 use zencodec::decode::{
     Decode, DecodeCapabilities, DecodeJob, DecodeOutput, DecodePolicy, DecoderConfig,
-    DynDecoderConfig, FullFrameDecoder, OutputInfo, StreamingDecode,
+    DynDecoderConfig, AnimationFrameDecoder, OutputInfo, StreamingDecode,
 };
 use zencodec::encode::{
     DynEncoderConfig, EncodeCapabilities, EncodeJob, EncodeOutput, EncodePolicy, Encoder,
-    EncoderConfig, FullFrameEncoder,
+    EncoderConfig, AnimationFrameEncoder,
 };
 use zencodec::{
-    CodecErrorExt, FullFrame, ImageFormat, ImageInfo, ImageSequence, LimitExceeded, Metadata,
+    CodecErrorExt, AnimationFrame, ImageFormat, ImageInfo, ImageSequence, LimitExceeded, Metadata,
     Orientation, OrientationHint, ResourceLimits, ThreadingPolicy, UnsupportedOperation,
 };
 use zenpixels::{PixelBuffer, PixelDescriptor, PixelSlice};
@@ -72,7 +72,7 @@ fn encode_single_frame(buf: &PixelBuffer) -> Vec<u8> {
 fn encode_animation_from_slices(frames: &[(&PixelBuffer, u32)]) -> Vec<u8> {
     let config = MockEncoderConfig::new();
     let job = config.job();
-    let mut enc = job.full_frame_encoder().unwrap();
+    let mut enc = job.animation_frame_encoder().unwrap();
     for (buf, dur) in frames {
         enc.push_frame(buf.as_slice(), *dur, None).unwrap();
     }
@@ -83,7 +83,7 @@ fn encode_animation_from_slices(frames: &[(&PixelBuffer, u32)]) -> Vec<u8> {
 fn encode_animation(frames: &[(PixelBuffer, u32)]) -> Vec<u8> {
     let config = MockEncoderConfig::new();
     let job = config.job();
-    let mut enc = job.full_frame_encoder().unwrap();
+    let mut enc = job.animation_frame_encoder().unwrap();
     for (buf, dur) in frames {
         enc.push_frame(buf.as_slice(), *dur, None).unwrap();
     }
@@ -238,11 +238,11 @@ fn encoder_encode_srgba8_with_alpha() {
 }
 
 // =========================================================================
-// 4. FullFrameEncoder for () stub
+// 4. AnimationFrameEncoder for () stub
 // =========================================================================
 
 #[test]
-fn unit_full_frame_encoder_rejects() {
+fn unit_animation_frame_encoder_rejects() {
     let mut enc = ();
     let buf = make_rgb8_buffer(2, 2);
     let err = enc.push_frame(buf.as_slice(), 100, None).unwrap_err();
@@ -268,7 +268,7 @@ fn animation_encode_decode_roundtrip() {
     // Decode as animation
     let config = MockDecoderConfig;
     let job = config.job();
-    let mut dec = job.full_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
+    let mut dec = job.animation_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
 
     assert_eq!(dec.frame_count(), Some(2));
     assert_eq!(dec.loop_count(), Some(0));
@@ -300,15 +300,15 @@ fn animation_render_next_frame_owned() {
 
     let config = MockDecoderConfig;
     let job = config.job();
-    let mut dec = job.full_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
+    let mut dec = job.animation_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
 
     let owned = dec.render_next_frame_owned(None).unwrap().unwrap();
     assert_eq!(owned.frame_index(), 0);
     assert_eq!(owned.duration_ms(), 50);
     assert_eq!(owned.pixels().width(), 2);
 
-    // Can use OwnedFullFrame independently
-    let borrowed = owned.as_full_frame();
+    // Can use OwnedAnimationFrame independently
+    let borrowed = owned.as_animation_frame();
     assert_eq!(borrowed.duration_ms(), 50);
 
     let recovered = owned.into_buffer();
@@ -322,7 +322,7 @@ fn animation_render_to_sink() {
 
     let config = MockDecoderConfig;
     let job = config.job();
-    let mut dec = job.full_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
+    let mut dec = job.animation_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
 
     struct CollectSink {
         buf: Vec<u8>,
@@ -510,7 +510,7 @@ fn dyn_decode_streaming() {
 }
 
 #[test]
-fn dyn_decode_full_frame() {
+fn dyn_decode_animation_frame() {
     let frame1 = make_rgb8_buffer(2, 2);
     let data = encode_animation(&[(frame1, 100)]);
 
@@ -519,7 +519,7 @@ fn dyn_decode_full_frame() {
     let job = dyn_config.dyn_job();
 
     let mut dec = job
-        .into_full_frame_decoder(Cow::Borrowed(&data), &[])
+        .into_animation_frame_decoder(Cow::Borrowed(&data), &[])
         .unwrap();
 
     assert_eq!(dec.frame_count(), Some(1));
@@ -564,14 +564,14 @@ fn dyn_encode_job_set_methods() {
 }
 
 #[test]
-fn dyn_encode_full_frame_encoder() {
+fn dyn_encode_animation_frame_encoder() {
     let config = MockEncoderConfig::new();
     let dyn_config: &dyn DynEncoderConfig = &config;
 
     let mut job = dyn_config.dyn_job();
     job.set_loop_count(Some(0));
 
-    let mut enc = job.into_full_frame_encoder().unwrap();
+    let mut enc = job.into_animation_frame_encoder().unwrap();
     let buf = make_rgb8_buffer(2, 2);
     enc.push_frame(buf.as_slice(), 100, None).unwrap();
     enc.push_frame(buf.as_slice(), 200, None).unwrap();
@@ -673,14 +673,14 @@ fn concrete_job_dyn_streaming_decoder() {
 }
 
 #[test]
-fn concrete_job_dyn_full_frame_decoder() {
+fn concrete_job_dyn_animation_frame_decoder() {
     let frame = make_rgb8_buffer(2, 2);
     let data = encode_animation(&[(frame, 100)]);
 
     let config = MockDecoderConfig;
     let job = config.job();
     let mut dec = job
-        .dyn_full_frame_decoder(Cow::Borrowed(&data), &[])
+        .dyn_animation_frame_decoder(Cow::Borrowed(&data), &[])
         .unwrap();
 
     let f = dec.render_next_frame_owned(None).unwrap().unwrap();
@@ -703,10 +703,10 @@ fn concrete_job_dyn_encoder() {
 }
 
 #[test]
-fn concrete_job_dyn_full_frame_encoder() {
+fn concrete_job_dyn_animation_frame_encoder() {
     let config = MockEncoderConfig::new();
     let job = config.job();
-    let mut enc = job.dyn_full_frame_encoder().unwrap();
+    let mut enc = job.dyn_animation_frame_encoder().unwrap();
     let buf = make_rgb8_buffer(2, 2);
     enc.push_frame(buf.as_slice(), 100, None).unwrap();
     let output = enc.finish(None).unwrap();
@@ -861,11 +861,11 @@ fn encode_output_empty() {
 }
 
 // =========================================================================
-// 15. FullFrame with padded stride → to_owned strips padding
+// 15. AnimationFrame with padded stride → to_owned strips padding
 // =========================================================================
 
 #[test]
-fn full_frame_to_owned_strips_padding() {
+fn animation_frame_to_owned_strips_padding() {
     // Create a buffer with padded stride (pixel-aligned, larger than needed)
     let w = 10u32;
     let h = 2u32;
@@ -884,7 +884,7 @@ fn full_frame_to_owned_strips_padding() {
     }
 
     let ps = PixelSlice::new(&data, w, h, stride, desc).unwrap();
-    let frame = FullFrame::new(ps, 100, 0);
+    let frame = AnimationFrame::new(ps, 100, 0);
     let owned = frame.to_owned_frame();
 
     // Owned should have tight stride (no padding)
@@ -1074,7 +1074,7 @@ fn error_chain_unsupported_through_dyn() {
     let dyn_config: &dyn DynEncoderConfig = &config;
 
     let job = dyn_config.dyn_job();
-    let enc = job.into_full_frame_encoder().unwrap();
+    let enc = job.into_animation_frame_encoder().unwrap();
 
     // Finish without pushing frames
     let err = enc.finish(None).unwrap_err();
@@ -1111,7 +1111,7 @@ fn animation_decode_respects_per_frame_cancellation() {
 
     let config = MockDecoderConfig;
     let job = config.job();
-    let mut dec = job.full_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
+    let mut dec = job.animation_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
 
     // First frame: no cancel
     dec.render_next_frame(None).unwrap().unwrap();
@@ -1128,7 +1128,7 @@ fn animation_encode_respects_cancellation() {
 
     let config = MockEncoderConfig::new();
     let job = config.job();
-    let mut enc = job.full_frame_encoder().unwrap();
+    let mut enc = job.animation_frame_encoder().unwrap();
 
     let buf = make_rgb8_buffer(2, 2);
     enc.push_frame(buf.as_slice(), 100, None).unwrap();
@@ -1554,7 +1554,7 @@ fn animation_start_frame_index() {
 
     let config = MockDecoderConfig;
     let job = config.job().with_start_frame_index(1);
-    let mut dec = job.full_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
+    let mut dec = job.animation_frame_decoder(Cow::Borrowed(&data), &[]).unwrap();
 
     // Should start at frame 1
     let frame = dec.render_next_frame(None).unwrap().unwrap();
@@ -1573,7 +1573,7 @@ fn animation_start_frame_index() {
 // =========================================================================
 
 #[test]
-fn dyn_full_frame_decoder_render_to_sink() {
+fn dyn_animation_frame_decoder_render_to_sink() {
     let frame = make_rgb8_buffer(4, 2);
     let data = encode_animation(&[(frame, 100)]);
 
@@ -1582,7 +1582,7 @@ fn dyn_full_frame_decoder_render_to_sink() {
     let job = dyn_config.dyn_job();
 
     let mut dec = job
-        .into_full_frame_decoder(Cow::Borrowed(&data), &[])
+        .into_animation_frame_decoder(Cow::Borrowed(&data), &[])
         .unwrap();
 
     struct SimpleSink {
@@ -1869,35 +1869,35 @@ fn downcast_dyn_encoder_config_wrong_type_returns_none() {
 }
 
 #[test]
-fn downcast_dyn_full_frame_encoder_as_any() {
-    use mock_anim::MockFullFrameEnc;
+fn downcast_dyn_animation_frame_encoder_as_any() {
+    use mock_anim::MockAnimationFrameEnc;
 
     let config = MockEncoderConfig::new();
     let job = config.job().with_loop_count(Some(0));
-    let mut enc = job.dyn_full_frame_encoder().unwrap();
+    let mut enc = job.dyn_animation_frame_encoder().unwrap();
 
     // as_any: verify the concrete type
-    assert!(enc.as_any().downcast_ref::<MockFullFrameEnc>().is_some());
+    assert!(enc.as_any().downcast_ref::<MockAnimationFrameEnc>().is_some());
     assert!(
         enc.as_any_mut()
-            .downcast_mut::<MockFullFrameEnc>()
+            .downcast_mut::<MockAnimationFrameEnc>()
             .is_some()
     );
 }
 
 #[test]
-fn downcast_dyn_full_frame_encoder_into_any() {
-    use mock_anim::MockFullFrameEnc;
+fn downcast_dyn_animation_frame_encoder_into_any() {
+    use mock_anim::MockAnimationFrameEnc;
 
     let config = MockEncoderConfig::new();
     let job = config.job().with_loop_count(Some(0));
-    let enc = job.dyn_full_frame_encoder().unwrap();
+    let enc = job.dyn_animation_frame_encoder().unwrap();
 
     // into_any: consume and recover
     let any_box = enc.into_any();
-    let mut concrete: Box<MockFullFrameEnc> = any_box
+    let mut concrete: Box<MockAnimationFrameEnc> = any_box
         .downcast()
-        .expect("should downcast to MockFullFrameEnc");
+        .expect("should downcast to MockAnimationFrameEnc");
 
     // Use the concrete encoder: push a frame and finish
     let buf = make_rgb8_buffer(2, 2);
@@ -1907,21 +1907,21 @@ fn downcast_dyn_full_frame_encoder_into_any() {
 }
 
 #[test]
-fn downcast_dyn_full_frame_decoder_as_any() {
-    use mock_anim::MockFullFrameDec;
+fn downcast_dyn_animation_frame_decoder_as_any() {
+    use mock_anim::MockAnimationFrameDec;
 
     let buf = make_rgb8_buffer(2, 2);
     let data = encode_animation_from_slices(&[(&buf, 100), (&buf, 200)]);
 
     let config = MockDecoderConfig;
     let job = config.job();
-    let mut dec = job.dyn_full_frame_decoder(Cow::Owned(data), &[]).unwrap();
+    let mut dec = job.dyn_animation_frame_decoder(Cow::Owned(data), &[]).unwrap();
 
     // as_any: verify the concrete type
-    assert!(dec.as_any().downcast_ref::<MockFullFrameDec>().is_some());
+    assert!(dec.as_any().downcast_ref::<MockAnimationFrameDec>().is_some());
     assert!(
         dec.as_any_mut()
-            .downcast_mut::<MockFullFrameDec>()
+            .downcast_mut::<MockAnimationFrameDec>()
             .is_some()
     );
 
@@ -1931,21 +1931,21 @@ fn downcast_dyn_full_frame_decoder_as_any() {
 }
 
 #[test]
-fn downcast_dyn_full_frame_decoder_into_any() {
-    use mock_anim::MockFullFrameDec;
+fn downcast_dyn_animation_frame_decoder_into_any() {
+    use mock_anim::MockAnimationFrameDec;
 
     let buf = make_rgb8_buffer(2, 2);
     let data = encode_animation_from_slices(&[(&buf, 100)]);
 
     let config = MockDecoderConfig;
     let job = config.job();
-    let dec = job.dyn_full_frame_decoder(Cow::Owned(data), &[]).unwrap();
+    let dec = job.dyn_animation_frame_decoder(Cow::Owned(data), &[]).unwrap();
 
     // into_any: consume and recover
     let any_box = dec.into_any();
-    let mut concrete: Box<MockFullFrameDec> = any_box
+    let mut concrete: Box<MockAnimationFrameDec> = any_box
         .downcast()
-        .expect("should downcast to MockFullFrameDec");
+        .expect("should downcast to MockAnimationFrameDec");
 
     // Use the concrete decoder directly
     assert_eq!(concrete.frame_count(), Some(1));
@@ -1954,19 +1954,19 @@ fn downcast_dyn_full_frame_decoder_into_any() {
 }
 
 #[test]
-fn downcast_dyn_full_frame_decoder_via_dyn_job() {
-    use mock_anim::MockFullFrameDec;
+fn downcast_dyn_animation_frame_decoder_via_dyn_job() {
+    use mock_anim::MockAnimationFrameDec;
 
-    // Full dyn dispatch path: DynDecoderConfig → DynDecodeJob → DynFullFrameDecoder → concrete
+    // Full dyn dispatch path: DynDecoderConfig → DynDecodeJob → DynAnimationFrameDecoder → concrete
     let buf = make_rgb8_buffer(2, 2);
     let data = encode_animation_from_slices(&[(&buf, 50)]);
 
     let config = MockDecoderConfig;
     let dyn_config: &dyn DynDecoderConfig = &config;
     let job = dyn_config.dyn_job();
-    let dec = job.into_full_frame_decoder(Cow::Owned(data), &[]).unwrap();
+    let dec = job.into_animation_frame_decoder(Cow::Owned(data), &[]).unwrap();
 
-    assert!(dec.as_any().downcast_ref::<MockFullFrameDec>().is_some());
+    assert!(dec.as_any().downcast_ref::<MockAnimationFrameDec>().is_some());
     assert_eq!(dec.frame_count(), Some(1));
 }
 
@@ -2024,7 +2024,7 @@ fn encode_output_eq_ignores_extras() {
 }
 
 #[test]
-fn owned_full_frame_extras_roundtrip() {
+fn owned_animation_frame_extras_roundtrip() {
     #[derive(Debug, PartialEq)]
     struct FrameMeta {
         is_keyframe: bool,
@@ -2032,7 +2032,7 @@ fn owned_full_frame_extras_roundtrip() {
 
     let buf = make_rgb8_buffer(2, 2);
     let mut frame =
-        zencodec::OwnedFullFrame::new(buf, 100, 0).with_extras(FrameMeta { is_keyframe: true });
+        zencodec::OwnedAnimationFrame::new(buf, 100, 0).with_extras(FrameMeta { is_keyframe: true });
 
     assert_eq!(
         frame.extras::<FrameMeta>(),

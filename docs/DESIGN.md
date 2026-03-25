@@ -7,8 +7,8 @@ Why the API looks the way it does, and what was tried and rejected along the way
 Every codec follows Config → Job → Executor:
 
 ```text
-ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder / FullFrameEncoder
-DECODE:  DecoderConfig → DecodeJob<'a> → Decode / StreamingDecode / FullFrameDecoder
+ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder / AnimationFrameEncoder
+DECODE:  DecoderConfig → DecodeJob<'a> → Decode / StreamingDecode / AnimationFrameDecoder
 ```
 
 **Config** is reusable settings (`Clone + Send + Sync + 'static`). A web server
@@ -76,7 +76,7 @@ the output format in advance.
 ## Cow<[u8]> input instead of &[u8]
 
 `DecodeJob::decoder()` takes `Cow<'a, [u8]>` instead of `&'a [u8]`. This matters
-for animation decoders (`FullFrameDecoder: 'static`) that need to outlive the
+for animation decoders (`AnimationFrameDecoder: 'static`) that need to outlive the
 job's borrow scope. With `Cow::Owned`, the caller can donate the input buffer to
 the decoder. With `Cow::Borrowed`, it's zero-cost for the common case.
 
@@ -84,14 +84,14 @@ The earlier design used `&'a [u8]` everywhere, which made animation decoders
 impossible as `'static` types — they couldn't hold a reference to the input data
 past the job's lifetime. This was fixed in commit `527abaa`.
 
-## FullFrameDecoder composites internally
+## AnimationFrameDecoder composites internally
 
 The original `FrameDecode` trait yielded raw frames with compositing metadata
 (`blend`, `disposal`, `frame_rect`, `required_frame`). Callers had to composite
 frames themselves — handling disposal modes, blending, sub-canvas positioning,
 and reference frame tracking.
 
-This was replaced with `FullFrameDecoder`, which composites internally and yields
+This was replaced with `AnimationFrameDecoder`, which composites internally and yields
 full-canvas frames ready for display. The decoder handles all the format-specific
 compositing rules (GIF disposal modes, APNG blending, JXL reference frames) and
 the caller just gets finished pixels.
@@ -101,15 +101,15 @@ Why:
   visual glitches that are hard to debug.
 - The codec already knows the format-specific rules. Having the caller reimplement
   them defeats the purpose of an abstraction layer.
-- `render_next_frame()` returns a `FullFrame` that borrows the decoder's internal
+- `render_next_frame()` returns a `AnimationFrame` that borrows the decoder's internal
   canvas (zero-copy). `render_next_frame_owned()` copies for independent ownership.
   `render_next_frame_to_sink()` writes directly to a caller-owned buffer.
 
 Types removed: `FrameBlend`, `FrameDisposal`, `DecodeFrame`, `EncodeFrame`.
 
-## FullFrameEncoder is minimal
+## AnimationFrameEncoder is minimal
 
-`FullFrameEncoder` has just two methods: `push_frame(pixels, duration_ms, stop)`
+`AnimationFrameEncoder` has just two methods: `push_frame(pixels, duration_ms, stop)`
 and `finish(stop)`. Full-canvas frames only.
 
 The earlier design had `EncodeFrame` structs with sub-canvas positioning, blend
@@ -122,7 +122,7 @@ modes, and disposal hints. This was removed because:
 
 ## Animation executors are 'static
 
-`FullFrameEnc: 'static` and `FullFrameDec: 'static`. Animation encoders and
+`AnimationFrameEnc: 'static` and `AnimationFrameDec: 'static`. Animation encoders and
 decoders own their data — they don't borrow from the job.
 
 This is necessary because animation processing often outlives the job scope.
@@ -167,7 +167,7 @@ rows sequentially.
 **Push (`DecodeRowSink`):** Codec drives, writing into caller-provided buffers.
 Good for zero-copy pipelines where the caller controls buffer layout and lifetime.
 `push_decoder()` on `DecodeJob` and `render_next_frame_to_sink()` on
-`FullFrameDecoder` use this model.
+`AnimationFrameDecoder` use this model.
 
 Every codec gets both models via defaults:
 - `push_decoder_via_full_decode()` implements push via one-shot decode + copy
@@ -300,7 +300,7 @@ associated type: `type StreamDec = Unsupported<At<MyError>>`. This implements
 the trait with unreachable bodies — the job's constructor returns an error before
 the stub is ever created.
 
-The unit type `()` also implements `FullFrameEncoder` and `StreamingDecode` as
+The unit type `()` also implements `AnimationFrameEncoder` and `StreamingDecode` as
 rejection stubs. `Unsupported<E>` exists for cases where the error type matters
 (dyn dispatch blanket impls need matching error types).
 
@@ -312,7 +312,7 @@ variants. No extra code from codec authors.
 
 Downcasting rules:
 - `DynEncoderConfig`, `DynDecoderConfig`: `as_any()` — configs are `'static`
-- `DynFullFrameEncoder`, `DynFullFrameDecoder`: `as_any()`, `as_any_mut()`,
+- `DynAnimationFrameEncoder`, `DynAnimationFrameDecoder`: `as_any()`, `as_any_mut()`,
   `into_any()` — animation executors are `'static`
 - `DynEncoder`, `DynDecoder`, `DynStreamingDecoder`: **no downcasting** — they
   borrow `'a` data, can't safely cast to concrete types
@@ -400,10 +400,10 @@ Three HDR workflows exist:
 
 | Old name | Current name | Reason |
 |----------|-------------|--------|
-| `FrameEncoder` | `FullFrameEncoder` | Clarifies it handles full-canvas composited frames |
-| `FrameDecode` | `FullFrameDecoder` | Same — composites internally, yields full canvas |
-| `frame_encoder()` | `full_frame_encoder()` | Consistency with type name |
-| `frame_decoder()` | `full_frame_decoder()` | Consistency with type name |
+| `FrameEncoder` | `AnimationFrameEncoder` | Clarifies it handles full-canvas composited frames |
+| `FrameDecode` | `AnimationFrameDecoder` | Same — composites internally, yields full canvas |
+| `frame_encoder()` | `animation_frame_encoder()` | Consistency with type name |
+| `frame_decoder()` | `animation_frame_decoder()` | Consistency with type name |
 | `HasUnsupportedOperation` | `CodecErrorExt` | Broader scope (also finds `LimitExceeded`) |
 | `CodecCapabilities` | `EncodeCapabilities` / `DecodeCapabilities` | Split for encode-specific vs decode-specific flags |
 | `demand()` | `provide_next_buffer()` | Better describes the call direction (sink provides, codec fills) |

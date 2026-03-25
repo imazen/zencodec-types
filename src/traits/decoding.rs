@@ -9,9 +9,9 @@ use crate::{DecodeCapabilities, ImageInfo, OutputInfo, ResourceLimits, StopToken
 use zenpixels::PixelDescriptor;
 
 use super::BoxedError;
-use super::decoder::{Decode, FullFrameDecoder, StreamingDecode};
+use super::decoder::{Decode, AnimationFrameDecoder, StreamingDecode};
 use super::dyn_decoding::{
-    DecoderShim, DynDecoder, DynFullFrameDecoder, DynStreamingDecoder, FullFrameDecoderShim,
+    DecoderShim, DynDecoder, DynAnimationFrameDecoder, DynStreamingDecoder, AnimationFrameDecoderShim,
     StreamingDecoderShim,
 };
 
@@ -96,7 +96,7 @@ pub trait DecodeJob<'a>: Sized {
     /// copying the input slice at construction time). This lets callers
     /// drop the input buffer while still iterating frames, and use decoders
     /// across thread boundaries (e.g., in pipeline `Source` implementations).
-    type FullFrameDec: FullFrameDecoder<Error = Self::Error> + Send + 'static;
+    type AnimationFrameDec: AnimationFrameDecoder<Error = Self::Error> + Send + 'static;
 
     /// Set cooperative cancellation token.
     ///
@@ -158,7 +158,7 @@ pub trait DecodeJob<'a>: Sized {
     /// at or before `index` and composites forward to produce the
     /// requested frame as the first yielded result.
     ///
-    /// Only meaningful before [`full_frame_decoder()`](DecodeJob::full_frame_decoder).
+    /// Only meaningful before [`animation_frame_decoder()`](DecodeJob::animation_frame_decoder).
     fn with_start_frame_index(self, _index: u32) -> Self {
         self
     }
@@ -189,7 +189,7 @@ pub trait DecodeJob<'a>: Sized {
     //
     // All executors bind `data` here so the DecodeJob is the single
     // place where input is provided. This keeps Decode/StreamingDecode/
-    // FullFrameDecoder free of data parameters, and prepares for future
+    // AnimationFrameDecoder free of data parameters, and prepares for future
     // IO-read sources (the job can bind a reader instead of a slice).
     //
     // Consistent parameter order: data, [sink], preferred.
@@ -246,15 +246,15 @@ pub trait DecodeJob<'a>: Sized {
     ///
     /// The decoder composites internally and yields full-canvas frames.
     /// The decoder calls [`Cow::into_owned()`] to take ownership of the
-    /// data (required because `FullFrameDec: 'static`). When the caller
+    /// data (required because `AnimationFrameDec: 'static`). When the caller
     /// passes `Cow::Owned(vec)`, this is a free move with no copy.
     ///
     /// `preferred` is a ranked list of desired output formats.
-    fn full_frame_decoder(
+    fn animation_frame_decoder(
         self,
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Self::FullFrameDec, Self::Error>;
+    ) -> Result<Self::AnimationFrameDec, Self::Error>;
 
     // --- Type-erased convenience methods ---
 
@@ -292,25 +292,25 @@ pub trait DecodeJob<'a>: Sized {
     ///
     /// ```rust,ignore
     /// let mut dec = config.job()
-    ///     .dyn_full_frame_decoder(data, &[])?;
+    ///     .dyn_animation_frame_decoder(data, &[])?;
     ///
     /// while let Some(frame) = dec.render_next_frame_owned(None)? {
     ///     // process frame
     /// }
     /// ```
-    fn dyn_full_frame_decoder(
+    fn dyn_animation_frame_decoder(
         self,
         data: Cow<'a, [u8]>,
         preferred: &[PixelDescriptor],
-    ) -> Result<Box<dyn DynFullFrameDecoder>, BoxedError>
+    ) -> Result<Box<dyn DynAnimationFrameDecoder>, BoxedError>
     where
         Self: 'a,
-        Self::FullFrameDec: Send,
+        Self::AnimationFrameDec: Send,
     {
         let dec = self
-            .full_frame_decoder(data, preferred)
+            .animation_frame_decoder(data, preferred)
             .map_err(|e| Box::new(e) as BoxedError)?;
-        Ok(Box::new(FullFrameDecoderShim(dec)))
+        Ok(Box::new(AnimationFrameDecoderShim(dec)))
     }
 
     /// Create a type-erased streaming decoder.

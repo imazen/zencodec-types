@@ -353,7 +353,7 @@ fn decode_truncated() {
 fn unsupported_animation_encode() {
     let config = PnmEncoderConfig::new();
     let job = config.job();
-    let result = job.full_frame_encoder();
+    let result = job.animation_frame_encoder();
     assert!(result.is_err(), "PNM has no animation support");
 }
 
@@ -389,7 +389,7 @@ fn unsupported_animation_decode() {
 
     let dec_config = PnmDecoderConfig::new();
     let job = dec_config.job();
-    let result = job.full_frame_decoder(Cow::Borrowed(&encoded), &[]);
+    let result = job.animation_frame_decoder(Cow::Borrowed(&encoded), &[]);
     assert!(result.is_err(), "PNM has no animation decode");
 }
 
@@ -472,7 +472,7 @@ fn find_cause_unsupported_through_dyn_encode() {
     let dyn_enc: &dyn DynEncoderConfig = &enc_config;
 
     let job = dyn_enc.dyn_job();
-    let result = job.into_full_frame_encoder();
+    let result = job.into_animation_frame_encoder();
 
     let err = match result {
         Err(e) => e,
