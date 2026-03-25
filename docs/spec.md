@@ -24,7 +24,7 @@ in their public APIs.
 ```text
 ENCODE:
                                  ┌→ Enc (Encoder)
-EncoderConfig → EncodeJob<'a> ──┤
+EncoderConfig → EncodeJob ──────┤
                                  └→ AnimationFrameEnc (AnimationFrameEncoder, 'static)
 
 DECODE:
@@ -55,7 +55,7 @@ metadata. The caller handles CMS transforms.
 ```rust
 trait EncoderConfig: Clone + Send + Sync {
     type Error: core::error::Error + Send + Sync + 'static;
-    type Job<'a>: EncodeJob<'a, Error = Self::Error> where Self: 'a;
+    type Job: EncodeJob<Error = Self::Error>;
 
     fn format() -> ImageFormat;
     fn supported_descriptors() -> &'static [PixelDescriptor];
@@ -71,22 +71,22 @@ trait EncoderConfig: Clone + Send + Sync {
     fn is_lossless(&self) -> Option<bool>;      // default: None
     fn alpha_quality(&self) -> Option<f32>;     // default: None
 
-    fn job(self) -> Self::Job<'static>;
+    fn job(self) -> Self::Job;
 }
 ```
 
-### `EncodeJob<'a>` (per-operation, borrows metadata/limits/stop)
+### `EncodeJob` (per-operation, owns stop token and metadata)
 
 ```rust
-trait EncodeJob<'a>: Sized {
+trait EncodeJob: Sized {
     type Error: core::error::Error + Send + Sync + 'static;
-    type Enc: Sized;                    // single-image encoder
-    type AnimationFrameEnc: Sized + 'static; // animation encoder
+    type Enc: Sized + 'static;                    // single-image encoder
+    type AnimationFrameEnc: Sized + Send + 'static; // animation encoder
 
-    fn with_stop(self, stop: &'a dyn Stop) -> Self;
+    fn with_stop(self, stop: StopToken) -> Self;
     fn with_limits(self, limits: ResourceLimits) -> Self;
     fn with_policy(self, policy: EncodePolicy) -> Self;         // default: self
-    fn with_metadata(self, meta: &Metadata) -> Self;
+    fn with_metadata(self, meta: Metadata) -> Self;
     fn with_canvas_size(self, width: u32, height: u32) -> Self; // default: self
     fn with_loop_count(self, count: Option<u32>) -> Self;       // default: self
 
@@ -98,10 +98,10 @@ trait EncodeJob<'a>: Sized {
     fn animation_frame_encoder(self) -> Result<Self::AnimationFrameEnc, Self::Error>;
 
     // Type-erased convenience (default impls via shims)
-    fn dyn_encoder(self) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>
-        where Self: 'a, Self::Enc: Encoder;
+    fn dyn_encoder(self) -> Result<Box<dyn DynEncoder>, BoxedError>
+        where Self::Enc: Encoder;
     fn dyn_animation_frame_encoder(self) -> Result<Box<dyn DynAnimationFrameEncoder>, BoxedError>
-        where Self: 'a, Self::AnimationFrameEnc: AnimationFrameEncoder;
+        where Self::AnimationFrameEnc: AnimationFrameEncoder;
 }
 ```
 
@@ -180,7 +180,7 @@ trait DecodeJob<'a>: Sized {
     type StreamDec: StreamingDecode<Error = Self::Error>;
     type AnimationFrameDec: AnimationFrameDecoder<Error = Self::Error> + 'static;
 
-    fn with_stop(self, stop: &'a dyn Stop) -> Self;
+    fn with_stop(self, stop: StopToken) -> Self;
     fn with_limits(self, limits: ResourceLimits) -> Self;
     fn with_policy(self, policy: DecodePolicy) -> Self;  // default: self
 
@@ -295,19 +295,19 @@ trait DynEncoderConfig: Send + Sync {
     fn format(&self) -> ImageFormat;
     fn supported_descriptors(&self) -> &'static [PixelDescriptor];
     fn capabilities(&self) -> &'static EncodeCapabilities;
-    fn dyn_job(&self) -> Box<dyn DynEncodeJob<'_> + '_>;
+    fn dyn_job(&self) -> Box<dyn DynEncodeJob + 'static>;
 }
 
-trait DynEncodeJob<'a> {
-    fn set_stop(&mut self, stop: &'a dyn Stop);
+trait DynEncodeJob {
+    fn set_stop(&mut self, stop: StopToken);
     fn set_limits(&mut self, limits: ResourceLimits);
     fn set_policy(&mut self, policy: EncodePolicy);
-    fn set_metadata(&mut self, meta: &Metadata);
+    fn set_metadata(&mut self, meta: Metadata);
     fn set_canvas_size(&mut self, width: u32, height: u32);
     fn set_loop_count(&mut self, count: Option<u32>);
     fn extensions(&self) -> Option<&dyn Any>;
     fn extensions_mut(&mut self) -> Option<&mut dyn Any>;
-    fn into_encoder(self: Box<Self>) -> Result<Box<dyn DynEncoder + 'a>, BoxedError>;
+    fn into_encoder(self: Box<Self>) -> Result<Box<dyn DynEncoder>, BoxedError>;
     fn into_animation_frame_encoder(self: Box<Self>) -> Result<Box<dyn DynAnimationFrameEncoder>, BoxedError>;
 }
 
@@ -344,7 +344,7 @@ trait DynDecoderConfig: Send + Sync {
 }
 
 trait DynDecodeJob<'a> {
-    fn set_stop(&mut self, stop: &'a dyn Stop);
+    fn set_stop(&mut self, stop: StopToken);
     fn set_limits(&mut self, limits: ResourceLimits);
     fn set_policy(&mut self, policy: DecodePolicy);
     fn probe(&self, data: &[u8]) -> Result<ImageInfo, BoxedError>;
@@ -691,18 +691,19 @@ from headers.
 ```rust
 pub use enough;             // cooperative cancellation (Stop trait)
 pub use enough::Unstoppable;
+pub use almost_enough::StopToken;  // owned, cloneable, type-erased stop token
 ```
 
 ---
 
 ## Helpers
 
-### `push_decoder_via_full_decode()`
+### `copy_decode_to_sink()`
 
 Fallback `push_decoder` implementation via one-shot decode + copy to sink.
 For codecs that can't stream natively.
 
-### `render_frame_to_sink_via_copy()`
+### `copy_frame_to_sink()`
 
 Fallback `render_next_frame_to_sink` implementation via `render_next_frame` + copy.
 

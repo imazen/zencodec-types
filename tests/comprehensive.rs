@@ -1675,7 +1675,7 @@ fn output_info_full_decode() {
 }
 
 // =========================================================================
-// 35. Sink error propagation through push_decoder_via_full_decode
+// 35. Sink error propagation through push_decoder
 // =========================================================================
 
 #[test]

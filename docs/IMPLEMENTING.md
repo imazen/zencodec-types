@@ -19,7 +19,7 @@ Layer 3: Executor   (borrows pixel data or file bytes, consumes self)
 **Executor** borrows the actual pixels or file bytes. It consumes itself to produce output — single-shot by design. This prevents use-after-encode/decode bugs at the type level.
 
 ```text
-ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder (or AnimationFrameEncoder)
+ENCODE:  EncoderConfig → EncodeJob → Encoder (or AnimationFrameEncoder)
 DECODE:  DecoderConfig → DecodeJob<'a> → Decode  (or StreamingDecode, AnimationFrameDecoder)
 ```
 
@@ -74,7 +74,7 @@ static MY_ENCODE_CAPS: EncodeCapabilities = EncodeCapabilities::new()
 
 impl EncoderConfig for MyEncoderConfig {
     type Error = MyError;
-    type Job<'a> = MyEncodeJob<'a>;
+    type Job = MyEncodeJob;
 
     fn format() -> ImageFormat {
         ImageFormat::Jpeg // or whichever format
@@ -103,7 +103,7 @@ impl EncoderConfig for MyEncoderConfig {
         self.quality
     }
 
-    fn job(self) -> MyEncodeJob<'static> {
+    fn job(self) -> MyEncodeJob {
         MyEncodeJob {
             config: self,
             limits: zencodec::ResourceLimits::none(),
@@ -120,22 +120,21 @@ The `with_*` / getter pairs follow a pattern: if your codec doesn't support a kn
 
 ```rust
 use zencodec::encode::EncodeJob;
-use zencodec::{Metadata, ResourceLimits};
-use enough::Stop;
+use zencodec::{Metadata, ResourceLimits, StopToken};
 
-pub struct MyEncodeJob<'a> {
-    config: &'a MyEncoderConfig,
+pub struct MyEncodeJob {
+    config: MyEncoderConfig,
     limits: ResourceLimits,
-    stop: Option<&'a dyn Stop>,
+    stop: Option<StopToken>,
     metadata: Option<Metadata>,
 }
 
-impl<'a> EncodeJob<'a> for MyEncodeJob<'a> {
+impl EncodeJob for MyEncodeJob {
     type Error = MyError;
-    type Enc = MyEncoder<'a>;
+    type Enc = MyEncoder;
     type AnimationFrameEnc = (); // Set to () if no animation support
 
-    fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
+    fn with_stop(mut self, stop: StopToken) -> Self {
         self.stop = Some(stop);
         self
     }
@@ -145,12 +144,12 @@ impl<'a> EncodeJob<'a> for MyEncodeJob<'a> {
         self
     }
 
-    fn with_metadata(mut self, meta: &Metadata) -> Self {
-        self.metadata = Some(meta.clone());
+    fn with_metadata(mut self, meta: Metadata) -> Self {
+        self.metadata = Some(meta);
         self
     }
 
-    fn encoder(self) -> Result<MyEncoder<'a>, MyError> {
+    fn encoder(self) -> Result<MyEncoder, MyError> {
         Ok(MyEncoder { job: self })
     }
 
@@ -171,11 +170,11 @@ The `Encoder` trait has three mutually exclusive encode paths. Implement the one
 use zencodec::encode::{EncodeOutput, Encoder};
 use zenpixels::PixelSlice;
 
-pub struct MyEncoder<'a> {
-    job: MyEncodeJob<'a>,
+pub struct MyEncoder {
+    job: MyEncodeJob,
 }
 
-impl Encoder for MyEncoder<'_> {
+impl Encoder for MyEncoder {
     type Error = MyError;
 
     // Most codecs only need this one:
@@ -261,7 +260,7 @@ impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
     type StreamDec = ();       // () stub if no streaming support
     type AnimationFrameDec = ();    // () stub if no animation support
 
-    fn with_stop(mut self, stop: &'a dyn Stop) -> Self {
+    fn with_stop(mut self, stop: zencodec::StopToken) -> Self {
         self.stop = Some(stop);
         self
     }

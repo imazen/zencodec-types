@@ -7,7 +7,7 @@ Why the API looks the way it does, and what was tried and rejected along the way
 Every codec follows Config → Job → Executor:
 
 ```text
-ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder / AnimationFrameEncoder
+ENCODE:  EncoderConfig → EncodeJob → Encoder / AnimationFrameEncoder
 DECODE:  DecoderConfig → DecodeJob<'a> → Decode / StreamingDecode / AnimationFrameDecoder
 ```
 
@@ -170,8 +170,8 @@ Good for zero-copy pipelines where the caller controls buffer layout and lifetim
 `AnimationFrameDecoder` use this model.
 
 Every codec gets both models via defaults:
-- `push_decoder_via_full_decode()` implements push via one-shot decode + copy
-- `render_frame_to_sink_via_copy()` implements sink rendering via canvas copy
+- `copy_decode_to_sink()` implements push via one-shot decode + copy
+- `copy_frame_to_sink()` implements sink rendering via canvas copy
 
 Codecs with native row-level streaming override for true incremental decode.
 The `row_level` capability flag distinguishes native streaming from decode-then-copy.

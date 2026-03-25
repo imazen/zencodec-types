@@ -37,7 +37,7 @@ Executor   →  borrows pixel data or file bytes, consumes self to produce outpu
 ```
 
 ```text
-ENCODE:  EncoderConfig → EncodeJob<'a> → Encoder / AnimationFrameEncoder
+ENCODE:  EncoderConfig → EncodeJob → Encoder / AnimationFrameEncoder
 DECODE:  DecoderConfig → DecodeJob<'a> → Decode / StreamingDecode / AnimationFrameDecoder
 ```
 

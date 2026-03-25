@@ -176,4 +176,3 @@ pub trait AnimationFrameDecoder: Sized {
         sink: &mut dyn crate::DecodeRowSink,
     ) -> Result<Option<OutputInfo>, Self::Error>;
 }
-

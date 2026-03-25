@@ -340,4 +340,3 @@ pub trait DecodeJob<'a>: Sized {
         Ok(Box::new(StreamingDecoderShim(dec)))
     }
 }
-

@@ -108,13 +108,8 @@ pub trait EncoderConfig: Clone + Send + Sync {
 
     /// Create a per-operation job, consuming the config.
     ///
-    /// The job owns the config. The lifetime `'a` on `Job<'a>` is
-    /// determined by the caller — typically inferred from `with_stop`:
-    ///
-    /// ```ignore
-    /// let job = config.job().with_stop(&stop); // 'a = lifetime of stop
-    /// let job = config.job();                  // 'a = 'static (no stop)
-    /// ```
+    /// The job owns the config and all configuration set on it
+    /// (stop token, limits, metadata).
     fn job(self) -> Self::Job;
 }
 

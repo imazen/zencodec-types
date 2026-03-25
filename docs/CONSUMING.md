@@ -232,19 +232,21 @@ let limits = ResourceLimits::none()
 Use `enough::Stop` for cooperative cancellation:
 
 ```rust
-use enough::AtomicStop;
+use almost_enough::{Stopper, StopExt};
 
-let stop = AtomicStop::new();
+let stopper = Stopper::new();
 
 // In another thread or signal handler:
-// stop.request_stop();
+// stopper.cancel();
 
-let job = config.job().with_stop(&stop);
+let job = config.job().with_stop(stopper.clone().into_token());
 let decoder = job.decoder(Cow::Borrowed(&data), &[])?;
 let output = decoder.decode()?; // returns Err if stop was requested
 ```
 
 The codec checks the stop token periodically during encode/decode. How often depends on the codec — typically once per MCU row or scanline batch.
+
+`StopToken` is `Clone + Send + Sync + 'static` — it's an owned, type-erased stop handle. Convert any `Stop + 'static` with `stop.into_token()` or `StopToken::new(stop)`.
 
 ## Policies
 
@@ -285,7 +287,7 @@ let metadata = dec_output.metadata(); // returns Metadata (Arc-backed, cheap clo
 
 // Re-encode with same metadata
 let job = enc_config.job()
-    .with_metadata(&metadata);
+    .with_metadata(metadata);
 let encoder = job.encoder()?;
 let output = encoder.encode(dec_output.pixels())?;
 ```
