@@ -6,8 +6,8 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::Instant;
 
 fn ext_to_expected(ext: &str) -> Option<zencodec::ImageFormat> {
@@ -30,7 +30,9 @@ fn ext_to_expected(ext: &str) -> Option<zencodec::ImageFormat> {
 }
 
 fn main() {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| "/mnt/v/input".into());
+    let dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/mnt/v/input".into());
 
     // Phase 1: collect paths
     eprintln!("Scanning {dir} ...");
@@ -107,7 +109,10 @@ fn main() {
         // Progress every 10 seconds
         let secs = start.elapsed().as_secs();
         let prev = last_report.load(Relaxed);
-        if secs >= prev + 10 && last_report.compare_exchange(prev, secs, Relaxed, Relaxed).is_ok()
+        if secs >= prev + 10
+            && last_report
+                .compare_exchange(prev, secs, Relaxed, Relaxed)
+                .is_ok()
         {
             let ok = ok_count.load(Relaxed);
             let fail = fail_count.load(Relaxed);
@@ -143,14 +148,22 @@ fn main() {
 
     if !mismatches.is_empty() {
         println!("\n=== Mismatches (detected as wrong format) ===");
-        for m in &mismatches { println!("{m}"); }
-        if mismatches.len() == 200 { println!("  ... (truncated at 200)"); }
+        for m in &mismatches {
+            println!("{m}");
+        }
+        if mismatches.len() == 200 {
+            println!("  ... (truncated at 200)");
+        }
     }
 
     if !undetected.is_empty() {
         println!("\n=== Undetected (extension suggests image, magic bytes didn't match) ===");
-        for m in &undetected { println!("{m}"); }
-        if undetected.len() == 200 { println!("  ... (truncated at 200)"); }
+        for m in &undetected {
+            println!("{m}");
+        }
+        if undetected.len() == 200 {
+            println!("  ... (truncated at 200)");
+        }
     }
 
     if fail == 0 {
