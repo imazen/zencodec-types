@@ -152,7 +152,7 @@ static MOCK_DECODE_CAPS: DecodeCapabilities = DecodeCapabilities::new()
 
 impl DecoderConfig for MockDecoderConfig {
     type Error = MockError;
-    type Job = MockDecodeJob;
+    type Job<'a> = MockDecodeJob;
 
     fn formats() -> &'static [ImageFormat] {
         // Use Pnm as a placeholder since we can't create custom formats easily
@@ -167,7 +167,7 @@ impl DecoderConfig for MockDecoderConfig {
         &MOCK_DECODE_CAPS
     }
 
-    fn job(self) -> MockDecodeJob {
+    fn job<'a>(self) -> Self::Job<'a> {
         MockDecodeJob {
             limits: ResourceLimits::none(),
             stop: None,

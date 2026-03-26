@@ -1797,7 +1797,7 @@ fn config_reusable_multiple_jobs() {
 
     // Decode both with the same config
     {
-        let job = dec_config.job();
+        let job = dec_config.clone().job();
         let dec = job.decoder(Cow::Borrowed(&data1), &[]).unwrap();
         assert_eq!(dec.decode().unwrap().width(), 2);
     }

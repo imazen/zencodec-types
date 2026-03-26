@@ -211,7 +211,7 @@ static PNM_DECODE_CAPS: DecodeCapabilities = DecodeCapabilities::new()
 
 impl DecoderConfig for PnmDecoderConfig {
     type Error = At<PnmError>;
-    type Job = PnmDecodeJob;
+    type Job<'a> = PnmDecodeJob;
 
     fn formats() -> &'static [ImageFormat] {
         &[ImageFormat::Pnm]
@@ -225,7 +225,7 @@ impl DecoderConfig for PnmDecoderConfig {
         &PNM_DECODE_CAPS
     }
 
-    fn job(self) -> PnmDecodeJob {
+    fn job<'a>(self) -> Self::Job<'a> {
         PnmDecodeJob {
             limits: ResourceLimits::none(),
             stop: None,

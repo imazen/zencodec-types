@@ -32,8 +32,9 @@ pub trait DecoderConfig: Clone + Send + Sync {
 
     /// Per-operation job type.
     ///
-    /// Must implement `DecodeJob<'a>` for any data lifetime `'a`.
-    type Job: for<'a> DecodeJob<'a, Error = Self::Error> + 'static;
+    /// The GAT lifetime `'a` is the data lifetime — it becomes concrete
+    /// when the caller passes data to [`DecodeJob::decoder`].
+    type Job<'a>: DecodeJob<'a, Error = Self::Error> + 'static;
 
     /// The image formats this decoder handles.
     ///
@@ -61,7 +62,8 @@ pub trait DecoderConfig: Clone + Send + Sync {
     /// Create a per-operation job, consuming the config.
     ///
     /// The job owns the config and all configuration set on it.
-    fn job(self) -> Self::Job;
+    /// The lifetime parameter is the data lifetime, inferred from usage.
+    fn job<'a>(self) -> Self::Job<'a>;
 }
 
 // ===========================================================================
