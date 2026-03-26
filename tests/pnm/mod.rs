@@ -195,10 +195,9 @@ impl PnmDecoderConfig {
 }
 
 /// Per-operation decode job.
-pub struct PnmDecodeJob<'a> {
+pub struct PnmDecodeJob {
     limits: ResourceLimits,
     stop: Option<zencodec::StopToken>,
-    _marker: core::marker::PhantomData<&'a ()>,
 }
 
 /// The actual PPM/PGM decoder (data bound at construction).
@@ -212,7 +211,7 @@ static PNM_DECODE_CAPS: DecodeCapabilities = DecodeCapabilities::new()
 
 impl DecoderConfig for PnmDecoderConfig {
     type Error = At<PnmError>;
-    type Job<'a> = PnmDecodeJob<'a>;
+    type Job = PnmDecodeJob;
 
     fn formats() -> &'static [ImageFormat] {
         &[ImageFormat::Pnm]
@@ -226,16 +225,15 @@ impl DecoderConfig for PnmDecoderConfig {
         &PNM_DECODE_CAPS
     }
 
-    fn job(&self) -> PnmDecodeJob<'_> {
+    fn job(self) -> PnmDecodeJob {
         PnmDecodeJob {
             limits: ResourceLimits::none(),
             stop: None,
-            _marker: core::marker::PhantomData,
         }
     }
 }
 
-impl<'a> DecodeJob<'a> for PnmDecodeJob<'a> {
+impl<'a> DecodeJob<'a> for PnmDecodeJob {
     type Error = At<PnmError>;
     type Dec = PnmDec<'a>;
     type StreamDec = Unsupported<At<PnmError>>;

@@ -152,7 +152,7 @@ static MOCK_DECODE_CAPS: DecodeCapabilities = DecodeCapabilities::new()
 
 impl DecoderConfig for MockDecoderConfig {
     type Error = MockError;
-    type Job<'a> = MockDecodeJob<'a>;
+    type Job = MockDecodeJob;
 
     fn formats() -> &'static [ImageFormat] {
         // Use Pnm as a placeholder since we can't create custom formats easily
@@ -167,7 +167,7 @@ impl DecoderConfig for MockDecoderConfig {
         &MOCK_DECODE_CAPS
     }
 
-    fn job(&self) -> MockDecodeJob<'_> {
+    fn job(self) -> MockDecodeJob {
         MockDecodeJob {
             limits: ResourceLimits::none(),
             stop: None,
@@ -176,12 +176,11 @@ impl DecoderConfig for MockDecoderConfig {
             orientation: None,
             start_frame: None,
             ext: MockDecodeExtensions::default(),
-            _marker: core::marker::PhantomData,
         }
     }
 }
 
-pub struct MockDecodeJob<'a> {
+pub struct MockDecodeJob {
     limits: ResourceLimits,
     stop: Option<zencodec::StopToken>,
     policy: Option<zencodec::decode::DecodePolicy>,
@@ -189,10 +188,9 @@ pub struct MockDecodeJob<'a> {
     orientation: Option<zencodec::OrientationHint>,
     start_frame: Option<u32>,
     pub ext: MockDecodeExtensions,
-    _marker: core::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> DecodeJob<'a> for MockDecodeJob<'a> {
+impl<'a> DecodeJob<'a> for MockDecodeJob {
     type Error = MockError;
     type Dec = MockDec<'a>;
     type StreamDec = MockStreamDec<'a>;

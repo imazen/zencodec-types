@@ -229,7 +229,7 @@ static MY_DECODE_CAPS: DecodeCapabilities = DecodeCapabilities::new()
 
 impl DecoderConfig for MyDecoderConfig {
     type Error = MyError;
-    type Job<'a> = MyDecodeJob<'a>;
+    type Job = MyDecodeJob;
 
     fn format() -> ImageFormat { ImageFormat::Jpeg }
 
@@ -240,7 +240,7 @@ impl DecoderConfig for MyDecoderConfig {
 
     fn capabilities() -> &'static DecodeCapabilities { &MY_DECODE_CAPS }
 
-    fn job(&self) -> MyDecodeJob<'_> {
+    fn job(self) -> MyDecodeJob {
         MyDecodeJob { config: self, limits: ResourceLimits::none(), stop: None }
     }
 }
@@ -254,7 +254,7 @@ The decode job is where probing, limit checking, and executor creation happen. D
 use std::borrow::Cow;
 use zencodec::decode::{DecodeJob, OutputInfo};
 
-impl<'a> DecodeJob<'a> for MyDecodeJob<'a> {
+impl<'a> DecodeJob<'a> for MyDecodeJob {
     type Error = MyError;
     type Dec = MyDecoder<'a>;
     type StreamDec = ();       // () stub if no streaming support

@@ -462,6 +462,6 @@ where
     }
 
     fn dyn_job(&self) -> Box<dyn DynDecodeJob<'_> + '_> {
-        Box::new(DecodeJobShim(Some(DecoderConfig::job(self))))
+        Box::new(DecodeJobShim(Some(self.clone().job())))
     }
 }

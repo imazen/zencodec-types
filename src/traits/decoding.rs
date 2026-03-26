@@ -31,9 +31,9 @@ pub trait DecoderConfig: Clone + Send + Sync {
     type Error: core::error::Error + Send + Sync + 'static;
 
     /// Per-operation job type.
-    type Job<'a>: DecodeJob<'a, Error = Self::Error>
-    where
-        Self: 'a;
+    ///
+    /// Must implement `DecodeJob<'a>` for any data lifetime `'a`.
+    type Job: for<'a> DecodeJob<'a, Error = Self::Error> + 'static;
 
     /// The image formats this decoder handles.
     ///
@@ -58,8 +58,10 @@ pub trait DecoderConfig: Clone + Send + Sync {
         &DecodeCapabilities::EMPTY
     }
 
-    /// Create a per-operation job.
-    fn job(&self) -> Self::Job<'_>;
+    /// Create a per-operation job, consuming the config.
+    ///
+    /// The job owns the config and all configuration set on it.
+    fn job(self) -> Self::Job;
 }
 
 // ===========================================================================
