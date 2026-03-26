@@ -221,7 +221,7 @@ pub trait DynDecodeJob<'a> {
     fn set_start_frame_index(&mut self, index: u32);
 
     /// Opt in to supplementary gain map extraction.
-    fn set_extract_gain_map(&mut self, extract: bool);
+    fn set_extract_gain_map(&mut self, _extract: bool) {}
 
     /// Access codec-specific extensions for this job.
     ///
