@@ -321,6 +321,7 @@ impl GainMapPresence {
 /// | JPEG (UltraHDR) | `Jpeg` | Complete JPEG file (MPF secondary image) |
 /// | HEIC | — | Not produced — HEIC parser decodes gain map internally, use [`DecodedGainMap`] |
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct GainMapSource {
     /// Raw encoded bitstream of the gain map image.
     pub data: alloc::vec::Vec<u8>,
@@ -331,6 +332,28 @@ pub struct GainMapSource {
     /// Nesting depth. 0 = gain map of a primary image.
     /// Callers should reject `depth >= 1` to prevent recursion.
     pub depth: u8,
+}
+
+impl GainMapSource {
+    /// Create a new gain map source.
+    pub fn new(
+        data: alloc::vec::Vec<u8>,
+        format: crate::ImageFormat,
+        metadata: GainMapInfo,
+    ) -> Self {
+        Self {
+            data,
+            format,
+            metadata,
+            depth: 0,
+        }
+    }
+
+    /// Set the recursion depth.
+    pub fn with_depth(mut self, depth: u8) -> Self {
+        self.depth = depth;
+        self
+    }
 }
 
 // Decoded gain map (post-decode)
@@ -348,11 +371,19 @@ pub struct GainMapSource {
 /// Gain map decode is opt-in — this is only present when the caller
 /// explicitly requested gain map extraction.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct DecodedGainMap {
     /// Gain map image pixels.
     pub pixels: zenpixels::PixelBuffer,
     /// ISO 21496-1 gain map metadata.
     pub metadata: GainMapInfo,
+}
+
+impl DecodedGainMap {
+    /// Create a new decoded gain map.
+    pub fn new(pixels: zenpixels::PixelBuffer, metadata: GainMapInfo) -> Self {
+        Self { pixels, metadata }
+    }
 }
 
 // =========================================================================
