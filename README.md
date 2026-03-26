@@ -30,8 +30,8 @@ Import as `zencodec` — use `zencodec::encode`, `zencodec::decode`, etc.
 Every codec follows a three-layer pattern:
 
 ```text
-Config     →  reusable, Clone + Send + Sync, 'static
-Job        →  per-operation, borrows temporaries (stop token, limits, metadata)
+Config     →  reusable, Clone + Send + Sync, 'static — consumed by job()
+Job        →  per-operation, owns config + stop token + limits + metadata
 Executor   →  borrows pixel data or file bytes, consumes self to produce output
 ```
 
@@ -40,7 +40,7 @@ ENCODE:  EncoderConfig → EncodeJob → Encoder / AnimationFrameEncoder
 DECODE:  DecoderConfig → DecodeJob<'a> → Decode / StreamingDecode / AnimationFrameDecoder
 ```
 
-Config lives in a struct and gets shared across threads. A web server keeps one `JpegEncoderConfig` at quality 85 for all requests. Job borrows stack-local data (cancellation token, resource limits, metadata). Executor borrows pixels or bytes and consumes itself to produce output.
+Config lives in a struct and gets shared across threads. A web server keeps one `JpegEncoderConfig` at quality 85 for all requests and clones it per-request. Calling `job()` consumes the config — clone first if you need it again. Job owns its config, cancellation token, resource limits, and metadata. Executor borrows pixels or bytes and consumes itself to produce output.
 
 Each layer also has object-safe `Dyn*` variants for codec-agnostic dispatch:
 

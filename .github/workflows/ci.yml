@@ -254,6 +254,9 @@ jobs:
 
       - name: Check semver
         run: cargo semver-checks check-release
+        # Intentional breaking change in 0.1.5: DecoderConfig::job() now consumes self.
+        # All pre-0.1.5 versions are yanked. Re-enable strict checking after this release.
+        continue-on-error: true
 
   # ==========================================================================
   # Code coverage
