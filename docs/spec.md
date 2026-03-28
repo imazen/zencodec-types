@@ -441,6 +441,13 @@ Source color description. Fields: `cicp: Option<Cicp>`,
 `channel_count: Option<u8>`, `content_light_level: Option<ContentLightLevel>`,
 `mastering_display: Option<MasteringDisplay>`.
 
+Builder pattern: `SourceColor::default().with_cicp(...).with_icc_profile(...)`.
+
+Methods: `transfer_function()`, `color_primaries()`.
+
+Note: sRGB detection (`is_srgb()`) lives in zencodecs as `SourceColorExt`,
+not here — zencodec stores color metadata but doesn't classify it.
+
 ### `EmbeddedMetadata`
 
 Non-color metadata blobs. Fields: `exif: Option<Vec<u8>>`, `xmp: Option<Vec<u8>>`.
