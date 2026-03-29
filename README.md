@@ -1,14 +1,10 @@
-# zencodec
+# zencodec ![ci](https://img.shields.io/github/actions/workflow/status/imazen/zencodec/ci.yml?branch=main&style=flat-square&label=CI) ![crates.io](https://img.shields.io/crates/v/zencodec?style=flat-square) ![docs.rs](https://img.shields.io/docsrs/zencodec?style=flat-square) ![msrv](https://img.shields.io/badge/MSRV-1.93-blue?style=flat-square) ![license](https://img.shields.io/crates/l/zencodec?style=flat-square)
 
-Shared traits and types for the zen\* image codec family.
+zencodec is the shared trait crate that defines the common API for all zen\* image codecs.
 
-This crate defines the common interface that all zen\* codecs implement. It contains no codec logic — just traits, types, and format negotiation helpers. `no_std` compatible (requires `alloc`), `forbid(unsafe_code)`.
+It contains no codec logic — just traits, types, and format negotiation helpers. `no_std` compatible (requires `alloc`), `forbid(unsafe_code)`.
 
 Import as `zencodec` — use `zencodec::encode`, `zencodec::decode`, etc.
-
-**Guides:**
-- [**Using zen\* codecs**](docs/CONSUMING.md) — encoding, decoding, format negotiation, dyn dispatch, animation, streaming
-- [**Implementing a codec**](docs/IMPLEMENTING.md) — how to implement the traits for a new image format
 
 ## Crates in the zen\* family
 
@@ -61,6 +57,7 @@ use zencodec::decode::{DecoderConfig, DecodeJob, Decode};
 
 // Encode
 let config = JpegEncoderConfig::new().with_generic_quality(85.0);
+// (assuming pixels: PixelSlice from your pipeline)
 let output = config.job().encoder()?.encode(pixels.as_slice())?;
 let jpeg_bytes = output.into_vec();
 
@@ -88,7 +85,19 @@ let pixels = decoded.into_buffer();
 | `zencodec::decode` | `DecoderConfig`, `DecodeJob`, `Decode`, `StreamingDecode`, `AnimationFrameDecoder`, `DecodeOutput`, `DecodeCapabilities`, `DecodePolicy`, `DecodeRowSink`, `SinkError`, `OutputInfo`, `SourceEncodingDetails`, `negotiate_pixel_format`, `is_format_available`, dyn dispatch traits (`DynDecoderConfig`, `DynDecodeJob`, `DynDecoder`, `DynStreamingDecoder`, `DynAnimationFrameDecoder`) |
 | `zencodec::gainmap` | `GainMapInfo`, `GainMapParams`, `GainMapChannel`, `GainMapDirection`, `GainMapPresence` — cross-codec gain map types (ISO 21496-1) |
 | `zencodec::helpers` | Codec implementation helpers (not consumer API) — shared boilerplate for trait implementors |
-| root | `ImageFormat`, `ImageFormatDefinition`, `ImageFormatRegistry`, `ImageInfo`, `Metadata`, `Orientation`, `OrientationHint`, `ResourceLimits`, `LimitExceeded`, `ThreadingPolicy`, `UnsupportedOperation`, `CodecErrorExt`, `find_cause`, `Unsupported`, `Extensions`, `AnimationFrame`, `OwnedAnimationFrame`, `Cicp`, `ContentLightLevel`, `MasteringDisplay`, `StopToken`, `Unstoppable` |
+| root | `ImageFormat`, `ImageFormatDefinition`, `ImageFormatRegistry` (format detection via `ImageFormatRegistry::detect()`), `ImageInfo`, `Metadata`, `Orientation`, `OrientationHint`, `ResourceLimits`, `LimitExceeded`, `ThreadingPolicy`, `UnsupportedOperation`, `CodecErrorExt`, `find_cause`, `Unsupported`, `Extensions`, `AnimationFrame`, `OwnedAnimationFrame`, `Cicp`, `ContentLightLevel`, `MasteringDisplay`, `StopToken`, `Unstoppable` |
+
+zencodec has no feature flags. The full API is always available.
+
+## Limitations
+
+- Contains no codec logic — traits, types, and format detection only.
+- `ImageFormat` enum is not extensible at runtime (the `Custom` variant requires a `&'static` definition).
+- Always `no_std` + `alloc` (no `std` feature gate).
+
+## MSRV
+
+Rust 1.93+, 2024 edition.
 
 ## License
 
