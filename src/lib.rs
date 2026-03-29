@@ -91,9 +91,9 @@ pub use almost_enough::StopToken;
 pub use enough;
 pub use enough::Unstoppable;
 
-// StopToken is Option<Arc<dyn Stop + Send + Sync>> — a fat pointer.
+// StopToken is a 4-variant enum (None / Relaxed / Acquire / Dyn), each holding an Arc.
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(core::mem::size_of::<StopToken>() == 16);
+const _: () = assert!(core::mem::size_of::<StopToken>() == 24);
 
 // =========================================================================
 // pub(crate) re-exports — keep internal `use crate::Foo` paths working
