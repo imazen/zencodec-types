@@ -100,7 +100,7 @@ impl Metadata {
             && self.cicp.is_none()
             && self.content_light_level.is_none()
             && self.mastering_display.is_none()
-            && self.orientation == Orientation::Normal
+            && self.orientation == Orientation::Identity
     }
 
     /// Derive the transfer function from CICP metadata.
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn metadata_orientation_default_is_normal() {
         let meta = Metadata::none();
-        assert_eq!(meta.orientation, Orientation::Normal);
+        assert_eq!(meta.orientation, Orientation::Identity);
     }
 
     #[test]
@@ -214,8 +214,8 @@ mod tests {
     }
 
     #[test]
-    fn metadata_normal_orientation_is_empty() {
-        let meta = Metadata::none().with_orientation(Orientation::Normal);
+    fn metadata_identity_orientation_is_empty() {
+        let meta = Metadata::none().with_orientation(Orientation::Identity);
         assert!(meta.is_empty());
     }
 

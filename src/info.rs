@@ -379,7 +379,7 @@ pub struct ImageInfo {
     /// EXIF orientation (1-8).
     ///
     /// When a codec applies orientation during decode (rotating the pixel
-    /// data), this is set to [`Normal`](Orientation::Normal) and `width`/`height`
+    /// data), this is set to [`Identity`](Orientation::Identity) and `width`/`height`
     /// reflect the display dimensions.
     ///
     /// When orientation is NOT applied, `width`/`height` are the stored
@@ -434,7 +434,7 @@ impl ImageInfo {
             sequence: ImageSequence::Single,
             supplements: Supplements::default(),
             gain_map: GainMapPresence::default(),
-            orientation: Orientation::Normal,
+            orientation: Orientation::Identity,
             resolution: None,
             source_color: SourceColor::default(),
             embedded_metadata: EmbeddedMetadata::default(),
@@ -625,7 +625,7 @@ impl ImageInfo {
     /// For orientations 5-8 (90/270 rotation), this returns `height`.
     /// For orientations 1-4, this returns `width`.
     pub fn display_width(&self) -> u32 {
-        if self.orientation.swaps_dimensions() {
+        if self.orientation.swaps_axes() {
             self.height
         } else {
             self.width
@@ -637,7 +637,7 @@ impl ImageInfo {
     /// For orientations 5-8 (90/270 rotation), this returns `width`.
     /// For orientations 1-4, this returns `height`.
     pub fn display_height(&self) -> u32 {
-        if self.orientation.swaps_dimensions() {
+        if self.orientation.swaps_axes() {
             self.width
         } else {
             self.height
@@ -747,10 +747,10 @@ mod tests {
     fn display_dimensions_all_orientations() {
         let info = ImageInfo::new(100, 200, ImageFormat::Jpeg);
         for orient in [
-            Orientation::Normal,
-            Orientation::FlipHorizontal,
+            Orientation::Identity,
+            Orientation::FlipH,
             Orientation::Rotate180,
-            Orientation::FlipVertical,
+            Orientation::FlipV,
         ] {
             let i = info.clone().with_orientation(orient);
             assert_eq!((i.display_width(), i.display_height()), (100, 200));

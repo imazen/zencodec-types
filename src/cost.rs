@@ -39,7 +39,7 @@ pub struct OutputInfo {
     pub has_alpha: bool,
     /// Orientation the decoder will apply internally.
     ///
-    /// [`Normal`](Orientation::Normal) means the decoder will NOT handle
+    /// [`Identity`](Orientation::Identity) means the decoder will NOT handle
     /// orientation — the caller must apply it. Any other value means the
     /// decoder will rotate/flip the pixels, and the output `width`/`height`
     /// already reflect the rotated dimensions.
@@ -63,7 +63,7 @@ impl OutputInfo {
             height,
             native_format,
             has_alpha: native_format.has_alpha(),
-            orientation_applied: Orientation::Normal,
+            orientation_applied: Orientation::Identity,
             crop_applied: None,
         }
     }

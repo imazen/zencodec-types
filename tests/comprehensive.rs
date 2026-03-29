@@ -1152,26 +1152,26 @@ fn animation_encode_respects_cancellation() {
 
 #[test]
 fn orientation_all_variants_exif_roundtrip() {
-    for v in 1..=8u16 {
-        let o = Orientation::from_exif(v);
-        assert_eq!(o.exif_value(), v);
+    for v in 1..=8u8 {
+        let o = Orientation::from_exif(v).unwrap();
+        assert_eq!(o.to_exif(), v);
     }
 }
 
 #[test]
 fn orientation_display_dimensions_comprehensive() {
     let cases = [
-        (Orientation::Normal, 100, 200, (100, 200)),
-        (Orientation::FlipHorizontal, 100, 200, (100, 200)),
+        (Orientation::Identity, 100, 200, (100, 200)),
+        (Orientation::FlipH, 100, 200, (100, 200)),
         (Orientation::Rotate180, 100, 200, (100, 200)),
-        (Orientation::FlipVertical, 100, 200, (100, 200)),
+        (Orientation::FlipV, 100, 200, (100, 200)),
         (Orientation::Transpose, 100, 200, (200, 100)),
         (Orientation::Rotate90, 100, 200, (200, 100)),
         (Orientation::Transverse, 100, 200, (200, 100)),
         (Orientation::Rotate270, 100, 200, (200, 100)),
     ];
     for (orient, w, h, expected) in cases {
-        assert_eq!(orient.display_dimensions(w, h), expected, "{orient:?}");
+        assert_eq!(orient.output_dimensions(w, h), expected, "{orient:?}");
     }
 }
 
