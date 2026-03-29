@@ -353,11 +353,56 @@ pub static HDR: ImageFormatDefinition = ImageFormatDefinition {
     },
 };
 
+pub static TGA: ImageFormatDefinition = ImageFormatDefinition {
+    name: "tga",
+    image_format: Some(ImageFormat::Tga),
+    display_name: "TGA",
+    preferred_extension: "tga",
+    extensions: &["tga", "targa", "icb", "vda", "vst"],
+    preferred_mime_type: "image/x-tga",
+    mime_types: &["image/x-tga", "image/x-targa"],
+    supports_alpha: true,
+    supports_animation: false,
+    supports_lossless: true,
+    supports_lossy: false,
+    // TGA has no magic bytes — detection relies on footer or heuristics.
+    // The v2 footer "TRUEVISION-XFILE.\0" is at EOF, not the start.
+    // We use 18 bytes to validate the header fields heuristically.
+    magic_bytes_needed: 18,
+    detect: |data| {
+        if data.len() < 18 {
+            return false;
+        }
+        let image_type = data[2];
+        // Valid image types: 1,2,3 (uncompressed) or 9,10,11 (RLE)
+        if !matches!(image_type, 1 | 2 | 3 | 9 | 10 | 11) {
+            return false;
+        }
+        let color_map_type = data[1];
+        // Color map type must be 0 or 1
+        if color_map_type > 1 {
+            return false;
+        }
+        // Color-mapped types must have a color map
+        if matches!(image_type, 1 | 9) && color_map_type == 0 {
+            return false;
+        }
+        let pixel_depth = data[16];
+        // Valid pixel depths
+        if !matches!(pixel_depth, 8 | 15 | 16 | 24 | 32) {
+            return false;
+        }
+        let width = u16::from_le_bytes([data[12], data[13]]);
+        let height = u16::from_le_bytes([data[14], data[15]]);
+        width > 0 && height > 0
+    },
+};
+
 /// All built-in definitions in detection priority order.
 ///
 /// Order matters: JPEG first (most common), AVIF before HEIC
 /// (for ambiguous mif1/msf1 containers, AVIF takes priority).
 pub static ALL: &[&ImageFormatDefinition] = &[
     &JPEG, &PNG, &GIF, &WEBP, &AVIF, &JXL, &HEIC, &BMP, &FARBFELD, &PNM, &TIFF, &ICO, &QOI,
-    &PDF, &EXR, &HDR,
+    &PDF, &EXR, &HDR, &TGA,
 ];

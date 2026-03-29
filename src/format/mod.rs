@@ -200,6 +200,7 @@ pub enum ImageFormat {
     Pdf,
     Exr,
     Hdr,
+    Tga,
     Unknown,
     /// Format not known to zencodec.
     ///
@@ -233,6 +234,7 @@ impl ImageFormat {
             ImageFormat::Pdf => Some(&builtins::PDF),
             ImageFormat::Exr => Some(&builtins::EXR),
             ImageFormat::Hdr => Some(&builtins::HDR),
+            ImageFormat::Tga => Some(&builtins::TGA),
             ImageFormat::Custom(def) => Some(def),
             ImageFormat::Unknown => None,
         }
@@ -1119,7 +1121,7 @@ mod tests {
     #[test]
     fn registry_formats_list() {
         let reg = ImageFormatRegistry::common();
-        assert_eq!(reg.formats().len(), 16);
+        assert_eq!(reg.formats().len(), 17);
         assert_eq!(reg.formats()[0].name, "jpeg");
     }
 
