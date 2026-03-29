@@ -301,10 +301,63 @@ pub static QOI: ImageFormatDefinition = ImageFormatDefinition {
     detect: |data| data.len() >= 4 && data[..4] == *b"qoif",
 };
 
+pub static PDF: ImageFormatDefinition = ImageFormatDefinition {
+    name: "pdf",
+    image_format: Some(ImageFormat::Pdf),
+    display_name: "PDF",
+    preferred_extension: "pdf",
+    extensions: &["pdf"],
+    preferred_mime_type: "application/pdf",
+    mime_types: &["application/pdf"],
+    supports_alpha: true,
+    supports_animation: false,
+    supports_lossless: true,
+    supports_lossy: false,
+    magic_bytes_needed: 5,
+    detect: |data| data.len() >= 5 && data[..5] == *b"%PDF-",
+};
+
+pub static EXR: ImageFormatDefinition = ImageFormatDefinition {
+    name: "exr",
+    image_format: Some(ImageFormat::Exr),
+    display_name: "OpenEXR",
+    preferred_extension: "exr",
+    extensions: &["exr"],
+    preferred_mime_type: "image/x-exr",
+    mime_types: &["image/x-exr"],
+    supports_alpha: true,
+    supports_animation: false,
+    supports_lossless: true,
+    supports_lossy: true,
+    magic_bytes_needed: 4,
+    detect: |data| data.len() >= 4 && data[..4] == [0x76, 0x2F, 0x31, 0x01],
+};
+
+pub static HDR: ImageFormatDefinition = ImageFormatDefinition {
+    name: "hdr",
+    image_format: Some(ImageFormat::Hdr),
+    display_name: "Radiance HDR",
+    preferred_extension: "hdr",
+    extensions: &["hdr", "rgbe", "pic"],
+    preferred_mime_type: "image/vnd.radiance",
+    mime_types: &["image/vnd.radiance", "image/x-hdr"],
+    supports_alpha: false,
+    supports_animation: false,
+    supports_lossless: false,
+    supports_lossy: true,
+    magic_bytes_needed: 11,
+    detect: |data| {
+        data.len() >= 10
+            && (data.starts_with(b"#?RADIANCE")
+                || data.starts_with(b"#?RGBE"))
+    },
+};
+
 /// All built-in definitions in detection priority order.
 ///
 /// Order matters: JPEG first (most common), AVIF before HEIC
 /// (for ambiguous mif1/msf1 containers, AVIF takes priority).
 pub static ALL: &[&ImageFormatDefinition] = &[
     &JPEG, &PNG, &GIF, &WEBP, &AVIF, &JXL, &HEIC, &BMP, &FARBFELD, &PNM, &TIFF, &ICO, &QOI,
+    &PDF, &EXR, &HDR,
 ];
