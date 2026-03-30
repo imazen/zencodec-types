@@ -2,6 +2,21 @@
 
 All notable changes to zencodec are documented here.
 
+## [0.1.11] - 2026-03-30
+
+### Added
+
+- `parse_exif_orientation()`: spec-compliant EXIF orientation parser (TIFF 6.0,
+  EXIF 2.32). Handles raw TIFF and APP1-prefixed input, both endiannesses,
+  SHORT and LONG types, with bounds-checked reads and DoS-capped IFD scanning.
+  24 tests. Replaces 3 independent implementations across zenjpeg, zenwebp,
+  and zencodecs.
+
+### Changed
+
+- Collapsed 21 per-format test functions into 1 table-driven test (22 rows).
+  Same coverage, fewer monomorphizations, faster test compilation.
+
 ## [0.1.10] - 2026-03-30
 
 ### Added
