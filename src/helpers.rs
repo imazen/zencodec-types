@@ -458,6 +458,218 @@ mod tests {
         }
     }
 
+    // ── Per-format decode scenarios ────────────────────────────────────
+    //
+    // Each test simulates the SourceColor a specific codec would produce,
+    // verifying the descriptor matches what downstream consumers expect.
+
+    // JPEG: most common — no metadata (web default), or sRGB/unknown ICC.
+    // No CICP in baseline JPEG. ICC via APP2.
+    #[test]
+    fn format_jpeg_no_icc() {
+        // 95% of web JPEGs: no ICC, no CICP → assume sRGB
+        let sc = SourceColor::default();
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgb8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt709);
+    }
+
+    #[test]
+    fn format_jpeg_with_unknown_icc() {
+        // Camera JPEG with vendor ICC (Canon, Nikon, etc.) — not in known sRGB set
+        let vendor_icc: Arc<[u8]> = Arc::from(alloc::vec![0xCA; 3144].into_boxed_slice());
+        let sc = SourceColor::default().with_icc_profile(vendor_icc);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgb8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Unknown);
+        assert_eq!(desc.primaries, ColorPrimaries::Unknown);
+    }
+
+    #[test]
+    fn format_jpeg_with_icc_color_corrected_to_srgb() {
+        // Camera JPEG with vendor ICC, color-corrected to sRGB during decode
+        let vendor_icc: Arc<[u8]> = Arc::from(alloc::vec![0xCA; 3144].into_boxed_slice());
+        let sc = SourceColor::default().with_icc_profile(vendor_icc);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgb8, &sc, Some(&Cicp::SRGB));
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt709);
+    }
+
+    // PNG: ICC via iCCP chunk, CICP via cICP chunk, or gAMA+cHRM → sRGB.
+    #[test]
+    fn format_png_with_cicp_p3() {
+        // Modern PNG with cICP chunk declaring Display P3
+        let sc = SourceColor::default().with_cicp(Cicp::DISPLAY_P3);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::DisplayP3);
+        assert_eq!(desc.pixel_format(), PixelFormat::Rgba8);
+    }
+
+    #[test]
+    fn format_png_with_cicp_and_icc_cicp_wins() {
+        // PNG with both cICP and iCCP — CICP takes precedence
+        let icc: Arc<[u8]> = Arc::from(alloc::vec![0u8; 100].into_boxed_slice());
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::DISPLAY_P3)
+            .with_icc_profile(icc);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba8, &sc, None);
+        assert_eq!(desc.primaries, ColorPrimaries::DisplayP3);
+    }
+
+    #[test]
+    fn format_png_no_color_metadata() {
+        // Legacy PNG without color chunks → assume sRGB
+        let sc = SourceColor::default();
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt709);
+    }
+
+    #[test]
+    fn format_png_16bit_hdr_pq() {
+        // HDR PNG: cICP BT.2100 PQ, 16-bit RGBA
+        let sc = SourceColor::default().with_cicp(Cicp::BT2100_PQ);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba16, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Pq);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt2020);
+        assert_eq!(desc.pixel_format(), PixelFormat::Rgba16);
+    }
+
+    // WebP: ICC via ICCP chunk, no CICP support.
+    #[test]
+    fn format_webp_no_icc() {
+        // Most WebP files: no ICC → sRGB
+        let sc = SourceColor::default();
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt709);
+    }
+
+    #[test]
+    fn format_webp_with_unknown_icc() {
+        // WebP with non-sRGB ICC (e.g., P3 from iPhone)
+        let p3_icc: Arc<[u8]> = Arc::from(alloc::vec![0xA3; 480].into_boxed_slice());
+        let sc = SourceColor::default().with_icc_profile(p3_icc);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Unknown);
+        assert_eq!(desc.primaries, ColorPrimaries::Unknown);
+    }
+
+    // AVIF: always has CICP from container. ICC optional.
+    #[test]
+    fn format_avif_srgb() {
+        let sc = SourceColor::default().with_cicp(Cicp::SRGB);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt709);
+    }
+
+    #[test]
+    fn format_avif_hdr10_pq() {
+        // HDR10: BT.2020 + PQ, decoded to f32
+        let sc = SourceColor::default().with_cicp(Cicp::BT2100_PQ);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::RgbaF32, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Pq);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt2020);
+        assert_eq!(desc.pixel_format(), PixelFormat::RgbaF32);
+    }
+
+    #[test]
+    fn format_avif_hlg() {
+        // HLG broadcast content
+        let sc = SourceColor::default().with_cicp(Cicp::BT2100_HLG);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::RgbF32, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Hlg);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt2020);
+    }
+
+    #[test]
+    fn format_avif_p3() {
+        // Wide-gamut SDR: Display P3 + sRGB transfer
+        let sc = SourceColor::default().with_cicp(Cicp::DISPLAY_P3);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgb8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::DisplayP3);
+    }
+
+    // JXL: CICP from codestream header, ICC optional.
+    #[test]
+    fn format_jxl_srgb() {
+        let sc = SourceColor::default().with_cicp(Cicp::SRGB);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgb8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt709);
+    }
+
+    #[test]
+    fn format_jxl_p3_pq() {
+        // JXL with P3 primaries and PQ transfer (HDR photo)
+        let cicp = Cicp::new(12, 16, 0, true); // P3 + PQ
+        let sc = SourceColor::default().with_cicp(cicp);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::RgbaF32, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Pq);
+        assert_eq!(desc.primaries, ColorPrimaries::DisplayP3);
+    }
+
+    // HEIC: CICP from container (ISOBMFF colr box).
+    #[test]
+    fn format_heic_p3_srgb_trc() {
+        // iPhone HEIC: Display P3 with sRGB transfer
+        let sc = SourceColor::default().with_cicp(Cicp::DISPLAY_P3);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::DisplayP3);
+    }
+
+    #[test]
+    fn format_heic_hdr10() {
+        // Apple HDR (Dolby Vision / HDR10)
+        let sc = SourceColor::default().with_cicp(Cicp::BT2100_PQ);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::RgbaF32, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Pq);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt2020);
+    }
+
+    // GIF: never has color metadata → always sRGB.
+    #[test]
+    fn format_gif_always_srgb() {
+        let sc = SourceColor::default();
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgba8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt709);
+    }
+
+    // BMP / PNM / Farbfeld: no color metadata → always sRGB.
+    #[test]
+    fn format_bmp_pnm_farbfeld_always_srgb() {
+        let sc = SourceColor::default();
+        for fmt in [PixelFormat::Rgb8, PixelFormat::Rgba8, PixelFormat::Gray8] {
+            let desc = descriptor_for_decoded_pixels(fmt, &sc, None);
+            assert_eq!(desc.transfer, TransferFunction::Srgb, "{fmt:?}");
+            assert_eq!(desc.primaries, ColorPrimaries::Bt709, "{fmt:?}");
+        }
+    }
+
+    // TIFF: ICC via tag, rarely CICP.
+    #[test]
+    fn format_tiff_with_unknown_icc() {
+        // TIFF from scanner with vendor ICC profile
+        let icc: Arc<[u8]> = Arc::from(alloc::vec![0x54; 7261].into_boxed_slice());
+        let sc = SourceColor::default().with_icc_profile(icc);
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgb16, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Unknown);
+        assert_eq!(desc.primaries, ColorPrimaries::Unknown);
+        assert_eq!(desc.pixel_format(), PixelFormat::Rgb16);
+    }
+
+    #[test]
+    fn format_tiff_no_icc() {
+        let sc = SourceColor::default();
+        let desc = descriptor_for_decoded_pixels(PixelFormat::Rgb16, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Srgb);
+        assert_eq!(desc.primaries, ColorPrimaries::Bt709);
+    }
+
     // ── Signal range ───────────────────────────────────────────────────
 
     #[test]
