@@ -169,76 +169,63 @@ const fn fnv1a_64(data: &[u8]) -> u64 {
 
 /// CICP code points for well-known ICC profile families.
 ///
-/// sRGB: primaries=1 (BT.709), transfer=13 (sRGB)
-/// Display P3: primaries=12 (P3), transfer=13 (sRGB TRC)
-/// BT.2020: primaries=9 (BT.2020), transfer=1 (BT.709 TRC — safe default;
-///          actual TRC (PQ/HLG) can't be determined from ICC colorants alone)
-/// BT.709: primaries=1 (BT.709), transfer=1 (BT.709 TRC — distinct from sRGB)
-const SRGB: (u8, u8) = (1, 13);
-const P3: (u8, u8) = (12, 13);
-const BT2020: (u8, u8) = (9, 1);
-const BT709: (u8, u8) = (1, 1);
+/// Only profiles whose TRC matches the claimed CICP transfer function within
+/// 0.2% for all 65536 u16 input values are included. Verified against ICC
+/// colorant XYZ values (primaries) and parametric/LUT TRC curves.
+///
+/// Excluded (TRC error > 0.2%): all v2-micro profiles (LUT approximation
+/// ~1.1%), all BT.2020 profiles (~0.3-0.4%), Adobe RGB (wrong primaries +
+/// gamma 2.2), v2-magic P3 variants (~0.2%), Rec709-v2-micro (~0.28%).
+const SRGB: (u8, u8) = (1, 13);  // primaries=BT.709, transfer=sRGB
+const P3: (u8, u8) = (12, 13);   // primaries=P3, transfer=sRGB TRC
+const BT709: (u8, u8) = (1, 1);  // primaries=BT.709, transfer=BT.709 TRC
 
 /// Well-known ICC profile table: (hash, primaries_code, transfer_code).
 ///
-/// Sorted by hash for binary search. Covers:
-/// - 22 sRGB profiles (ICC, HP/Lino, Apple, Google, Facebook, lcms, etc.)
-/// - 6 Display P3 profiles (Compact-ICC v4/v2/micro, Compat variants)
-/// - 4 BT.2020 profiles (Compact-ICC v4, Compat v4/v2-magic/v2-micro)
-/// - 3 BT.709 profiles (Compact-ICC v4/v2-magic/v2-micro)
-/// - 2 Adobe RGB profiles (Compact-ICC v4/v2)
+/// Sorted by hash for binary search. Only includes profiles verified to
+/// have TRC within 0.2% of the claimed CICP transfer function for all
+/// u16 values, and primaries matching within s15Fixed16 quantization.
 ///
-/// Adobe RGB maps to BT.709 primaries (closest CICP match — same white
-/// point, slightly wider gamut in green-cyan, but no dedicated CICP code).
-const KNOWN_ICC_PROFILES: [(u64, u8, u8); 39] = {
+/// Covers:
+/// - 22 sRGB profiles (ICC, HP/Lino, Apple, Google, Facebook, lcms, etc.)
+/// - 2 Display P3 v4 profiles (Compact-ICC, TRC err 0.009%)
+/// - 2 BT.709 profiles (Compact-ICC v4 err 0.004%, v2-magic err 0.19%)
+const KNOWN_ICC_PROFILES: [(u64, u8, u8); 26] = {
     let t = [
-        // sRGB profiles (22)
+        // sRGB profiles (22) — verified by zencodecs tests/icc_srgb.rs
         (0x01b2_7967_14a9_5fd5, SRGB),  // sRGB_lcms (656 B)
         (0x038b_a989_75d3_6160, SRGB),  // sRGB_LUT — Google Android (2,624 B)
         (0x131b_e18b_256c_1005, SRGB),  // sRGB_black_scaled (3,048 B)
         (0x190f_0cbe_0744_3404, SRGB),  // sRGB2014 — ICC official (3,024 B)
         (0x1b89_293e_8c83_89ad, SRGB),  // colord sRGB — freedesktop/colord (20,420 B)
-        // Adobe RGB (2) — mapped to BT.709 primaries (closest CICP match)
-        (0x1d3e_7e4f_40c5_8953, BT709), // Compact-ICC AdobeCompat-v2 (374 B)
         (0x203c_34c1_fba5_38d2, SRGB),  // sRGB_ICC_v4_Appearance (63,868 B)
-        // Display P3 (6)
-        (0x2cac_00e9_d69a_9840, P3),    // Compact-ICC DisplayP3Compat-v2-magic (736 B)
-        (0x3132_2772_0f77_8b89, P3),    // Compact-ICC DisplayP3-v2-magic (736 B)
-        // BT.709 (3)
+        // BT.709 — Rec709-v2-magic (TRC err 0.19%)
         (0x358f_d60d_2c26_341b, BT709), // Compact-ICC Rec709-v2-magic (738 B)
-        (0x3f59_a3a4_9d8d_6f25, P3),    // Compact-ICC DisplayP3Compat-v2-micro (456 B)
         (0x43f7_b099_aa77_a523, SRGB),  // Artifex sRGB — Ghostscript (2,576 B)
-        // BT.2020 (4)
-        (0x45b5_2ef1_ca8c_6fcb, BT2020), // Compact-ICC Rec2020-v4 (480 B)
         (0x4b41_6441_92da_c35c, SRGB),  // sRGB_v4_ICC_preference (60,960 B)
-        (0x4de1_052e_3b80_7417, BT709), // Compact-ICC AdobeCompat-v4 (480 B)
         (0x569a_1a2b_b183_597a, SRGB),  // Kodak sRGB / KCMS (150,368 B)
         (0x56d2_cbfc_a6b5_4318, SRGB),  // sRGB IEC61966-2.1 — HP/Lino (3,144 B)
         (0x70d6_01da_f84f_28ff, SRGB),  // Compact-ICC sRGB-v4 (480 B)
+        // BT.709 — Rec709-v4 (TRC err 0.004%)
         (0x717b_5b97_bad9_374d, BT709), // Compact-ICC Rec709-v4 (480 B)
         (0x7271_2df1_0196_b1db, SRGB),  // Compact-ICC sRGB-v2-micro (456 B)
         (0x78cb_2b5d_cdf4_e965, SRGB),  // Compact-ICC sRGB-v2-magic (736 B)
+        // Display P3 — DisplayP3Compat-v4 (TRC err 0.009%)
         (0x7aa2_2d54_73ad_99bd, P3),    // Compact-ICC DisplayP3Compat-v4 (480 B)
         (0x7f3b_a380_1001_a58b, SRGB),  // sRGB_D65_MAT — ICC v5 (24,708 B)
-        (0x7fdb_28fb_34fc_eedb, BT2020), // Compact-ICC Rec2020-v2-magic (790 B)
-        (0x809e_740f_f28f_1ad8, BT2020), // Compact-ICC Rec2020Compat-v4 (480 B)
         (0x869a_3fee_fd88_a489, SRGB),  // sRGB_ICC_v4_beta (63,928 B)
         (0x9b9c_0685_797a_bfdb, SRGB),  // sRGB_ISO22028 — ICC v5 (692 B)
+        // Display P3 — DisplayP3-v4 (TRC err 0.009%)
         (0xa52c_7f17_7bff_1392, P3),    // Compact-ICC DisplayP3-v4 (480 B)
-        (0xb263_a19b_44f5_faba, BT2020), // Compact-ICC Rec2020Compat-v2-micro (460 B)
         (0xb5fe_02fb_0e03_d19b, SRGB),  // sRGB Facebook (524 B)
-        (0xbd19_8ece_9409_9edc, BT2020), // Compact-ICC Rec2020Compat-v2-magic (790 B)
         (0xbd30_9056_9601_1a32, SRGB),  // Artifex esRGB (12,840 B)
         (0xc54d_44a1_49a7_d61a, SRGB),  // Compact-ICC sRGB-v2-nano (410 B)
         (0xca3e_5c85_c24b_4889, SRGB),  // sRGB_D65_colorimetric — ICC v5 (24,728 B)
         (0xcd42_2ac4_b90b_32b3, SRGB),  // sRGB IEC61966-2.1 — HP/Lino large (7,261 B)
-        (0xd140_a802_3d39_d033, P3),    // Compact-ICC DisplayP3-v2-micro (456 B)
-        (0xdae0_b26f_b1f4_db65, BT2020), // Compact-ICC Rec2020-v2-micro (460 B)
-        (0xe132_14e4_1c8a_55b6, BT709), // Compact-ICC Rec709-v2-micro (460 B)
         (0xe8a3_3e37_d747_9a46, SRGB),  // sRGB_parametric — Google Android (596 B)
     ];
     // Flatten to (hash, primaries, transfer) and verify sorted.
-    let mut out = [(0u64, 0u8, 0u8); 39];
+    let mut out = [(0u64, 0u8, 0u8); 26];
     let mut i = 0;
     while i < t.len() {
         out[i] = (t[i].0, (t[i].1).0, (t[i].1).1);
@@ -253,8 +240,9 @@ const KNOWN_ICC_PROFILES: [(u64, u8, u8); 39] = {
 /// Identify a well-known ICC profile by hash lookup.
 ///
 /// Computes a FNV-1a 64-bit hash of the profile bytes and checks against
-/// a table of 39 known ICC profiles covering sRGB (22 variants),
-/// Display P3 (6), BT.2020 (6), BT.709 (3), and Adobe RGB (2).
+/// a table of 26 known ICC profiles: sRGB (22), Display P3 v4 (2),
+/// BT.709 (2). Only profiles whose TRC matches the claimed CICP transfer
+/// function within 0.2% for all 65536 u16 values are included.
 ///
 /// Returns `Some(Cicp)` for recognized profiles, `None` for unknown ones.
 /// This is a fast-path check (~100ns). For the long tail of vendor profiles,
@@ -730,16 +718,15 @@ mod tests {
     }
 
     #[test]
-    fn identify_table_has_all_families() {
-        // Verify the table covers all expected profile families by checking
-        // that each CICP combination appears at least once.
+    fn identify_table_has_verified_families() {
         let has = |cp: u8, tc: u8| {
             KNOWN_ICC_PROFILES.iter().any(|&(_, c, t)| c == cp && t == tc)
         };
         assert!(has(1, 13), "sRGB (CP=1, TC=13)");
         assert!(has(12, 13), "Display P3 (CP=12, TC=13)");
-        assert!(has(9, 1), "BT.2020 (CP=9, TC=1)");
-        assert!(has(1, 1), "BT.709/AdobeRGB (CP=1, TC=1)");
+        assert!(has(1, 1), "BT.709 (CP=1, TC=1)");
+        // BT.2020 excluded: Compact-ICC profiles have 0.3-0.4% TRC error
+        assert!(!has(9, 1), "BT.2020 should NOT be in table (TRC err >0.2%)");
     }
 
     #[test]
@@ -757,7 +744,16 @@ mod tests {
             .iter()
             .filter(|&&(_, cp, tc)| cp == 12 && tc == 13)
             .count();
-        assert_eq!(p3_count, 6, "expected 6 Display P3 profiles");
+        assert_eq!(p3_count, 2, "expected 2 Display P3 v4 profiles");
+    }
+
+    #[test]
+    fn identify_bt709_count() {
+        let bt709_count = KNOWN_ICC_PROFILES
+            .iter()
+            .filter(|&&(_, cp, tc)| cp == 1 && tc == 1)
+            .count();
+        assert_eq!(bt709_count, 2, "expected 2 BT.709 profiles");
     }
 
     // TIFF: ICC via tag, rarely CICP.
