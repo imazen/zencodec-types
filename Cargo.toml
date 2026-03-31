@@ -15,9 +15,9 @@ name = "zencodec"
 
 [dependencies]
 zenpixels = { version = "0.2.1" }
-almost-enough = { version = "0.4.2", default-features = false, features = ["alloc"] }
-enough = "0.4.2"
-whereat = "0.1.4"
+almost-enough = { version = "0.4.3", default-features = false, features = ["alloc"] }
+enough = "0.4.3"
+whereat = "0.1.5"
 
 [dev-dependencies]
 thiserror = "2"
