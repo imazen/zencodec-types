@@ -627,6 +627,120 @@ pub fn serialize_iso21496(params: &GainMapParams) -> Vec<u8> {
     data
 }
 
+/// Serialize [`GainMapParams`] to ISO 21496-1 binary format for JPEG APP2.
+///
+/// The JPEG APP2 variant omits the version byte prefix that
+/// [`serialize_iso21496`] includes for AVIF `tmap` / JXL `jhgm` boxes.
+/// The APP2 URN namespace (`urn:iso:std:iso:ts:21496:-1`) already identifies
+/// the format, so the version byte is redundant.
+///
+/// This matches the wire format used by libultrahdr.
+pub fn serialize_iso21496_jpeg(params: &GainMapParams) -> Vec<u8> {
+    let is_multichannel = !params.is_single_channel();
+    let num_channels: usize = if is_multichannel { 3 } else { 1 };
+    let size = 5 + 16 + num_channels * 40;
+    let mut data = Vec::with_capacity(size);
+
+    // No version byte — JPEG APP2 URN identifies the format.
+    data.extend_from_slice(&0u16.to_be_bytes()); // minimum_version
+    data.extend_from_slice(&0u16.to_be_bytes()); // writer_version
+    let mut flags = 0u8;
+    if is_multichannel {
+        flags |= 0x80;
+    }
+    if params.use_base_color_space {
+        flags |= 0x40;
+    }
+    data.push(flags);
+
+    // Payload is identical to the box format
+    write_ufraction(
+        &mut data,
+        UFraction::from_f64(params.base_hdr_headroom, FRACTION_DENOM),
+    );
+    write_ufraction(
+        &mut data,
+        UFraction::from_f64(params.alternate_hdr_headroom, FRACTION_DENOM),
+    );
+
+    for ch in params.channels.iter().take(num_channels) {
+        write_fraction(&mut data, Fraction::from_f64(ch.min, FRACTION_DENOM));
+        write_fraction(&mut data, Fraction::from_f64(ch.max, FRACTION_DENOM));
+        write_ufraction(&mut data, UFraction::from_f64(ch.gamma, FRACTION_DENOM));
+        write_fraction(
+            &mut data,
+            Fraction::from_f64(ch.base_offset, FRACTION_DENOM),
+        );
+        write_fraction(
+            &mut data,
+            Fraction::from_f64(ch.alternate_offset, FRACTION_DENOM),
+        );
+    }
+
+    data
+}
+
+/// Parse ISO 21496-1 binary metadata from JPEG APP2 payload.
+///
+/// The JPEG APP2 variant has no version byte prefix — it starts directly
+/// with `minimum_version(u16)`. See [`parse_iso21496`] for the AVIF/JXL
+/// variant that includes the version byte.
+pub fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapParams, GainMapParseError> {
+    if data.len() < 5 {
+        return Err(GainMapParseError::TruncatedData {
+            expected: 5,
+            actual: data.len(),
+        });
+    }
+
+    let mut offset = 0;
+
+    let minimum_version = read_u16_be(data, &mut offset)?;
+    if minimum_version > 0 {
+        return Err(GainMapParseError::UnsupportedVersion {
+            version: minimum_version as u8,
+        });
+    }
+    let _writer_version = read_u16_be(data, &mut offset)?;
+    let flags = read_u8(data, &mut offset)?;
+    let is_multichannel = (flags & 0x80) != 0;
+    let use_base_color_space = (flags & 0x40) != 0;
+
+    let num_channels = if is_multichannel { 3 } else { 1 };
+    let mut channels = [GainMapChannel::default(); 3];
+
+    let base_headroom = read_ufraction(data, &mut offset, "base_hdr_headroom")?;
+    let alt_headroom = read_ufraction(data, &mut offset, "alternate_hdr_headroom")?;
+
+    for ch in channels.iter_mut().take(num_channels) {
+        let min_frac = read_fraction(data, &mut offset, "gain_map_min")?;
+        let max_frac = read_fraction(data, &mut offset, "gain_map_max")?;
+        let gamma_frac = read_ufraction(data, &mut offset, "gamma")?;
+        let base_offset_frac = read_fraction(data, &mut offset, "base_offset")?;
+        let alt_offset_frac = read_fraction(data, &mut offset, "alternate_offset")?;
+
+        *ch = GainMapChannel {
+            min: min_frac.to_f64(),
+            max: max_frac.to_f64(),
+            gamma: gamma_frac.to_f64(),
+            base_offset: base_offset_frac.to_f64(),
+            alternate_offset: alt_offset_frac.to_f64(),
+        };
+    }
+
+    if !is_multichannel {
+        channels[1] = channels[0];
+        channels[2] = channels[0];
+    }
+
+    Ok(GainMapParams {
+        channels,
+        base_hdr_headroom: base_headroom.to_f64(),
+        alternate_hdr_headroom: alt_headroom.to_f64(),
+        use_base_color_space,
+    })
+}
+
 // =========================================================================
 // Internal helpers
 // =========================================================================
