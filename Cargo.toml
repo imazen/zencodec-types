@@ -14,7 +14,7 @@ exclude = ["CLAUDE.md", "docs/"]
 name = "zencodec"
 
 [dependencies]
-zenpixels = { version = "0.2.1" }
+zenpixels = { version = "0.2.2" }
 almost-enough = { version = "0.4.3", default-features = false, features = ["alloc"] }
 enough = "0.4.3"
 whereat = "0.1.5"
