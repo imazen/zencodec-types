@@ -526,15 +526,6 @@ impl Fraction {
         }
     }
 
-    /// Backward-compatible alias for [`from_f64`](Self::from_f64).
-    ///
-    /// The `_denominator` parameter is ignored — the continued fraction
-    /// algorithm finds the optimal denominator automatically.
-    #[deprecated(since = "0.1.12", note = "Use `Fraction::from_f64(value)` instead")]
-    pub fn from_f64_with_denom(value: f64, _denominator: u32) -> Self {
-        Self::from_f64(value)
-    }
-
     /// Whether this fraction has a valid (non-zero) denominator.
     pub fn is_valid(&self) -> bool {
         self.denominator != 0
@@ -580,15 +571,6 @@ impl UFraction {
             numerator,
             denominator,
         }
-    }
-
-    /// Backward-compatible alias for [`from_f64`](Self::from_f64).
-    ///
-    /// The `_denominator` parameter is ignored — the continued fraction
-    /// algorithm finds the optimal denominator automatically.
-    #[deprecated(since = "0.1.12", note = "Use `UFraction::from_f64(value)` instead")]
-    pub fn from_f64_with_denom(value: f64, _denominator: u32) -> Self {
-        Self::from_f64(value)
     }
 
     /// Whether this fraction has a valid (non-zero) denominator.
@@ -674,36 +656,28 @@ const JPEG_HEADER_SIZE: usize = 5;
 /// Size of one fraction pair (numerator + denominator = 8 bytes).
 const FRACTION_SIZE: usize = 8;
 
-/// Parse ISO 21496-1 binary metadata from AVIF `tmap` item payload.
+/// Parse ISO 21496-1 binary gain map metadata.
 ///
-/// This format includes a `version(u8)` prefix byte before the common header.
-/// For JPEG APP2 or JXL `jhgm` (no version byte), use [`parse_iso21496_jpeg`].
+/// Expects the standard wire format: `minimum_version(u16) + writer_version(u16)
+/// + flags(u8) + payload`. This is the format used by JPEG APP2 (libultrahdr),
+/// JXL `jhgm` boxes, and the raw ISO 21496-1 `GainMapMetadata` structure.
+///
+/// For AVIF `tmap` item payloads (which prepend a `version(u8)` byte), use
+/// [`parse_iso21496_fmt`] with [`Iso21496Format::AvifTmap`].
 ///
 /// Handles both full and common-denominator compact encodings.
 pub fn parse_iso21496(data: &[u8]) -> Result<GainMapParams, GainMapParseError> {
-    parse_iso21496_avif(data)
-}
-
-/// Parse ISO 21496-1 binary metadata without version byte prefix.
-///
-/// Used for JPEG APP2 and JXL `jhgm` formats where the containing marker
-/// or box type already identifies the format.
-///
-/// Handles both full and common-denominator compact encodings.
-pub fn parse_iso21496_jpeg(data: &[u8]) -> Result<GainMapParams, GainMapParseError> {
     parse_iso21496_no_version(data)
 }
 
-/// Serialize [`GainMapParams`] to ISO 21496-1 binary format (AVIF `tmap`).
+/// Serialize [`GainMapParams`] to ISO 21496-1 binary format.
 ///
-/// Includes the `version(u8)` prefix byte. For JPEG APP2 or JXL `jhgm`,
-/// use [`serialize_iso21496_jpeg`].
+/// Produces the standard wire format without a version byte prefix.
+/// This is the format used by JPEG APP2, JXL `jhgm`, and most consumers.
+///
+/// For AVIF `tmap` item payloads (which need a `version(u8)` prefix), use
+/// [`serialize_iso21496_fmt`] with [`Iso21496Format::AvifTmap`].
 pub fn serialize_iso21496(params: &GainMapParams) -> Vec<u8> {
-    serialize_iso21496_avif(params)
-}
-
-/// Serialize [`GainMapParams`] without version byte prefix (JPEG APP2 / JXL `jhgm`).
-pub fn serialize_iso21496_jpeg(params: &GainMapParams) -> Vec<u8> {
     serialize_iso21496_no_version(params)
 }
 
@@ -1441,7 +1415,7 @@ mod tests {
         };
 
         let blob = serialize_iso21496(&original);
-        assert_eq!(blob.len(), 62); // 6 + 16 + 1*40
+        assert_eq!(blob.len(), 61); // 5 + 16 + 1*40
 
         let parsed = parse_iso21496(&blob).unwrap();
         assert!(parsed.is_single_channel());
@@ -1486,7 +1460,7 @@ mod tests {
         };
 
         let blob = serialize_iso21496(&original);
-        assert_eq!(blob.len(), 142); // 6 + 16 + 3*40
+        assert_eq!(blob.len(), 141); // 5 + 16 + 3*40
 
         let parsed = parse_iso21496(&blob).unwrap();
         assert!(!parsed.is_single_channel());
@@ -1510,11 +1484,10 @@ mod tests {
 
     #[test]
     fn parse_known_blob() {
-        // Construct a known ISO 21496-1 binary blob manually.
+        // Construct a known ISO 21496-1 binary blob manually (no version byte).
         // Single channel, use_base_color_space=true, base=SDR, alt headroom=13/10=1.3
         let mut blob = Vec::new();
-        // Header
-        blob.push(0); // version
+        // Header (no version byte — standard format)
         blob.extend_from_slice(&0u16.to_be_bytes()); // min version
         blob.extend_from_slice(&0u16.to_be_bytes()); // writer version
         blob.push(0x40); // flags: single channel, use_base_color_space
@@ -1554,39 +1527,26 @@ mod tests {
     fn parse_truncated() {
         assert!(parse_iso21496(&[]).is_err());
         assert!(parse_iso21496(&[0]).is_err());
-        assert!(parse_iso21496(&[0; 5]).is_err());
-        // 6 bytes header OK, but not enough for headroom
-        assert!(parse_iso21496(&[0, 0, 0, 0, 0, 0x40]).is_err());
-    }
-
-    #[test]
-    fn parse_wrong_version() {
-        let mut blob = alloc::vec![0u8; 62];
-        blob[0] = 1; // unsupported version
-        let err = parse_iso21496(&blob).unwrap_err();
-        assert!(matches!(
-            err,
-            GainMapParseError::UnsupportedVersion { version: 1 }
-        ));
+        assert!(parse_iso21496(&[0; 4]).is_err());
+        // 5 bytes header OK, but not enough for headroom
+        assert!(parse_iso21496(&[0, 0, 0, 0, 0x40]).is_err());
     }
 
     #[test]
     fn parse_wrong_min_version() {
-        let mut blob = alloc::vec![0u8; 62];
-        blob[0] = 0; // version OK
-        blob[1] = 0;
-        blob[2] = 1; // minimum_version = 1 (unsupported)
+        let mut blob = alloc::vec![0u8; 61];
+        blob[0] = 0;
+        blob[1] = 1; // minimum_version = 1 (unsupported)
         let err = parse_iso21496(&blob).unwrap_err();
         assert!(matches!(err, GainMapParseError::UnsupportedVersion { .. }));
     }
 
     #[test]
     fn parse_zero_denominator() {
-        // Build a blob with zero denominator in base_headroom
+        // Build a blob with zero denominator in base_headroom (no version byte)
         let mut blob = Vec::new();
-        blob.push(0); // version
-        blob.extend_from_slice(&0u16.to_be_bytes());
-        blob.extend_from_slice(&0u16.to_be_bytes());
+        blob.extend_from_slice(&0u16.to_be_bytes()); // min_version
+        blob.extend_from_slice(&0u16.to_be_bytes()); // writer_version
         blob.push(0x40); // flags
         blob.extend_from_slice(&0u32.to_be_bytes()); // base_headroom_n
         blob.extend_from_slice(&0u32.to_be_bytes()); // base_headroom_d = 0 !
@@ -1597,13 +1557,41 @@ mod tests {
         assert!(matches!(err, GainMapParseError::ZeroDenominator { .. }));
     }
 
+    #[test]
+    fn parse_avif_tmap_roundtrip() {
+        let p = GainMapParams {
+            alternate_hdr_headroom: 1.3,
+            backward_direction: true,
+            ..Default::default()
+        };
+        let blob = serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap);
+        assert_eq!(blob[0], 0, "version byte must be 0");
+        assert_eq!(blob.len(), 62); // 6-byte header + 16 headroom + 40 channel
+
+        let parsed = parse_iso21496_fmt(&blob, Iso21496Format::AvifTmap).unwrap();
+        assert!(parsed.use_base_color_space);
+        assert!(parsed.backward_direction);
+        assert!((parsed.alternate_hdr_headroom - 1.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_avif_wrong_version() {
+        let mut blob = alloc::vec![0u8; 62];
+        blob[0] = 1; // unsupported version
+        let err = parse_iso21496_fmt(&blob, Iso21496Format::AvifTmap).unwrap_err();
+        assert!(matches!(
+            err,
+            GainMapParseError::UnsupportedVersion { version: 1 }
+        ));
+    }
+
     // --- serialize_iso21496 ---
 
     #[test]
     fn serialize_single_channel_size() {
         let p = GainMapParams::default();
         assert!(p.is_single_channel());
-        assert_eq!(serialize_iso21496(&p).len(), 62);
+        assert_eq!(serialize_iso21496(&p).len(), 61); // 5 + 16 + 40
     }
 
     #[test]
@@ -1611,7 +1599,7 @@ mod tests {
         let mut p = GainMapParams::default();
         p.channels[1].max = 3.0; // make multichannel
         assert!(!p.is_single_channel());
-        assert_eq!(serialize_iso21496(&p).len(), 142);
+        assert_eq!(serialize_iso21496(&p).len(), 141); // 5 + 16 + 3*40
     }
 
     // --- GainMapParseError ---
@@ -1803,12 +1791,12 @@ mod tests {
         assert!(single.is_single_channel());
         let blob_single = serialize_iso21496(&single);
         assert_eq!(
-            blob_single[5] & 0x80,
+            blob_single[4] & 0x80,
             0x00,
             "single channel: bit 7 must be clear"
         );
         assert_eq!(
-            blob_single[5] & 0x40,
+            blob_single[4] & 0x40,
             0x40,
             "use_base_color_space: bit 6 must be set"
         );
@@ -1819,12 +1807,12 @@ mod tests {
         assert!(!multi.is_single_channel());
         let blob_multi = serialize_iso21496(&multi);
         assert_eq!(
-            blob_multi[5] & 0x80,
+            blob_multi[4] & 0x80,
             0x80,
             "multi channel: bit 7 must be set"
         );
         assert_eq!(
-            blob_multi[5] & 0x40,
+            blob_multi[4] & 0x40,
             0x40,
             "use_base_color_space: bit 6 must be set"
         );
@@ -1836,7 +1824,7 @@ mod tests {
         };
         let blob_no_base = serialize_iso21496(&no_base_cs);
         assert_eq!(
-            blob_no_base[5] & 0x40,
+            blob_no_base[4] & 0x40,
             0x00,
             "use_base_color_space=false: bit 6 must be clear"
         );
@@ -1930,23 +1918,36 @@ mod tests {
     }
 
     #[test]
-    fn old_api_matches_format_api() {
+    fn unsuffixed_matches_jpeg_format() {
         let p = GainMapParams {
             alternate_hdr_headroom: 1.3,
             ..Default::default()
         };
-        // Old API should produce identical bytes to format-aware API
+        // Unsuffixed API produces JpegApp2 format (no version byte)
         assert_eq!(
             serialize_iso21496(&p),
-            serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap)
-        );
-        assert_eq!(
-            serialize_iso21496_jpeg(&p),
             serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2)
         );
+        // AVIF format is one byte longer (version byte prefix)
+        let avif = serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap);
+        assert_eq!(avif.len(), serialize_iso21496(&p).len() + 1);
     }
 
     // --- backward_direction flag ---
+
+    #[test]
+    fn backward_direction_roundtrip() {
+        let p = GainMapParams {
+            backward_direction: true,
+            ..Default::default()
+        };
+        let blob = serialize_iso21496(&p);
+        // flags byte at offset 4 (after min_ver + writer_ver)
+        assert_ne!(blob[4] & 0x04, 0, "backward_direction bit must be set");
+
+        let parsed = parse_iso21496(&blob).unwrap();
+        assert!(parsed.backward_direction);
+    }
 
     #[test]
     fn backward_direction_roundtrip_avif() {
@@ -1954,25 +1955,11 @@ mod tests {
             backward_direction: true,
             ..Default::default()
         };
-        let blob = serialize_iso21496(&p);
-        // flags byte is at offset 5 (after version + min_ver + writer_ver)
+        let blob = serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap);
+        // flags byte at offset 5 (after version + min_ver + writer_ver)
         assert_ne!(blob[5] & 0x04, 0, "backward_direction bit must be set");
 
-        let parsed = parse_iso21496(&blob).unwrap();
-        assert!(parsed.backward_direction);
-    }
-
-    #[test]
-    fn backward_direction_roundtrip_jpeg() {
-        let p = GainMapParams {
-            backward_direction: true,
-            ..Default::default()
-        };
-        let blob = serialize_iso21496_jpeg(&p);
-        // flags byte is at offset 4 (after min_ver + writer_ver)
-        assert_ne!(blob[4] & 0x04, 0, "backward_direction bit must be set");
-
-        let parsed = parse_iso21496_jpeg(&blob).unwrap();
+        let parsed = parse_iso21496_fmt(&blob, Iso21496Format::AvifTmap).unwrap();
         assert!(parsed.backward_direction);
     }
 
@@ -1980,7 +1967,7 @@ mod tests {
     fn backward_direction_false_by_default() {
         let p = GainMapParams::default();
         let blob = serialize_iso21496(&p);
-        assert_eq!(blob[5] & 0x04, 0, "backward_direction bit must be clear");
+        assert_eq!(blob[4] & 0x04, 0, "backward_direction bit must be clear");
 
         let parsed = parse_iso21496(&blob).unwrap();
         assert!(!parsed.backward_direction);
@@ -2012,7 +1999,7 @@ mod tests {
         blob.extend_from_slice(&1i32.to_be_bytes()); // base_offset_n = 1 (1/64)
         blob.extend_from_slice(&1i32.to_be_bytes()); // alt_offset_n = 1 (1/64)
 
-        let params = parse_iso21496_jpeg(&blob).unwrap();
+        let params = parse_iso21496(&blob).unwrap();
         assert!((params.base_hdr_headroom - 0.0).abs() < 1e-6);
         assert!((params.alternate_hdr_headroom - 83.0 / 64.0).abs() < 1e-6);
         assert!((params.channels[0].min - (-0.5)).abs() < 1e-6);
@@ -2049,7 +2036,7 @@ mod tests {
             blob.extend_from_slice(&2i32.to_be_bytes()); // alt_offset
         }
 
-        let params = parse_iso21496_jpeg(&blob).unwrap();
+        let params = parse_iso21496(&blob).unwrap();
         assert!(!params.is_single_channel());
         assert!((params.alternate_hdr_headroom - 2.0).abs() < 1e-6);
         // Channel 0: min = -50/100 = -0.5
@@ -2069,7 +2056,7 @@ mod tests {
         blob.extend_from_slice(&0u32.to_be_bytes()); // common_d = 0 (invalid!)
         blob.extend_from_slice(&[0; 100]); // pad
 
-        let err = parse_iso21496_jpeg(&blob).unwrap_err();
+        let err = parse_iso21496(&blob).unwrap_err();
         assert!(matches!(err, GainMapParseError::ZeroDenominator { .. }));
     }
 
@@ -2093,7 +2080,7 @@ mod tests {
         blob.extend_from_slice(&0i32.to_be_bytes()); // base_offset
         blob.extend_from_slice(&0i32.to_be_bytes()); // alt_offset
 
-        let params = parse_iso21496_jpeg(&blob).unwrap();
+        let params = parse_iso21496(&blob).unwrap();
         assert!(params.backward_direction);
         assert!(params.use_base_color_space);
         assert!((params.alternate_hdr_headroom - 1.0).abs() < 1e-6);
@@ -2120,20 +2107,20 @@ mod tests {
         blob.extend_from_slice(&0i32.to_be_bytes()); // base_offset
         blob.extend_from_slice(&0i32.to_be_bytes()); // alt_offset
 
-        let params = parse_iso21496(&blob).unwrap();
+        let params = parse_iso21496_fmt(&blob, Iso21496Format::AvifTmap).unwrap();
         assert!((params.alternate_hdr_headroom - 1.3).abs() < 1e-6);
         assert!((params.channels[0].max - 2.0).abs() < 1e-6);
     }
 
-    // --- Verify backward compat wrappers match ---
+    // --- Format variant relationship ---
 
     #[test]
-    fn jpeg_format_size_one_less_than_avif() {
+    fn avif_format_has_version_byte_prefix() {
         let p = GainMapParams::default();
-        let avif_blob = serialize_iso21496(&p);
-        let jpeg_blob = serialize_iso21496_jpeg(&p);
+        let avif_blob = serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap);
+        let jpeg_blob = serialize_iso21496(&p);
         assert_eq!(avif_blob.len(), jpeg_blob.len() + 1);
-        // The AVIF blob starts with version=0, then matches JPEG blob
+        // The AVIF blob starts with version=0, then matches the standard format
         assert_eq!(avif_blob[0], 0);
         assert_eq!(&avif_blob[1..], &jpeg_blob[..]);
     }
