@@ -497,12 +497,27 @@ impl Fraction {
         }
     }
 
+    /// Create from f64 with a fixed denominator (multiply-and-round).
+    ///
+    /// This is the simplest encoding: `numerator = round(value * denominator)`.
+    /// For canonical ISO 21496-1 fractions, prefer [`Self::from_f64_cf`].
+    #[deprecated(
+        since = "0.1.12",
+        note = "use `from_f64_cf` for canonical continued-fraction encoding"
+    )]
+    pub fn from_f64(value: f64, denominator: u32) -> Self {
+        Self {
+            numerator: (value * denominator as f64).round() as i32,
+            denominator,
+        }
+    }
+
     /// Create from f64 using continued fractions for canonical encoding.
     ///
     /// Finds the best rational approximation, matching the algorithm used by
     /// libultrahdr and canonical ISO 21496-1 encoders. Produces compact
     /// fractions (e.g. `1/64` instead of `15625/1000000`).
-    pub fn from_f64(value: f64) -> Self {
+    pub fn from_f64_cf(value: f64) -> Self {
         let mut numerator = 0u32;
         let mut denominator = 1u32;
         if !float_to_unsigned_fraction(
@@ -553,11 +568,27 @@ impl UFraction {
         }
     }
 
+    /// Create from f64 with a fixed denominator (multiply-and-round).
+    ///
+    /// This is the simplest encoding: `numerator = round(value * denominator)`.
+    /// Clamps negative values to 0.
+    /// For canonical ISO 21496-1 fractions, prefer [`Self::from_f64_cf`].
+    #[deprecated(
+        since = "0.1.12",
+        note = "use `from_f64_cf` for canonical continued-fraction encoding"
+    )]
+    pub fn from_f64(value: f64, denominator: u32) -> Self {
+        Self {
+            numerator: (value.max(0.0) * denominator as f64).round() as u32,
+            denominator,
+        }
+    }
+
     /// Create from f64 using continued fractions for canonical encoding.
     ///
     /// Finds the best rational approximation, matching the algorithm used by
     /// libultrahdr and canonical ISO 21496-1 encoders. Clamps negative values to 0.
-    pub fn from_f64(value: f64) -> Self {
+    pub fn from_f64_cf(value: f64) -> Self {
         let value = value.max(0.0) as f32;
         let mut numerator = 0u32;
         let mut denominator = 1u32;
@@ -656,27 +687,36 @@ const JPEG_HEADER_SIZE: usize = 5;
 /// Size of one fraction pair (numerator + denominator = 8 bytes).
 const FRACTION_SIZE: usize = 8;
 
-/// Parse ISO 21496-1 binary gain map metadata.
+/// Parse ISO 21496-1 binary gain map metadata (JpegApp2 format).
 ///
-/// Expects the standard wire format: `minimum_version(u16) + writer_version(u16)
-/// + flags(u8) + payload`. This is the format used by JPEG APP2 (libultrahdr),
-/// JXL `jhgm` boxes, and the raw ISO 21496-1 `GainMapMetadata` structure.
+/// This is a convenience alias for
+/// `parse_iso21496_fmt(data, Iso21496Format::JpegApp2)`.
 ///
-/// For AVIF `tmap` item payloads (which prepend a `version(u8)` byte), use
-/// [`parse_iso21496_fmt`] with [`Iso21496Format::AvifTmap`].
-///
-/// Handles both full and common-denominator compact encodings.
+/// **Note:** In 0.1.11 this function used the AVIF tmap format (version byte
+/// prefix). It now uses the JpegApp2 format (no version byte). Use
+/// [`parse_iso21496_fmt`] with an explicit [`Iso21496Format`] to avoid
+/// ambiguity.
+#[deprecated(
+    since = "0.1.12",
+    note = "use `parse_iso21496_fmt` with an explicit `Iso21496Format`"
+)]
 pub fn parse_iso21496(data: &[u8]) -> Result<GainMapParams, GainMapParseError> {
     parse_iso21496_no_version(data)
 }
 
-/// Serialize [`GainMapParams`] to ISO 21496-1 binary format.
+/// Serialize [`GainMapParams`] to ISO 21496-1 binary format (JpegApp2 format).
 ///
-/// Produces the standard wire format without a version byte prefix.
-/// This is the format used by JPEG APP2, JXL `jhgm`, and most consumers.
+/// This is a convenience alias for
+/// `serialize_iso21496_fmt(params, Iso21496Format::JpegApp2)`.
 ///
-/// For AVIF `tmap` item payloads (which need a `version(u8)` prefix), use
-/// [`serialize_iso21496_fmt`] with [`Iso21496Format::AvifTmap`].
+/// **Note:** In 0.1.11 this function used the AVIF tmap format (version byte
+/// prefix). It now uses the JpegApp2 format (no version byte). Use
+/// [`serialize_iso21496_fmt`] with an explicit [`Iso21496Format`] to avoid
+/// ambiguity.
+#[deprecated(
+    since = "0.1.12",
+    note = "use `serialize_iso21496_fmt` with an explicit `Iso21496Format`"
+)]
 pub fn serialize_iso21496(params: &GainMapParams) -> Vec<u8> {
     serialize_iso21496_no_version(params)
 }
@@ -939,15 +979,15 @@ fn build_flags(params: &GainMapParams) -> u8 {
 fn write_payload(data: &mut Vec<u8>, params: &GainMapParams) {
     let num_channels: usize = if params.is_single_channel() { 1 } else { 3 };
 
-    write_ufraction(data, UFraction::from_f64(params.base_hdr_headroom));
-    write_ufraction(data, UFraction::from_f64(params.alternate_hdr_headroom));
+    write_ufraction(data, UFraction::from_f64_cf(params.base_hdr_headroom));
+    write_ufraction(data, UFraction::from_f64_cf(params.alternate_hdr_headroom));
 
     for ch in params.channels.iter().take(num_channels) {
-        write_fraction(data, Fraction::from_f64(ch.min));
-        write_fraction(data, Fraction::from_f64(ch.max));
-        write_ufraction(data, UFraction::from_f64(ch.gamma));
-        write_fraction(data, Fraction::from_f64(ch.base_offset));
-        write_fraction(data, Fraction::from_f64(ch.alternate_offset));
+        write_fraction(data, Fraction::from_f64_cf(ch.min));
+        write_fraction(data, Fraction::from_f64_cf(ch.max));
+        write_ufraction(data, UFraction::from_f64_cf(ch.gamma));
+        write_fraction(data, Fraction::from_f64_cf(ch.base_offset));
+        write_fraction(data, Fraction::from_f64_cf(ch.alternate_offset));
     }
 }
 
@@ -1343,13 +1383,13 @@ mod tests {
 
     #[test]
     fn fraction_roundtrip() {
-        let f = Fraction::from_f64(1.5);
+        let f = Fraction::from_f64_cf(1.5);
         assert!((f.to_f64() - 1.5).abs() < 1e-6);
     }
 
     #[test]
     fn fraction_negative() {
-        let f = Fraction::from_f64(-0.256907);
+        let f = Fraction::from_f64_cf(-0.256907);
         assert!((f.to_f64() - (-0.256907)).abs() < 1e-6);
     }
 
@@ -1375,13 +1415,13 @@ mod tests {
 
     #[test]
     fn ufraction_roundtrip() {
-        let f = UFraction::from_f64(1.3);
+        let f = UFraction::from_f64_cf(1.3);
         assert!((f.to_f64() - 1.3).abs() < 1e-6);
     }
 
     #[test]
     fn ufraction_clamps_negative() {
-        let f = UFraction::from_f64(-5.0);
+        let f = UFraction::from_f64_cf(-5.0);
         assert_eq!(f.numerator, 0);
         assert_eq!(f.to_f64(), 0.0);
     }
@@ -1396,7 +1436,7 @@ mod tests {
         assert!(!f.is_valid());
     }
 
-    // --- parse_iso21496 ---
+    // --- parse_iso21496_fmt / serialize_iso21496_fmt ---
 
     #[test]
     fn parse_roundtrip_single_channel() {
@@ -1414,10 +1454,10 @@ mod tests {
             backward_direction: false,
         };
 
-        let blob = serialize_iso21496(&original);
+        let blob = serialize_iso21496_fmt(&original, Iso21496Format::JpegApp2);
         assert_eq!(blob.len(), 61); // 5 + 16 + 1*40
 
-        let parsed = parse_iso21496(&blob).unwrap();
+        let parsed = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
         assert!(parsed.is_single_channel());
         assert!((parsed.base_hdr_headroom - 0.0).abs() < 1e-6);
         assert!((parsed.alternate_hdr_headroom - 1.3).abs() < 1e-6);
@@ -1459,10 +1499,10 @@ mod tests {
             backward_direction: false,
         };
 
-        let blob = serialize_iso21496(&original);
+        let blob = serialize_iso21496_fmt(&original, Iso21496Format::JpegApp2);
         assert_eq!(blob.len(), 141); // 5 + 16 + 3*40
 
-        let parsed = parse_iso21496(&blob).unwrap();
+        let parsed = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
         assert!(!parsed.is_single_channel());
         assert!(!parsed.use_base_color_space);
 
@@ -1508,7 +1548,7 @@ mod tests {
         blob.extend_from_slice(&1i32.to_be_bytes()); // alt_offset_n = 1
         blob.extend_from_slice(&64u32.to_be_bytes()); // alt_offset_d = 64
 
-        let params = parse_iso21496(&blob).unwrap();
+        let params = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
         assert_eq!(params.base_hdr_headroom, 0.0);
         assert!((params.alternate_hdr_headroom - 1.3).abs() < 1e-10);
         assert_eq!(params.channels[0].min, 0.0);
@@ -1525,11 +1565,11 @@ mod tests {
 
     #[test]
     fn parse_truncated() {
-        assert!(parse_iso21496(&[]).is_err());
-        assert!(parse_iso21496(&[0]).is_err());
-        assert!(parse_iso21496(&[0; 4]).is_err());
+        assert!(parse_iso21496_fmt(&[], Iso21496Format::JpegApp2).is_err());
+        assert!(parse_iso21496_fmt(&[0], Iso21496Format::JpegApp2).is_err());
+        assert!(parse_iso21496_fmt(&[0; 4], Iso21496Format::JpegApp2).is_err());
         // 5 bytes header OK, but not enough for headroom
-        assert!(parse_iso21496(&[0, 0, 0, 0, 0x40]).is_err());
+        assert!(parse_iso21496_fmt(&[0, 0, 0, 0, 0x40], Iso21496Format::JpegApp2).is_err());
     }
 
     #[test]
@@ -1537,7 +1577,7 @@ mod tests {
         let mut blob = alloc::vec![0u8; 61];
         blob[0] = 0;
         blob[1] = 1; // minimum_version = 1 (unsupported)
-        let err = parse_iso21496(&blob).unwrap_err();
+        let err = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap_err();
         assert!(matches!(err, GainMapParseError::UnsupportedVersion { .. }));
     }
 
@@ -1553,7 +1593,7 @@ mod tests {
         // pad to avoid truncation error before we hit zero-denom
         blob.extend_from_slice(&[0; 100]);
 
-        let err = parse_iso21496(&blob).unwrap_err();
+        let err = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap_err();
         assert!(matches!(err, GainMapParseError::ZeroDenominator { .. }));
     }
 
@@ -1585,13 +1625,16 @@ mod tests {
         ));
     }
 
-    // --- serialize_iso21496 ---
+    // --- serialize_iso21496_fmt ---
 
     #[test]
     fn serialize_single_channel_size() {
         let p = GainMapParams::default();
         assert!(p.is_single_channel());
-        assert_eq!(serialize_iso21496(&p).len(), 61); // 5 + 16 + 40
+        assert_eq!(
+            serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2).len(),
+            61
+        ); // 5 + 16 + 40
     }
 
     #[test]
@@ -1599,7 +1642,10 @@ mod tests {
         let mut p = GainMapParams::default();
         p.channels[1].max = 3.0; // make multichannel
         assert!(!p.is_single_channel());
-        assert_eq!(serialize_iso21496(&p).len(), 141); // 5 + 16 + 3*40
+        assert_eq!(
+            serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2).len(),
+            141
+        ); // 5 + 16 + 3*40
     }
 
     // --- GainMapParseError ---
@@ -1718,58 +1764,58 @@ mod tests {
     #[test]
     fn fraction_edge_cases() {
         // Zero — continued fractions produce 0/1
-        let f = Fraction::from_f64(0.0);
+        let f = Fraction::from_f64_cf(0.0);
         assert_eq!(f.numerator, 0);
         assert_eq!(f.denominator, 1);
         assert!((f.to_f64()).abs() < 1e-10);
         assert!(f.is_valid());
 
         // Negative zero
-        let f_neg0 = Fraction::from_f64(-0.0);
+        let f_neg0 = Fraction::from_f64_cf(-0.0);
         assert_eq!(f_neg0.numerator, 0);
         assert!((f_neg0.to_f64()).abs() < 1e-10);
 
         // f64::MAX — continued fractions return fallback 0/1
-        let f_max = Fraction::from_f64(f64::MAX);
+        let f_max = Fraction::from_f64_cf(f64::MAX);
         let _ = f_max.to_f64();
 
         // Canonical denominators for common values
-        let f = Fraction::from_f64(0.015625);
+        let f = Fraction::from_f64_cf(0.015625);
         assert_eq!((f.numerator, f.denominator), (1, 64));
 
-        let f = Fraction::from_f64(4.0);
+        let f = Fraction::from_f64_cf(4.0);
         assert_eq!((f.numerator, f.denominator), (4, 1));
 
-        let f = Fraction::from_f64(-1.0);
+        let f = Fraction::from_f64_cf(-1.0);
         assert_eq!((f.numerator, f.denominator), (-1, 1));
     }
 
     #[test]
     fn ufraction_edge_cases() {
         // Zero — continued fractions produce 0/1
-        let f = UFraction::from_f64(0.0);
+        let f = UFraction::from_f64_cf(0.0);
         assert_eq!(f.numerator, 0);
         assert_eq!(f.denominator, 1);
         assert!((f.to_f64()).abs() < 1e-10);
         assert!(f.is_valid());
 
         // f64::MAX — continued fractions return fallback 0/1
-        let f_max = UFraction::from_f64(f64::MAX);
+        let f_max = UFraction::from_f64_cf(f64::MAX);
         let _ = f_max.to_f64();
 
         // Canonical denominators
-        let f = UFraction::from_f64(0.015625);
+        let f = UFraction::from_f64_cf(0.015625);
         assert_eq!((f.numerator, f.denominator), (1, 64));
 
-        let f = UFraction::from_f64(4.0);
+        let f = UFraction::from_f64_cf(4.0);
         assert_eq!((f.numerator, f.denominator), (4, 1));
     }
 
     #[test]
     fn parse_iso21496_default_params_roundtrip() {
         let defaults = GainMapParams::default();
-        let blob = serialize_iso21496(&defaults);
-        let parsed = parse_iso21496(&blob).unwrap();
+        let blob = serialize_iso21496_fmt(&defaults, Iso21496Format::JpegApp2);
+        let parsed = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
 
         assert!(parsed.is_single_channel());
         assert!(parsed.use_base_color_space);
@@ -1789,7 +1835,7 @@ mod tests {
         // Single channel with use_base_color_space=true: bit 7 clear, bit 6 set → 0x40
         let single = GainMapParams::default();
         assert!(single.is_single_channel());
-        let blob_single = serialize_iso21496(&single);
+        let blob_single = serialize_iso21496_fmt(&single, Iso21496Format::JpegApp2);
         assert_eq!(
             blob_single[4] & 0x80,
             0x00,
@@ -1805,7 +1851,7 @@ mod tests {
         let mut multi = GainMapParams::default();
         multi.channels[1].max = 5.0;
         assert!(!multi.is_single_channel());
-        let blob_multi = serialize_iso21496(&multi);
+        let blob_multi = serialize_iso21496_fmt(&multi, Iso21496Format::JpegApp2);
         assert_eq!(
             blob_multi[4] & 0x80,
             0x80,
@@ -1822,7 +1868,7 @@ mod tests {
             use_base_color_space: false,
             ..Default::default()
         };
-        let blob_no_base = serialize_iso21496(&no_base_cs);
+        let blob_no_base = serialize_iso21496_fmt(&no_base_cs, Iso21496Format::JpegApp2);
         assert_eq!(
             blob_no_base[4] & 0x40,
             0x00,
@@ -1925,12 +1971,15 @@ mod tests {
         };
         // Unsuffixed API produces JpegApp2 format (no version byte)
         assert_eq!(
-            serialize_iso21496(&p),
+            serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2),
             serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2)
         );
         // AVIF format is one byte longer (version byte prefix)
         let avif = serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap);
-        assert_eq!(avif.len(), serialize_iso21496(&p).len() + 1);
+        assert_eq!(
+            avif.len(),
+            serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2).len() + 1
+        );
     }
 
     // --- backward_direction flag ---
@@ -1941,11 +1990,11 @@ mod tests {
             backward_direction: true,
             ..Default::default()
         };
-        let blob = serialize_iso21496(&p);
+        let blob = serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2);
         // flags byte at offset 4 (after min_ver + writer_ver)
         assert_ne!(blob[4] & 0x04, 0, "backward_direction bit must be set");
 
-        let parsed = parse_iso21496(&blob).unwrap();
+        let parsed = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
         assert!(parsed.backward_direction);
     }
 
@@ -1966,10 +2015,10 @@ mod tests {
     #[test]
     fn backward_direction_false_by_default() {
         let p = GainMapParams::default();
-        let blob = serialize_iso21496(&p);
+        let blob = serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2);
         assert_eq!(blob[4] & 0x04, 0, "backward_direction bit must be clear");
 
-        let parsed = parse_iso21496(&blob).unwrap();
+        let parsed = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
         assert!(!parsed.backward_direction);
     }
 
@@ -1999,7 +2048,7 @@ mod tests {
         blob.extend_from_slice(&1i32.to_be_bytes()); // base_offset_n = 1 (1/64)
         blob.extend_from_slice(&1i32.to_be_bytes()); // alt_offset_n = 1 (1/64)
 
-        let params = parse_iso21496(&blob).unwrap();
+        let params = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
         assert!((params.base_hdr_headroom - 0.0).abs() < 1e-6);
         assert!((params.alternate_hdr_headroom - 83.0 / 64.0).abs() < 1e-6);
         assert!((params.channels[0].min - (-0.5)).abs() < 1e-6);
@@ -2036,7 +2085,7 @@ mod tests {
             blob.extend_from_slice(&2i32.to_be_bytes()); // alt_offset
         }
 
-        let params = parse_iso21496(&blob).unwrap();
+        let params = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
         assert!(!params.is_single_channel());
         assert!((params.alternate_hdr_headroom - 2.0).abs() < 1e-6);
         // Channel 0: min = -50/100 = -0.5
@@ -2056,7 +2105,7 @@ mod tests {
         blob.extend_from_slice(&0u32.to_be_bytes()); // common_d = 0 (invalid!)
         blob.extend_from_slice(&[0; 100]); // pad
 
-        let err = parse_iso21496(&blob).unwrap_err();
+        let err = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap_err();
         assert!(matches!(err, GainMapParseError::ZeroDenominator { .. }));
     }
 
@@ -2080,7 +2129,7 @@ mod tests {
         blob.extend_from_slice(&0i32.to_be_bytes()); // base_offset
         blob.extend_from_slice(&0i32.to_be_bytes()); // alt_offset
 
-        let params = parse_iso21496(&blob).unwrap();
+        let params = parse_iso21496_fmt(&blob, Iso21496Format::JpegApp2).unwrap();
         assert!(params.backward_direction);
         assert!(params.use_base_color_space);
         assert!((params.alternate_hdr_headroom - 1.0).abs() < 1e-6);
@@ -2118,7 +2167,7 @@ mod tests {
     fn avif_format_has_version_byte_prefix() {
         let p = GainMapParams::default();
         let avif_blob = serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap);
-        let jpeg_blob = serialize_iso21496(&p);
+        let jpeg_blob = serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2);
         assert_eq!(avif_blob.len(), jpeg_blob.len() + 1);
         // The AVIF blob starts with version=0, then matches the standard format
         assert_eq!(avif_blob[0], 0);
