@@ -91,10 +91,8 @@ pub trait Encoder: Sized {
             PixelDescriptor::RGBA8_SRGB
         };
         let stride_bytes = stride_pixels as usize * 4;
-        // PixelSlice::new only fails on dimension/stride/length mismatch,
-        // which would be a caller bug. Panic is appropriate here.
         let pixels = PixelSlice::new(data, width, height, stride_bytes, descriptor)
-            .expect("encode_srgba8: invalid dimensions or data length for RGBA8");
+            .map_err(|_| Self::reject(crate::UnsupportedOperation::PixelFormat))?;
         self.encode(pixels)
     }
 
