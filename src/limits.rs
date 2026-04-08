@@ -69,7 +69,11 @@ pub enum ThreadingPolicy {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ResourceLimits {
-    /// Maximum total pixels (width × height).
+    /// Maximum pixels in a single frame (width × height).
+    ///
+    /// This is a **per-frame** limit. For animations, each frame is checked
+    /// independently. To limit the cumulative pixel count across all frames,
+    /// use [`max_total_pixels`](Self::max_total_pixels).
     pub max_pixels: Option<u64>,
     /// Maximum memory allocation in bytes.
     pub max_memory_bytes: Option<u64>,
@@ -85,11 +89,15 @@ pub struct ResourceLimits {
     pub max_frames: Option<u32>,
     /// Maximum total animation duration in milliseconds.
     pub max_animation_ms: Option<u64>,
-    /// Maximum total pixels across all frames (width × height × frame_count).
+    /// Maximum pixels across **all frames** (width × height × frame_count).
     ///
-    /// Unlike `max_pixels` which limits a single frame, this limits the
-    /// cumulative decoded pixel count. Prevents resource exhaustion from
-    /// animations with many large frames.
+    /// A 1000×1000 animation with 200 frames has 200 million total pixels.
+    /// [`max_pixels`](Self::max_pixels) would pass each 1M-pixel frame
+    /// individually — this field catches the cumulative cost.
+    ///
+    /// Checked by [`check_image_info`](Self::check_image_info) when
+    /// `frame_count` is known; for unknown frame counts, use
+    /// [`check_total_pixels`](Self::check_total_pixels) incrementally.
     pub max_total_pixels: Option<u64>,
     /// Threading policy for the codec.
     ///
