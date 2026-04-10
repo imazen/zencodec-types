@@ -955,4 +955,182 @@ mod tests {
         assert_eq!(Cicp::matrix_coefficients_name(6), "BT.601");
         assert_eq!(Cicp::matrix_coefficients_name(9), "BT.2020 NCL");
     }
+
+    // -----------------------------------------------------------------------
+    // SourceColor + ColorAuthority + is_hdr() tests
+    // -----------------------------------------------------------------------
+
+    /// Build a minimal ICC profile with a cicp tag (reuse icc.rs helper logic).
+    fn build_icc_with_cicp(cp: u8, tc: u8, mc: u8, fr: bool) -> alloc::vec::Vec<u8> {
+        let mut data = alloc::vec![0u8; 256];
+        data[0..4].copy_from_slice(&256u32.to_be_bytes());
+        data[36..40].copy_from_slice(b"acsp");
+        data[128..132].copy_from_slice(&1u32.to_be_bytes());
+        data[132..136].copy_from_slice(b"cicp");
+        data[136..140].copy_from_slice(&144u32.to_be_bytes());
+        data[140..144].copy_from_slice(&12u32.to_be_bytes());
+        data[144..148].copy_from_slice(b"cicp");
+        data[152] = cp;
+        data[153] = tc;
+        data[154] = mc;
+        data[155] = if fr { 1 } else { 0 };
+        data
+    }
+
+    /// Build a minimal ICC profile without a cicp tag.
+    fn build_icc_no_cicp() -> alloc::vec::Vec<u8> {
+        let mut data = alloc::vec![0u8; 256];
+        data[0..4].copy_from_slice(&256u32.to_be_bytes());
+        data[36..40].copy_from_slice(b"acsp");
+        data[128..132].copy_from_slice(&1u32.to_be_bytes());
+        data[132..136].copy_from_slice(b"desc");
+        data[136..140].copy_from_slice(&144u32.to_be_bytes());
+        data[140..144].copy_from_slice(&12u32.to_be_bytes());
+        data
+    }
+
+    #[test]
+    fn source_color_default_is_icc_authority() {
+        let sc = SourceColor::default();
+        assert_eq!(sc.color_authority, ColorAuthority::Icc);
+        assert!(sc.cicp.is_none());
+        assert!(sc.icc_profile.is_none());
+    }
+
+    #[test]
+    fn source_color_with_color_authority() {
+        let sc = SourceColor::default().with_color_authority(ColorAuthority::Cicp);
+        assert_eq!(sc.color_authority, ColorAuthority::Cicp);
+    }
+
+    #[test]
+    fn image_info_with_color_authority() {
+        let info =
+            ImageInfo::new(1, 1, ImageFormat::Png).with_color_authority(ColorAuthority::Cicp);
+        assert_eq!(info.source_color.color_authority, ColorAuthority::Cicp);
+    }
+
+    // --- is_hdr() from CICP ---
+
+    #[test]
+    fn is_hdr_cicp_pq() {
+        let sc = SourceColor::default().with_cicp(Cicp::BT2100_PQ);
+        assert!(sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_cicp_hlg() {
+        let sc = SourceColor::default().with_cicp(Cicp::BT2100_HLG);
+        assert!(sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_cicp_srgb_is_false() {
+        let sc = SourceColor::default().with_cicp(Cicp::SRGB);
+        assert!(!sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_cicp_p3_is_false() {
+        let sc = SourceColor::default().with_cicp(Cicp::DISPLAY_P3);
+        assert!(!sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_cicp_bt709_is_false() {
+        let sc = SourceColor::default().with_cicp(Cicp::new(1, 1, 0, true));
+        assert!(!sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_cicp_linear_is_false() {
+        let sc = SourceColor::default().with_cicp(Cicp::new(1, 8, 0, true));
+        assert!(!sc.is_hdr());
+    }
+
+    // --- is_hdr() from ICC cicp tag ---
+
+    #[test]
+    fn is_hdr_icc_pq_tag() {
+        let icc = build_icc_with_cicp(9, 16, 0, true);
+        let sc = SourceColor::default().with_icc_profile(icc);
+        assert!(sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_icc_hlg_tag() {
+        let icc = build_icc_with_cicp(9, 18, 0, false);
+        let sc = SourceColor::default().with_icc_profile(icc);
+        assert!(sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_icc_srgb_tag_is_false() {
+        let icc = build_icc_with_cicp(1, 13, 0, true);
+        let sc = SourceColor::default().with_icc_profile(icc);
+        assert!(!sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_icc_no_cicp_tag_is_false() {
+        let icc = build_icc_no_cicp();
+        let sc = SourceColor::default().with_icc_profile(icc);
+        assert!(!sc.is_hdr());
+    }
+
+    // --- is_hdr() priority: CICP checked before ICC ---
+
+    #[test]
+    fn is_hdr_cicp_wins_over_icc() {
+        // CICP says PQ, ICC says sRGB → CICP checked first → HDR
+        let icc = build_icc_with_cicp(1, 13, 0, true);
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::BT2100_PQ)
+            .with_icc_profile(icc);
+        assert!(sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_cicp_sdr_but_icc_hdr_still_detects() {
+        // CICP says sRGB (tc=13) → first check doesn't match (not PQ/HLG).
+        // Falls through to ICC check → finds PQ cicp tag → HDR.
+        // Conservative: if ANY signal says HDR, we report HDR.
+        let icc = build_icc_with_cicp(9, 16, 0, true);
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::SRGB)
+            .with_icc_profile(icc);
+        assert!(sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_cicp_pq_short_circuits_before_icc() {
+        // CICP says PQ → first check matches → returns true immediately.
+        // Even garbage ICC doesn't prevent detection.
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::BT2100_PQ)
+            .with_icc_profile(alloc::vec![0xFF; 10]);
+        assert!(sc.is_hdr());
+    }
+
+    // --- is_hdr() with no metadata ---
+
+    #[test]
+    fn is_hdr_no_metadata_is_false() {
+        let sc = SourceColor::default();
+        assert!(!sc.is_hdr());
+    }
+
+    // --- is_hdr() edge cases ---
+
+    #[test]
+    fn is_hdr_empty_icc_is_false() {
+        let sc = SourceColor::default().with_icc_profile(alloc::vec![]);
+        assert!(!sc.is_hdr());
+    }
+
+    #[test]
+    fn is_hdr_garbage_icc_is_false() {
+        let sc = SourceColor::default().with_icc_profile(alloc::vec![0xFF; 200]);
+        assert!(!sc.is_hdr());
+    }
 }
