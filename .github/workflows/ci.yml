@@ -207,8 +207,8 @@ jobs:
         shell: bash
         run: |
           # zenpixels on crates.io still declares rust-version 1.93;
-          # patch to the branch with lowered MSRV until next publish.
-          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels", branch = "feat/lower-msrv" }\n' >> Cargo.toml
+          # patch to git main (which has lowered MSRV) until next publish.
+          printf '\n[patch.crates-io]\nzenpixels = { git = "https://github.com/imazen/zenpixels" }\n' >> Cargo.toml
           rm -f Cargo.lock
 
       - name: Check MSRV
