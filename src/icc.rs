@@ -66,6 +66,7 @@ pub fn icc_extract_cicp(data: &[u8]) -> Option<(u8, u8, u8, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moxcms::{CicpColorPrimaries, CicpProfile, ColorProfile, MatrixCoefficients, TransferCharacteristics};
 
     /// Build a minimal valid ICC profile with a cicp tag for testing.
     fn build_icc_with_cicp(cp: u8, tc: u8, mc: u8, fr: bool) -> alloc::vec::Vec<u8> {
@@ -193,5 +194,169 @@ mod tests {
         data[128..132].copy_from_slice(&u32::MAX.to_be_bytes());
         // Cap of 200 means index 201 is never reached → returns None.
         assert_eq!(icc_extract_cicp(&data), None);
+    }
+
+    #[test]
+    fn cicp_not_first_tag() {
+        // cicp tag at index 2 (after two dummy tags).
+        let mut data = alloc::vec![0u8; 300];
+        data[0..4].copy_from_slice(&300u32.to_be_bytes());
+        data[36..40].copy_from_slice(b"acsp");
+        data[128..132].copy_from_slice(&3u32.to_be_bytes());
+        // Tag 0: 'desc' at offset 168, size 12
+        data[132..136].copy_from_slice(b"desc");
+        data[136..140].copy_from_slice(&168u32.to_be_bytes());
+        data[140..144].copy_from_slice(&12u32.to_be_bytes());
+        // Tag 1: 'cprt' at offset 180, size 12
+        data[144..148].copy_from_slice(b"cprt");
+        data[148..152].copy_from_slice(&180u32.to_be_bytes());
+        data[152..156].copy_from_slice(&12u32.to_be_bytes());
+        // Tag 2: 'cicp' at offset 192, size 12
+        data[156..160].copy_from_slice(b"cicp");
+        data[160..164].copy_from_slice(&192u32.to_be_bytes());
+        data[164..168].copy_from_slice(&12u32.to_be_bytes());
+        // cicp tag data at offset 192
+        data[192..196].copy_from_slice(b"cicp");
+        data[200] = 9;  // BT.2020 primaries
+        data[201] = 16; // PQ transfer
+        data[202] = 0;  // Identity matrix
+        data[203] = 1;  // full range
+        assert_eq!(icc_extract_cicp(&data), Some((9, 16, 0, true)));
+    }
+
+    #[test]
+    fn tag_count_zero() {
+        let mut data = alloc::vec![0u8; 256];
+        data[0..4].copy_from_slice(&256u32.to_be_bytes());
+        data[36..40].copy_from_slice(b"acsp");
+        data[128..132].copy_from_slice(&0u32.to_be_bytes());
+        assert_eq!(icc_extract_cicp(&data), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Cross-validation with moxcms: generate ICC profiles with moxcms,
+    // serialize to bytes, verify our extractor agrees.
+    // -----------------------------------------------------------------------
+
+    /// Helper: generate ICC bytes from a moxcms ColorProfile and cross-validate.
+    /// Reads expected values from the profile struct itself — no hardcoded assumptions.
+    fn cross_validate_moxcms(profile: &ColorProfile) {
+        let icc_bytes = profile.encode().expect("moxcms encode failed");
+
+        // Derive expected from the profile's cicp field.
+        let expected = profile.cicp.map(|c| {
+            (c.color_primaries as u8, c.transfer_characteristics as u8,
+             c.matrix_coefficients as u8, c.full_range)
+        });
+
+        // Our extractor must agree with what moxcms wrote.
+        let our_result = icc_extract_cicp(&icc_bytes);
+
+        // moxcms only writes cicp for Input/Display class with RGB/YCbCr/XYZ color space.
+        // If the profile has cicp but the class/space combination prevents writing, we
+        // expect None from our extractor even though the struct has Some.
+        // For standard profiles (RGB Display), both should agree.
+        if our_result != expected {
+            // Check if moxcms intentionally skipped writing the cicp tag.
+            // Re-parse and check if moxcms itself sees cicp.
+            let parsed = ColorProfile::new_from_slice(&icc_bytes).expect("moxcms parse failed");
+            let parsed_cicp = parsed.cicp.map(|c| {
+                (c.color_primaries as u8, c.transfer_characteristics as u8,
+                 c.matrix_coefficients as u8, c.full_range)
+            });
+            assert_eq!(
+                our_result, parsed_cicp,
+                "icc_extract_cicp disagrees with moxcms round-trip parse.\n\
+                 ours={our_result:?}, moxcms_parsed={parsed_cicp:?}, struct_cicp={expected:?}"
+            );
+        }
+
+        // Verify moxcms can round-trip.
+        let parsed = ColorProfile::new_from_slice(&icc_bytes).expect("moxcms parse failed");
+        if let (Some(ours), Some(theirs)) = (our_result, parsed.cicp) {
+            assert_eq!(ours.0, theirs.color_primaries as u8, "primaries mismatch");
+            assert_eq!(ours.1, theirs.transfer_characteristics as u8, "transfer mismatch");
+            assert_eq!(ours.2, theirs.matrix_coefficients as u8, "matrix mismatch");
+            assert_eq!(ours.3, theirs.full_range, "full_range mismatch");
+        }
+    }
+
+    #[test]
+    fn cross_validate_srgb() {
+        cross_validate_moxcms(&ColorProfile::new_srgb());
+    }
+
+    #[test]
+    fn cross_validate_display_p3() {
+        cross_validate_moxcms(&ColorProfile::new_display_p3());
+    }
+
+    #[test]
+    fn cross_validate_display_p3_pq() {
+        cross_validate_moxcms(&ColorProfile::new_display_p3_pq());
+    }
+
+    #[test]
+    fn cross_validate_bt2020_pq() {
+        cross_validate_moxcms(&ColorProfile::new_bt2020_pq());
+    }
+
+    #[test]
+    fn cross_validate_bt2020_hlg() {
+        cross_validate_moxcms(&ColorProfile::new_bt2020_hlg());
+    }
+
+    #[test]
+    fn cross_validate_bt2020_sdr() {
+        cross_validate_moxcms(&ColorProfile::new_bt2020());
+    }
+
+    #[test]
+    fn cross_validate_custom_cicp() {
+        let cicp = CicpProfile {
+            color_primaries: CicpColorPrimaries::Bt709,
+            transfer_characteristics: TransferCharacteristics::Smpte2084,
+            matrix_coefficients: MatrixCoefficients::Identity,
+            full_range: false,
+        };
+        cross_validate_moxcms(&ColorProfile::new_from_cicp(cicp));
+    }
+
+    // -----------------------------------------------------------------------
+    // Test against real ICC profiles from the zenpixels-convert bundle
+    // (these are v4.0–v4.2, so should NOT have cicp tags).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn real_profiles_no_cicp() {
+        extern crate std;
+        let profile_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../zenpixels/zenpixels-convert/src/profiles");
+        if !profile_dir.exists() {
+            // Skip if sibling repo not present (CI)
+            return;
+        }
+        for entry in std::fs::read_dir(&profile_dir).unwrap() {
+            let entry: std::fs::DirEntry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().and_then(|e: &std::ffi::OsStr| e.to_str()) != Some("icc") {
+                continue;
+            }
+            let data = std::fs::read(&path).unwrap();
+            // These are all v4.0–v4.2 profiles — no cicp tag expected.
+            assert_eq!(
+                icc_extract_cicp(&data),
+                None,
+                "unexpected cicp tag in {}",
+                path.display()
+            );
+            // But verify they parse as valid ICC (acsp signature present).
+            assert_eq!(
+                &data[36..40],
+                b"acsp",
+                "not a valid ICC profile: {}",
+                path.display()
+            );
+        }
     }
 }
