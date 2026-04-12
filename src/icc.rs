@@ -66,7 +66,9 @@ pub fn icc_extract_cicp(data: &[u8]) -> Option<(u8, u8, u8, bool)> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use moxcms::{CicpColorPrimaries, CicpProfile, ColorProfile, MatrixCoefficients, TransferCharacteristics};
+    use moxcms::{
+        CicpColorPrimaries, CicpProfile, ColorProfile, MatrixCoefficients, TransferCharacteristics,
+    };
 
     /// Build a minimal valid ICC profile with a cicp tag for testing.
     pub(crate) fn build_icc_with_cicp(cp: u8, tc: u8, mc: u8, fr: bool) -> alloc::vec::Vec<u8> {
@@ -217,10 +219,10 @@ pub(crate) mod tests {
         data[164..168].copy_from_slice(&12u32.to_be_bytes());
         // cicp tag data at offset 192
         data[192..196].copy_from_slice(b"cicp");
-        data[200] = 9;  // BT.2020 primaries
+        data[200] = 9; // BT.2020 primaries
         data[201] = 16; // PQ transfer
-        data[202] = 0;  // Identity matrix
-        data[203] = 1;  // full range
+        data[202] = 0; // Identity matrix
+        data[203] = 1; // full range
         assert_eq!(icc_extract_cicp(&data), Some((9, 16, 0, true)));
     }
 
@@ -245,8 +247,12 @@ pub(crate) mod tests {
 
         // Derive expected from the profile's cicp field.
         let expected = profile.cicp.map(|c| {
-            (c.color_primaries as u8, c.transfer_characteristics as u8,
-             c.matrix_coefficients as u8, c.full_range)
+            (
+                c.color_primaries as u8,
+                c.transfer_characteristics as u8,
+                c.matrix_coefficients as u8,
+                c.full_range,
+            )
         });
 
         // Our extractor must agree with what moxcms wrote.
@@ -261,8 +267,12 @@ pub(crate) mod tests {
             // Re-parse and check if moxcms itself sees cicp.
             let parsed = ColorProfile::new_from_slice(&icc_bytes).expect("moxcms parse failed");
             let parsed_cicp = parsed.cicp.map(|c| {
-                (c.color_primaries as u8, c.transfer_characteristics as u8,
-                 c.matrix_coefficients as u8, c.full_range)
+                (
+                    c.color_primaries as u8,
+                    c.transfer_characteristics as u8,
+                    c.matrix_coefficients as u8,
+                    c.full_range,
+                )
             });
             assert_eq!(
                 our_result, parsed_cicp,
@@ -275,7 +285,10 @@ pub(crate) mod tests {
         let parsed = ColorProfile::new_from_slice(&icc_bytes).expect("moxcms parse failed");
         if let (Some(ours), Some(theirs)) = (our_result, parsed.cicp) {
             assert_eq!(ours.0, theirs.color_primaries as u8, "primaries mismatch");
-            assert_eq!(ours.1, theirs.transfer_characteristics as u8, "transfer mismatch");
+            assert_eq!(
+                ours.1, theirs.transfer_characteristics as u8,
+                "transfer mismatch"
+            );
             assert_eq!(ours.2, theirs.matrix_coefficients as u8, "matrix mismatch");
             assert_eq!(ours.3, theirs.full_range, "full_range mismatch");
         }
@@ -376,8 +389,12 @@ pub(crate) mod tests {
 
         if !profile_dir.exists() {
             let status = Command::new("git")
-                .args(["clone", "--depth", "1",
-                       "https://github.com/saucecontrol/Compact-ICC-Profiles.git"])
+                .args([
+                    "clone",
+                    "--depth",
+                    "1",
+                    "https://github.com/saucecontrol/Compact-ICC-Profiles.git",
+                ])
                 .arg(&tmp)
                 .status();
             match status {
@@ -413,6 +430,9 @@ pub(crate) mod tests {
             // Some v2 micro/nano profiles may not parse in moxcms — that's OK.
             count += 1;
         }
-        assert!(count >= 40, "expected at least 40 compact profiles, found {count}");
+        assert!(
+            count >= 40,
+            "expected at least 40 compact profiles, found {count}"
+        );
     }
 }

@@ -1196,13 +1196,18 @@ mod tests {
         let sc = SourceColor::default()
             .with_content_light_level(clli)
             .with_mastering_display(mdcv);
-        assert_eq!(sc.content_light_level.unwrap().max_content_light_level, 1000);
+        assert_eq!(
+            sc.content_light_level.unwrap().max_content_light_level,
+            1000
+        );
         assert!(sc.mastering_display.is_some());
     }
 
     #[test]
     fn source_color_bit_depth_channel_count() {
-        let sc = SourceColor::default().with_bit_depth(10).with_channel_count(4);
+        let sc = SourceColor::default()
+            .with_bit_depth(10)
+            .with_channel_count(4);
         assert_eq!(sc.bit_depth, Some(10));
         assert_eq!(sc.channel_count, Some(4));
     }
