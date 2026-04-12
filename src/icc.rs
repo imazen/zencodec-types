@@ -359,4 +359,46 @@ pub(crate) mod tests {
             );
         }
     }
+
+    /// Cross-validate against saucecontrol/Compact-ICC-Profiles — the most
+    /// widely embedded profiles in web images (Chrome, Firefox, imagemagick).
+    /// All 44 profiles are v2.1 or v4.2 (pre-cicp), so our extractor must
+    /// return None for every one. Also verify moxcms agrees.
+    #[test]
+    fn compact_icc_profiles_no_cicp() {
+        extern crate std;
+        let profile_dir = std::path::Path::new("/mnt/v/input/compact-icc-profiles");
+        if !profile_dir.exists() {
+            // Skip if corpus not available (CI or other machines)
+            return;
+        }
+        let mut count = 0;
+        for entry in std::fs::read_dir(&profile_dir).unwrap() {
+            let entry: std::fs::DirEntry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().and_then(|e: &std::ffi::OsStr| e.to_str()) != Some("icc") {
+                continue;
+            }
+            let data = std::fs::read(&path).unwrap();
+            let name = path.file_name().unwrap().to_string_lossy();
+
+            // Our extractor must return None.
+            assert_eq!(
+                icc_extract_cicp(&data),
+                None,
+                "false positive cicp in compact profile: {name}"
+            );
+
+            // moxcms must also parse successfully and agree (no cicp).
+            if let Ok(profile) = ColorProfile::new_from_slice(&data) {
+                assert!(
+                    profile.cicp.is_none(),
+                    "moxcms found cicp in compact profile: {name}"
+                );
+            }
+            // Some v2 micro/nano profiles may not parse in moxcms — that's OK.
+            count += 1;
+        }
+        assert!(count >= 40, "expected at least 40 compact profiles, found {count}");
+    }
 }
