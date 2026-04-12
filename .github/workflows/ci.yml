@@ -189,13 +189,16 @@ jobs:
   # MSRV check
   # ==========================================================================
   msrv:
-    name: MSRV
+    name: MSRV (1.85)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       - name: Configure git for private repos
         run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install MSRV toolchain
+        run: rustup toolchain install 1.85.0 --no-self-update --profile minimal
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
