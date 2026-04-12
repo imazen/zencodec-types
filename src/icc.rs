@@ -64,12 +64,12 @@ pub fn icc_extract_cicp(data: &[u8]) -> Option<(u8, u8, u8, bool)> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use moxcms::{CicpColorPrimaries, CicpProfile, ColorProfile, MatrixCoefficients, TransferCharacteristics};
 
     /// Build a minimal valid ICC profile with a cicp tag for testing.
-    fn build_icc_with_cicp(cp: u8, tc: u8, mc: u8, fr: bool) -> alloc::vec::Vec<u8> {
+    pub(crate) fn build_icc_with_cicp(cp: u8, tc: u8, mc: u8, fr: bool) -> alloc::vec::Vec<u8> {
         let mut data = alloc::vec![0u8; 256];
         // Profile size at offset 0.
         let size = data.len() as u32;

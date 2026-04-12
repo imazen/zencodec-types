@@ -1133,4 +1133,187 @@ mod tests {
         let sc = SourceColor::default().with_icc_profile(alloc::vec![0xFF; 200]);
         assert!(!sc.has_hdr_transfer());
     }
+
+    // -----------------------------------------------------------------------
+    // transfer_function() and color_primaries() coverage
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn source_color_transfer_function() {
+        let sc = SourceColor::default().with_cicp(Cicp::SRGB);
+        assert_eq!(sc.transfer_function(), TransferFunction::Srgb);
+
+        let sc = SourceColor::default().with_cicp(Cicp::BT2100_PQ);
+        assert_eq!(sc.transfer_function(), TransferFunction::Pq);
+
+        let sc = SourceColor::default().with_cicp(Cicp::BT2100_HLG);
+        assert_eq!(sc.transfer_function(), TransferFunction::Hlg);
+
+        // No CICP → Unknown
+        let sc = SourceColor::default();
+        assert_eq!(sc.transfer_function(), TransferFunction::Unknown);
+    }
+
+    #[test]
+    fn source_color_primaries() {
+        let sc = SourceColor::default().with_cicp(Cicp::SRGB);
+        assert_eq!(sc.color_primaries(), ColorPrimaries::Bt709);
+
+        let sc = SourceColor::default().with_cicp(Cicp::DISPLAY_P3);
+        assert_eq!(sc.color_primaries(), ColorPrimaries::DisplayP3);
+
+        // No CICP → defaults to BT.709 (sRGB primaries)
+        let sc = SourceColor::default();
+        assert_eq!(sc.color_primaries(), ColorPrimaries::Bt709);
+    }
+
+    // -----------------------------------------------------------------------
+    // SourceColor builder completeness
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn source_color_with_icc_accepts_vec() {
+        let sc = SourceColor::default().with_icc_profile(alloc::vec![1, 2, 3]);
+        assert_eq!(sc.icc_profile.as_deref(), Some(&[1, 2, 3][..]));
+    }
+
+    #[test]
+    fn source_color_with_icc_accepts_arc() {
+        let arc: Arc<[u8]> = Arc::from(&[4, 5, 6][..]);
+        let sc = SourceColor::default().with_icc_profile(arc.clone());
+        assert_eq!(sc.icc_profile, Some(arc));
+    }
+
+    #[test]
+    fn source_color_hdr_metadata_fields() {
+        let clli = ContentLightLevel::new(1000, 400);
+        let mdcv = MasteringDisplay::new(
+            [[0.680, 0.320], [0.265, 0.690], [0.150, 0.060]],
+            [0.3127, 0.3290],
+            1000.0,
+            0.005,
+        );
+        let sc = SourceColor::default()
+            .with_content_light_level(clli)
+            .with_mastering_display(mdcv);
+        assert_eq!(sc.content_light_level.unwrap().max_content_light_level, 1000);
+        assert!(sc.mastering_display.is_some());
+    }
+
+    #[test]
+    fn source_color_bit_depth_channel_count() {
+        let sc = SourceColor::default().with_bit_depth(10).with_channel_count(4);
+        assert_eq!(sc.bit_depth, Some(10));
+        assert_eq!(sc.channel_count, Some(4));
+    }
+
+    // -----------------------------------------------------------------------
+    // Format-level ColorAuthority specification tests.
+    //
+    // These document the expected codec behavior per format spec.
+    // Codec crates should construct SourceColor following these patterns.
+    // -----------------------------------------------------------------------
+
+    /// JPEG: ICC is the only color signal. Authority is always Icc.
+    #[test]
+    fn spec_jpeg_icc_only() {
+        let icc = alloc::vec![0u8; 128]; // placeholder
+        let sc = SourceColor::default()
+            .with_icc_profile(icc)
+            .with_color_authority(ColorAuthority::Icc);
+        assert_eq!(sc.color_authority, ColorAuthority::Icc);
+        assert!(sc.icc_profile.is_some());
+        assert!(sc.cicp.is_none());
+    }
+
+    /// AVIF with ICC colr box: ICC takes authority, CICP may co-exist for roundtrip.
+    #[test]
+    fn spec_avif_icc_colr_box() {
+        let icc = alloc::vec![0u8; 128];
+        let sc = SourceColor::default()
+            .with_icc_profile(icc)
+            .with_cicp(Cicp::BT2100_PQ)
+            .with_color_authority(ColorAuthority::Icc);
+        assert_eq!(sc.color_authority, ColorAuthority::Icc);
+        assert!(sc.icc_profile.is_some());
+        assert!(sc.cicp.is_some()); // preserved for roundtripping
+    }
+
+    /// AVIF with NCLX colr box (no ICC): CICP takes authority.
+    #[test]
+    fn spec_avif_nclx_only() {
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::BT2100_PQ)
+            .with_color_authority(ColorAuthority::Cicp);
+        assert_eq!(sc.color_authority, ColorAuthority::Cicp);
+        assert!(sc.cicp.is_some());
+        assert!(sc.icc_profile.is_none());
+    }
+
+    /// PNG 3rd Ed with cICP chunk: CICP takes authority.
+    #[test]
+    fn spec_png_cicp_chunk() {
+        let icc = alloc::vec![0u8; 128]; // iCCP may co-exist
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::SRGB)
+            .with_icc_profile(icc)
+            .with_color_authority(ColorAuthority::Cicp);
+        assert_eq!(sc.color_authority, ColorAuthority::Cicp);
+    }
+
+    /// PNG with only iCCP chunk (no cICP): ICC takes authority.
+    #[test]
+    fn spec_png_iccp_only() {
+        let icc = alloc::vec![0u8; 128];
+        let sc = SourceColor::default()
+            .with_icc_profile(icc)
+            .with_color_authority(ColorAuthority::Icc);
+        assert_eq!(sc.color_authority, ColorAuthority::Icc);
+        assert!(sc.cicp.is_none());
+    }
+
+    /// JXL with enum color encoding (want_icc=false): CICP takes authority.
+    #[test]
+    fn spec_jxl_enum_encoding() {
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::SRGB)
+            .with_color_authority(ColorAuthority::Cicp);
+        assert_eq!(sc.color_authority, ColorAuthority::Cicp);
+    }
+
+    /// JXL with embedded ICC profile: ICC takes authority.
+    #[test]
+    fn spec_jxl_embedded_icc() {
+        let icc = alloc::vec![0u8; 128];
+        let sc = SourceColor::default()
+            .with_icc_profile(icc)
+            .with_color_authority(ColorAuthority::Icc);
+        assert_eq!(sc.color_authority, ColorAuthority::Icc);
+    }
+
+    /// Codec contract: setting authority without corresponding data is a bug.
+    /// This test documents what happens — not that it's correct.
+    #[test]
+    fn mismatch_icc_authority_no_icc_profile() {
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::BT2100_PQ)
+            .with_color_authority(ColorAuthority::Icc);
+        // Authority says ICC, but only CICP present — codec bug.
+        // has_hdr_transfer still detects HDR via CICP (ignores authority).
+        assert!(sc.has_hdr_transfer());
+        assert!(sc.icc_profile.is_none()); // the mismatch
+    }
+
+    /// Codec contract: setting CICP authority without cicp is a bug.
+    #[test]
+    fn mismatch_cicp_authority_no_cicp() {
+        let icc_pq = crate::icc::tests::build_icc_with_cicp(9, 16, 0, true);
+        let sc = SourceColor::default()
+            .with_icc_profile(icc_pq)
+            .with_color_authority(ColorAuthority::Cicp);
+        // Authority says CICP, but only ICC present — codec bug.
+        // has_hdr_transfer still detects HDR via ICC cicp tag.
+        assert!(sc.has_hdr_transfer());
+        assert!(sc.cicp.is_none()); // the mismatch
+    }
 }
