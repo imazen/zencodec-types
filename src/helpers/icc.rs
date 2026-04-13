@@ -191,7 +191,7 @@ pub enum IccMatchTolerance {
 const KNOWN_ICC_PROFILES: &[(u64, u8, u8, u8)] = {
     const S: (u8, u8) = (1, 13);    // sRGB: CP=BT.709, TC=sRGB
     const P: (u8, u8) = (12, 13);   // P3: CP=DisplayP3, TC=sRGB TRC
-    const R: (u8, u8) = (9, 1);     // BT.2020: CP=BT.2020, TC=BT.709
+    const _R: (u8, u8) = (9, 1);    // BT.2020: CP=BT.2020, TC=BT.709 (reserved for future profiles)
     const B: (u8, u8) = (1, 1);     // BT.709: CP=BT.709, TC=BT.709
     const A: (u8, u8) = (200, 200);  // Adobe RGB: CP=AdobeRgb, TC=Gamma22
     const PH: (u8, u8) = (201, 201); // ProPhoto: CP=ProPhoto, TC=Gamma18
