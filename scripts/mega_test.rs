@@ -35,6 +35,8 @@ fn bt709_eotf(v: f64) -> f64 {
 fn bt2020_12_eotf(v: f64) -> f64 {
     if v < 0.0181 * 4.5 { v / 4.5 } else { ((v + 0.0993) / 1.0993).powf(1.0 / 0.45) }
 }
+fn gamma22_eotf(v: f64) -> f64 { v.powf(2.19921875) } // Adobe RGB exact: 563/256
+fn gamma18_eotf(v: f64) -> f64 { v.powf(1.8) } // ProPhoto RGB
 
 enum Trc {
     Para(Vec<f64>),
@@ -106,9 +108,11 @@ fn find_tag(d: &[u8], s: &[u8; 4]) -> Option<usize> {
 
 struct KP { name: &'static str, cp: u8, rx: f64, ry: f64, gx: f64, gy: f64, bx: f64, by: f64 }
 const KNOWN_P: &[KP] = &[
-    KP { name: "sRGB/BT.709", cp: 1, rx: 0.4361, ry: 0.2225, gx: 0.3851, gy: 0.7169, bx: 0.1431, by: 0.0606 },
-    KP { name: "Display P3",  cp: 12, rx: 0.5151, ry: 0.2412, gx: 0.2919, gy: 0.6922, bx: 0.1572, by: 0.0666 },
-    KP { name: "BT.2020",     cp: 9, rx: 0.6734, ry: 0.2790, gx: 0.1656, gy: 0.6753, bx: 0.1251, by: 0.0456 },
+    KP { name: "sRGB/BT.709", cp: 1,   rx: 0.4361, ry: 0.2225, gx: 0.3851, gy: 0.7169, bx: 0.1431, by: 0.0606 },
+    KP { name: "Display P3",  cp: 12,  rx: 0.5151, ry: 0.2412, gx: 0.2919, gy: 0.6922, bx: 0.1572, by: 0.0666 },
+    KP { name: "BT.2020",     cp: 9,   rx: 0.6734, ry: 0.2790, gx: 0.1656, gy: 0.6753, bx: 0.1251, by: 0.0456 },
+    KP { name: "Adobe RGB",   cp: 200, rx: 0.6097, ry: 0.3111, gx: 0.2053, gy: 0.6257, bx: 0.1492, by: 0.0632 },
+    KP { name: "ProPhoto",    cp: 201, rx: 0.7977, ry: 0.2880, gx: 0.1352, gy: 0.7119, bx: 0.0313, by: 0.0001 },
 ];
 
 fn max_u16_err(trc: &Trc, eotf: fn(f64) -> f64) -> (u32, u32) {
@@ -157,11 +161,13 @@ fn main() {
         if ext != "icc" && ext != "icm" { continue; }
         let data = match std::fs::read(&path) { Ok(d) => d, Err(_) => continue };
         if data.len() < 132 { continue; }
-        // Must be RGB 'mntr' profile
-        if &data[12..16] != b"mntr" { continue; }
-        if &data[16..20] != b"RGB " { continue; }
-
         let fname = path.file_name().unwrap().to_string_lossy().to_string();
+        let class = std::str::from_utf8(&data[12..16]).unwrap_or("????").to_string();
+        let cs = std::str::from_utf8(&data[16..20]).unwrap_or("????").to_string();
+        if &data[16..20] != b"RGB " {
+            eprintln!("SKIP non-RGB: {fname} (class={class}, cs={cs})");
+            continue;
+        }
         let hash = fnv1a_64(&data);
 
         // Identify primaries
@@ -208,15 +214,21 @@ fn main() {
         let (srgb_max, srgb_gt1) = max_u16_err(&trc, srgb_eotf);
         let (bt709_max, bt709_gt1) = max_u16_err(&trc, bt709_eotf);
         let (bt2020_max, _) = max_u16_err(&trc, bt2020_12_eotf);
+        let (g22_max, g22_gt1) = max_u16_err(&trc, gamma22_eotf);
+        let (g18_max, g18_gt1) = max_u16_err(&trc, gamma18_eotf);
 
-        // Pick best match
-        let (best_tc, best_name, best_max, best_gt1) = if srgb_max <= bt709_max && srgb_max <= bt2020_max {
-            (13u8, "sRGB", srgb_max, srgb_gt1)
-        } else if bt2020_max <= bt709_max {
-            (1u8, "BT.2020-12", bt2020_max, 0u32)
-        } else {
-            (1u8, "BT.709", bt709_max, bt709_gt1)
-        };
+        // Pick best match across all reference curves
+        let candidates: [(u8, &str, u32, u32); 5] = [
+            (13, "sRGB", srgb_max, srgb_gt1),
+            (1, "BT.709", bt709_max, bt709_gt1),
+            (1, "BT.2020-12", bt2020_max, 0),
+            (202, "gamma2.2", g22_max, g22_gt1),
+            (203, "gamma1.8", g18_max, g18_gt1),
+        ];
+        let (best_tc, best_name, best_max, best_gt1) = candidates.iter()
+            .min_by_key(|c| c.2)
+            .map(|&(tc, name, mx, gt)| (tc, name, mx, gt))
+            .unwrap();
 
         let key = format!("{:016x}", hash);
         if results.contains_key(&key) { continue; }

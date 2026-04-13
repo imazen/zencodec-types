@@ -1,6 +1,6 @@
 [package]
 name = "zencodec"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0 OR MIT"
@@ -14,7 +14,7 @@ exclude = ["CLAUDE.md", "CONTEXT-HANDOFF.md", "FEEDBACK.md", ".claude/", ".super
 name = "zencodec"
 
 [dependencies]
-zenpixels = { version = "0.2.2" }
+zenpixels = { version = "0.3.0" }
 almost-enough = { version = "0.4.4", default-features = false, features = ["alloc"] }
 enough = "0.4.4"
 whereat = { version = "0.1.5"}
@@ -24,7 +24,3 @@ thiserror = "2"
 walkdir = "2.5.0"
 rayon = "1.10.0"
 moxcms = { version = "0.8.1", features = ["options"] }
-
-[patch.crates-io]
-# ColorAuthority not yet published to crates.io; remove when zenpixels > 0.2.2 is released.
-zenpixels = { path = "../zenpixels/zenpixels" }
