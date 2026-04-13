@@ -131,8 +131,8 @@ fn cp_from_table(code: u8) -> ColorPrimaries {
         1 => ColorPrimaries::Bt709,
         9 => ColorPrimaries::Bt2020,
         12 => ColorPrimaries::DisplayP3,
-        200 => ColorPrimaries::AdobeRgb,
-        201 => ColorPrimaries::ProPhoto,
+        // AdobeRgb (200) and ProPhoto (201) require zenpixels 0.3+
+        200 | 201 => ColorPrimaries::Unknown,
         _ => ColorPrimaries::Unknown,
     }
 }
@@ -145,8 +145,8 @@ fn tc_from_table(code: u8) -> TransferFunction {
         4 => TransferFunction::Hlg,
         8 => TransferFunction::Linear,
         13 => TransferFunction::Srgb,
-        200 => TransferFunction::Gamma22,
-        201 => TransferFunction::Gamma18,
+        // Gamma22 (200) and Gamma18 (201) require zenpixels 0.3+
+        200 | 201 => TransferFunction::Unknown,
         _ => TransferFunction::Unknown,
     }
 }
@@ -827,8 +827,16 @@ mod tests {
         assert!(count(1, 13) >= 30, "sRGB: {}", count(1, 13));
         assert!(count(12, 13) >= 30, "Display P3: {}", count(12, 13));
         assert!(count(200, 200) >= 15, "Adobe RGB: {}", count(200, 200));
-        assert!(KNOWN_ICC_PROFILES.len() >= 100, "total: {}", KNOWN_ICC_PROFILES.len());
-        assert!(KNOWN_GRAY_ICC_PROFILES.len() >= 10, "gray: {}", KNOWN_GRAY_ICC_PROFILES.len());
+        assert!(
+            KNOWN_ICC_PROFILES.len() >= 100,
+            "total: {}",
+            KNOWN_ICC_PROFILES.len()
+        );
+        assert!(
+            KNOWN_GRAY_ICC_PROFILES.len() >= 10,
+            "gray: {}",
+            KNOWN_GRAY_ICC_PROFILES.len()
+        );
     }
 
     // ── Hash table integrity ──────────────────────────────────────────
@@ -858,6 +866,10 @@ mod tests {
     fn all_table_codes_map_to_known_variants() {
         for entry in KNOWN_ICC_PROFILES {
             let (_, cp, tc, _) = *entry;
+            // Codes 200/201 (AdobeRGB, ProPhoto) require zenpixels 0.3+ variants
+            if cp >= 200 || tc >= 200 {
+                continue;
+            }
             assert_ne!(
                 cp_from_table(cp),
                 ColorPrimaries::Unknown,
@@ -875,6 +887,9 @@ mod tests {
         }
         for entry in KNOWN_GRAY_ICC_PROFILES {
             let (_, tc, _) = *entry;
+            if tc >= 200 {
+                continue;
+            }
             assert_ne!(
                 tc_from_table(tc),
                 TransferFunction::Unknown,

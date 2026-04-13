@@ -1,6 +1,6 @@
 [package]
 name = "zencodec"
-version = "0.1.14"
+version = "0.1.15"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0 OR MIT"
@@ -14,7 +14,7 @@ exclude = ["CLAUDE.md", "CONTEXT-HANDOFF.md", "FEEDBACK.md", ".claude/", ".super
 name = "zencodec"
 
 [dependencies]
-zenpixels = { version = "0.3.0" }
+zenpixels = { version = "0.2.2" }
 almost-enough = { version = "0.4.4", default-features = false, features = ["alloc"] }
 enough = "0.4.4"
 whereat = { version = "0.1.5"}

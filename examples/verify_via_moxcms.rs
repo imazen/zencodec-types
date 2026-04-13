@@ -38,24 +38,57 @@ const fn fnv1a_64(data: &[u8]) -> u64 {
 // ── Canonical reference EOTFs (f64, ground truth) ────────────────────────
 
 fn srgb_eotf(v: f64) -> f64 {
-    if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
 }
 fn bt709_eotf(v: f64) -> f64 {
-    if v < 0.081 { v / 4.5 } else { ((v + 0.099) / 1.099).powf(1.0 / 0.45) }
+    if v < 0.081 {
+        v / 4.5
+    } else {
+        ((v + 0.099) / 1.099).powf(1.0 / 0.45)
+    }
 }
-fn gamma22_eotf(v: f64) -> f64 { v.powf(2.19921875) } // Adobe RGB: 563/256
-fn gamma18_eotf(v: f64) -> f64 { v.powf(1.8) }
+fn gamma22_eotf(v: f64) -> f64 {
+    v.powf(2.19921875)
+} // Adobe RGB: 563/256
+fn gamma18_eotf(v: f64) -> f64 {
+    v.powf(1.8)
+}
 
 // ── mega_test TRC parser (our standalone implementation) ─────────────────
 
-enum Trc { Para(Vec<f64>), Lut(Vec<u16>), Gamma(f64) }
+enum Trc {
+    Para(Vec<f64>),
+    Lut(Vec<u16>),
+    Gamma(f64),
+}
 
 fn eval_para(p: &[f64], x: f64) -> f64 {
     match p.len() {
         1 => x.powf(p[0]),
-        3 => { let (g, a, b) = (p[0], p[1], p[2]); if x >= -b / a { (a * x + b).powf(g) } else { 0.0 } }
-        5 => { let (g, a, b, c, d) = (p[0], p[1], p[2], p[3], p[4]); if x >= d { (a * x + b).powf(g) } else { c * x } }
-        7 => { let (g, a, b, c, d, e, f) = (p[0], p[1], p[2], p[3], p[4], p[5], p[6]); if x >= d { (a * x + b).powf(g) + e } else { c * x + f } }
+        3 => {
+            let (g, a, b) = (p[0], p[1], p[2]);
+            if x >= -b / a {
+                (a * x + b).powf(g)
+            } else {
+                0.0
+            }
+        }
+        5 => {
+            let (g, a, b, c, d) = (p[0], p[1], p[2], p[3], p[4]);
+            if x >= d { (a * x + b).powf(g) } else { c * x }
+        }
+        7 => {
+            let (g, a, b, c, d, e, f) = (p[0], p[1], p[2], p[3], p[4], p[5], p[6]);
+            if x >= d {
+                (a * x + b).powf(g) + e
+            } else {
+                c * x + f
+            }
+        }
         _ => x,
     }
 }
@@ -68,39 +101,75 @@ fn eval_trc(t: &Trc, x: f64) -> f64 {
             let p = x * (l.len() - 1) as f64;
             let i = p.floor() as usize;
             let f = p - i as f64;
-            if i >= l.len() - 1 { l[l.len() - 1] as f64 / 65535.0 }
-            else { let a = l[i] as f64 / 65535.0; let b = l[i + 1] as f64 / 65535.0; a + f * (b - a) }
+            if i >= l.len() - 1 {
+                l[l.len() - 1] as f64 / 65535.0
+            } else {
+                let a = l[i] as f64 / 65535.0;
+                let b = l[i + 1] as f64 / 65535.0;
+                a + f * (b - a)
+            }
         }
     }
 }
 
 fn parse_trc_from_icc(d: &[u8]) -> Option<Trc> {
-    if d.len() < 132 { return None; }
+    if d.len() < 132 {
+        return None;
+    }
     let tc = u32::from_be_bytes(d[128..132].try_into().ok()?) as usize;
     for i in 0..tc.min(100) {
         let b = 132 + i * 12;
-        if b + 12 > d.len() { break; }
-        if &d[b..b+4] != b"rTRC" { continue; }
-        let o = u32::from_be_bytes(d[b+4..b+8].try_into().ok()?) as usize;
-        if o + 12 > d.len() { return None; }
-        match &d[o..o+4] {
+        if b + 12 > d.len() {
+            break;
+        }
+        if &d[b..b + 4] != b"rTRC" {
+            continue;
+        }
+        let o = u32::from_be_bytes(d[b + 4..b + 8].try_into().ok()?) as usize;
+        if o + 12 > d.len() {
+            return None;
+        }
+        match &d[o..o + 4] {
             b"para" => {
-                let ft = u16::from_be_bytes([d[o+8], d[o+9]]);
-                let n = match ft { 0 => 1, 1 => 3, 2 => 4, 3 => 5, 4 => 7, _ => return None };
+                let ft = u16::from_be_bytes([d[o + 8], d[o + 9]]);
+                let n = match ft {
+                    0 => 1,
+                    1 => 3,
+                    2 => 4,
+                    3 => 5,
+                    4 => 7,
+                    _ => return None,
+                };
                 let mut p = Vec::new();
                 for j in 0..n {
                     let q = o + 12 + j * 4;
-                    if q + 4 > d.len() { return None; }
-                    p.push(i32::from_be_bytes([d[q], d[q+1], d[q+2], d[q+3]]) as f64 / 65536.0);
+                    if q + 4 > d.len() {
+                        return None;
+                    }
+                    p.push(
+                        i32::from_be_bytes([d[q], d[q + 1], d[q + 2], d[q + 3]]) as f64 / 65536.0,
+                    );
                 }
                 return Some(Trc::Para(p));
             }
             b"curv" => {
-                let c = u32::from_be_bytes([d[o+8], d[o+9], d[o+10], d[o+11]]) as usize;
-                if c == 0 { return Some(Trc::Gamma(1.0)); }
-                if c == 1 { return Some(Trc::Gamma(u16::from_be_bytes([d[o+12], d[o+13]]) as f64 / 256.0)); }
+                let c = u32::from_be_bytes([d[o + 8], d[o + 9], d[o + 10], d[o + 11]]) as usize;
+                if c == 0 {
+                    return Some(Trc::Gamma(1.0));
+                }
+                if c == 1 {
+                    return Some(Trc::Gamma(
+                        u16::from_be_bytes([d[o + 12], d[o + 13]]) as f64 / 256.0,
+                    ));
+                }
                 let mut l = Vec::with_capacity(c);
-                for j in 0..c { let q = o + 12 + j * 2; if q + 2 > d.len() { break; } l.push(u16::from_be_bytes([d[q], d[q+1]])); }
+                for j in 0..c {
+                    let q = o + 12 + j * 2;
+                    if q + 2 > d.len() {
+                        break;
+                    }
+                    l.push(u16::from_be_bytes([d[q], d[q + 1]]));
+                }
                 return Some(Trc::Lut(l));
             }
             _ => return None,
@@ -111,37 +180,109 @@ fn parse_trc_from_icc(d: &[u8]) -> Option<Trc> {
 
 // ── Primaries identification (same as mega_test) ──────────────────────────
 
-struct KP { name: &'static str, cp: u8, rx: f64, ry: f64, gx: f64, gy: f64, bx: f64, by: f64 }
+struct KP {
+    name: &'static str,
+    cp: u8,
+    rx: f64,
+    ry: f64,
+    gx: f64,
+    gy: f64,
+    bx: f64,
+    by: f64,
+}
 const KNOWN_P: &[KP] = &[
-    KP { name: "sRGB/BT.709", cp: 1,   rx: 0.4361, ry: 0.2225, gx: 0.3851, gy: 0.7169, bx: 0.1431, by: 0.0606 },
-    KP { name: "Display P3",  cp: 12,  rx: 0.5151, ry: 0.2412, gx: 0.2919, gy: 0.6922, bx: 0.1572, by: 0.0666 },
-    KP { name: "BT.2020",     cp: 9,   rx: 0.6734, ry: 0.2790, gx: 0.1656, gy: 0.6753, bx: 0.1251, by: 0.0456 },
-    KP { name: "Adobe RGB",   cp: 200, rx: 0.6097, ry: 0.3111, gx: 0.2053, gy: 0.6257, bx: 0.1492, by: 0.0632 },
-    KP { name: "ProPhoto",    cp: 201, rx: 0.7977, ry: 0.2880, gx: 0.1352, gy: 0.7119, bx: 0.0313, by: 0.0001 },
+    KP {
+        name: "sRGB/BT.709",
+        cp: 1,
+        rx: 0.4361,
+        ry: 0.2225,
+        gx: 0.3851,
+        gy: 0.7169,
+        bx: 0.1431,
+        by: 0.0606,
+    },
+    KP {
+        name: "Display P3",
+        cp: 12,
+        rx: 0.5151,
+        ry: 0.2412,
+        gx: 0.2919,
+        gy: 0.6922,
+        bx: 0.1572,
+        by: 0.0666,
+    },
+    KP {
+        name: "BT.2020",
+        cp: 9,
+        rx: 0.6734,
+        ry: 0.2790,
+        gx: 0.1656,
+        gy: 0.6753,
+        bx: 0.1251,
+        by: 0.0456,
+    },
+    KP {
+        name: "Adobe RGB",
+        cp: 200,
+        rx: 0.6097,
+        ry: 0.3111,
+        gx: 0.2053,
+        gy: 0.6257,
+        bx: 0.1492,
+        by: 0.0632,
+    },
+    KP {
+        name: "ProPhoto",
+        cp: 201,
+        rx: 0.7977,
+        ry: 0.2880,
+        gx: 0.1352,
+        gy: 0.7119,
+        bx: 0.0313,
+        by: 0.0001,
+    },
 ];
 
 fn identify_primaries(data: &[u8]) -> Option<(u8, &'static str)> {
-    if data.len() < 132 { return None; }
+    if data.len() < 132 {
+        return None;
+    }
     let tc = u32::from_be_bytes(data[128..132].try_into().ok()?) as usize;
     let (mut r, mut g, mut b) = ((0.0f64, 0.0f64), (0.0f64, 0.0f64), (0.0f64, 0.0f64));
     for i in 0..tc.min(100) {
         let base = 132 + i * 12;
-        if base + 12 > data.len() { break; }
-        let sig = &data[base..base+4];
-        let off = u32::from_be_bytes(data[base+4..base+8].try_into().ok()?) as usize;
-        if off + 20 > data.len() { continue; }
-        let rd = |o: usize| (
-            i32::from_be_bytes(data[o+8..o+12].try_into().unwrap()) as f64 / 65536.0,
-            i32::from_be_bytes(data[o+12..o+16].try_into().unwrap()) as f64 / 65536.0,
-        );
-        match sig { b"rXYZ" => r = rd(off), b"gXYZ" => g = rd(off), b"bXYZ" => b = rd(off), _ => {} }
+        if base + 12 > data.len() {
+            break;
+        }
+        let sig = &data[base..base + 4];
+        let off = u32::from_be_bytes(data[base + 4..base + 8].try_into().ok()?) as usize;
+        if off + 20 > data.len() {
+            continue;
+        }
+        let rd = |o: usize| {
+            (
+                i32::from_be_bytes(data[o + 8..o + 12].try_into().unwrap()) as f64 / 65536.0,
+                i32::from_be_bytes(data[o + 12..o + 16].try_into().unwrap()) as f64 / 65536.0,
+            )
+        };
+        match sig {
+            b"rXYZ" => r = rd(off),
+            b"gXYZ" => g = rd(off),
+            b"bXYZ" => b = rd(off),
+            _ => {}
+        }
     }
     for k in KNOWN_P {
         const T: f64 = 0.003;
-        if (r.0 - k.rx).abs() < T && (r.1 - k.ry).abs() < T
-            && (g.0 - k.gx).abs() < T && (g.1 - k.gy).abs() < T
-            && (b.0 - k.bx).abs() < T && (b.1 - k.by).abs() < T
-        { return Some((k.cp, k.name)); }
+        if (r.0 - k.rx).abs() < T
+            && (r.1 - k.ry).abs() < T
+            && (g.0 - k.gx).abs() < T
+            && (g.1 - k.gy).abs() < T
+            && (b.0 - k.bx).abs() < T
+            && (b.1 - k.by).abs() < T
+        {
+            return Some((k.cp, k.name));
+        }
     }
     None
 }
@@ -150,9 +291,9 @@ fn identify_primaries(data: &[u8]) -> Option<(u8, &'static str)> {
 
 struct ThreeWayResult {
     ref_name: &'static str,
-    mega_err: u32,     // mega_test TRC parser vs canonical EOTF
-    moxcms_err: u32,   // moxcms TRC evaluator vs canonical EOTF
-    divergence: u32,    // mega_test TRC parser vs moxcms TRC evaluator (direct)
+    mega_err: u32,   // mega_test TRC parser vs canonical EOTF
+    moxcms_err: u32, // moxcms TRC evaluator vs canonical EOTF
+    divergence: u32, // mega_test TRC parser vs moxcms TRC evaluator (direct)
 }
 
 fn three_way_measure(icc_data: &[u8]) -> Result<Vec<ThreeWayResult>, String> {
@@ -160,9 +301,12 @@ fn three_way_measure(icc_data: &[u8]) -> Result<Vec<ThreeWayResult>, String> {
     let trc = parse_trc_from_icc(icc_data).ok_or("no rTRC in mega_test parser")?;
 
     // 2. Parse with moxcms, get TRC evaluator (floating point, no shortcuts)
-    let profile = ColorProfile::new_from_slice(icc_data).map_err(|e| format!("moxcms parse: {e:?}"))?;
+    let profile =
+        ColorProfile::new_from_slice(icc_data).map_err(|e| format!("moxcms parse: {e:?}"))?;
     let red_trc = profile.red_trc.as_ref().ok_or("no red TRC in moxcms")?;
-    let evaluator = red_trc.make_linear_evaluator().map_err(|e| format!("evaluator: {e:?}"))?;
+    let evaluator = red_trc
+        .make_linear_evaluator()
+        .map_err(|e| format!("evaluator: {e:?}"))?;
 
     let refs: &[(&str, fn(f64) -> f64)] = &[
         ("sRGB", srgb_eotf),
@@ -237,25 +381,35 @@ fn main() {
 
     for path in &paths {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if ext != "icc" && ext != "icm" { continue; }
-        let data = match std::fs::read(path) { Ok(d) => d, Err(_) => continue };
-        if data.len() < 132 || &data[16..20] != b"RGB " { continue; }
+        if ext != "icc" && ext != "icm" {
+            continue;
+        }
+        let data = match std::fs::read(path) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        if data.len() < 132 || &data[16..20] != b"RGB " {
+            continue;
+        }
 
         let fname = path.file_name().unwrap().to_string_lossy();
         let hash = fnv1a_64(&data);
-        let Some((_cp, cp_name)) = identify_primaries(&data) else { continue; };
+        let Some((_cp, cp_name)) = identify_primaries(&data) else {
+            continue;
+        };
 
         match three_way_measure(&data) {
             Ok(ref results) => {
                 // Pick best TRC by minimum of max(mega, moxcms)
-                let best = results.iter()
+                let best = results
+                    .iter()
                     .min_by_key(|r| r.mega_err.max(r.moxcms_err))
                     .unwrap();
 
                 let worst_err = best.mega_err.max(best.moxcms_err);
                 let status = if best.divergence > 1 {
                     divergent += 1;
-                    "DIV"  // mega_test and moxcms disagree on TRC evaluation
+                    "DIV" // mega_test and moxcms disagree on TRC evaluation
                 } else if worst_err <= 56 {
                     ok += 1;
                     "OK"
@@ -266,17 +420,26 @@ fn main() {
 
                 let line = format!(
                     "{:<5} 0x{:016x} {:>5} {:>5} {:>5} {:>8}  {:<10} {}",
-                    status, hash, best.mega_err, best.moxcms_err, best.divergence,
-                    best.ref_name, cp_name, fname
+                    status,
+                    hash,
+                    best.mega_err,
+                    best.moxcms_err,
+                    best.divergence,
+                    best.ref_name,
+                    cp_name,
+                    fname
                 );
                 output.insert(hash, line);
             }
             Err(e) => {
                 fail += 1;
-                output.insert(hash, format!(
-                    "{:<5} 0x{:016x} {:>5} {:>5} {:>5} {:>8}  {:<10} {} ({})",
-                    "FAIL", hash, "-", "-", "-", "-", cp_name, fname, e
-                ));
+                output.insert(
+                    hash,
+                    format!(
+                        "{:<5} 0x{:016x} {:>5} {:>5} {:>5} {:>8}  {:<10} {} ({})",
+                        "FAIL", hash, "-", "-", "-", "-", cp_name, fname, e
+                    ),
+                );
             }
         }
     }
@@ -285,7 +448,10 @@ fn main() {
         println!("{line}");
     }
 
-    println!("\nTotal RGB with known primaries: {}", ok + high + divergent + fail);
+    println!(
+        "\nTotal RGB with known primaries: {}",
+        ok + high + divergent + fail
+    );
     println!("OK (max ±56, div ≤1):  {ok}");
     println!("HIGH (max >56):        {high}");
     println!("DIV (mega≠moxcms >1):  {divergent}");
