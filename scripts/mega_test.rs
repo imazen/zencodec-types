@@ -37,6 +37,19 @@ fn bt2020_12_eotf(v: f64) -> f64 {
 }
 fn gamma22_eotf(v: f64) -> f64 { v.powf(2.19921875) } // Adobe RGB exact: 563/256
 fn gamma18_eotf(v: f64) -> f64 { v.powf(1.8) } // ProPhoto RGB
+fn gamma24_eotf(v: f64) -> f64 { v.powf(2.4) } // BT.1886 display EOTF
+fn pq_eotf(v: f64) -> f64 {
+    // SMPTE ST 2084 PQ EOTF, normalized to [0,1] (10000 nits peak)
+    const M1: f64 = 0.1593017578125;
+    const M2: f64 = 78.84375;
+    const C1: f64 = 0.8359375;
+    const C2: f64 = 18.8515625;
+    const C3: f64 = 18.6875;
+    let vp = v.powf(1.0 / M2);
+    let num = (vp - C1).max(0.0);
+    let den = C2 - C3 * vp;
+    if den <= 0.0 { 0.0 } else { (num / den).powf(1.0 / M1) }
+}
 
 enum Trc {
     Para(Vec<f64>),
@@ -217,13 +230,18 @@ fn main() {
         let (g22_max, g22_gt1) = max_u16_err(&trc, gamma22_eotf);
         let (g18_max, g18_gt1) = max_u16_err(&trc, gamma18_eotf);
 
+        let (g24_max, g24_gt1) = max_u16_err(&trc, gamma24_eotf);
+        let (pq_max, pq_gt1) = max_u16_err(&trc, pq_eotf);
+
         // Pick best match across all reference curves
-        let candidates: [(u8, &str, u32, u32); 5] = [
+        let candidates: [(u8, &str, u32, u32); 7] = [
             (13, "sRGB", srgb_max, srgb_gt1),
             (1, "BT.709", bt709_max, bt709_gt1),
             (1, "BT.2020-12", bt2020_max, 0),
             (202, "gamma2.2", g22_max, g22_gt1),
             (203, "gamma1.8", g18_max, g18_gt1),
+            (204, "gamma2.4", g24_max, g24_gt1),
+            (16, "PQ", pq_max, pq_gt1),
         ];
         let (best_tc, best_name, best_max, best_gt1) = candidates.iter()
             .min_by_key(|c| c.2)
