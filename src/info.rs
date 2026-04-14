@@ -299,9 +299,9 @@ impl SourceColor {
             return true;
         }
         if let Some(ref icc) = self.icc_profile
-            && let Some((_, tc, _, _)) = crate::icc::icc_extract_cicp(icc)
+            && let Some(c) = zenpixels::icc::extract_cicp(icc)
         {
-            return matches!(tc, 16 | 18);
+            return matches!(c.transfer_characteristics, 16 | 18);
         }
         false
     }

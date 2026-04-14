@@ -2,6 +2,46 @@
 
 All notable changes to zencodec are documented here.
 
+## [Unreleased]
+
+### QUEUED BREAKING CHANGES
+<!-- Breaking changes that will ship together in the next 0.x minor release.
+     Add items here as you discover them. Do NOT ship these piecemeal — batch them. -->
+- Remove `icc_extract_cicp` re-export and the top-level `icc` module.
+  Callers should use `zenpixels::icc::extract_cicp`, which returns a typed
+  `Cicp` instead of a `(u8, u8, u8, bool)` tuple.
+- Remove `helpers::IccMatchTolerance`, `helpers::identify_well_known_icc`,
+  and `helpers::icc_profile_is_srgb`. Callers should use
+  `zenpixels::icc::{identify_common, is_common_srgb}` which return the
+  richer `IccIdentification` (adds `valid_use: IdentificationUse` so
+  callers can distinguish metadata-only matches from matrix+TRC-safe
+  substitution). `descriptor_for_decoded_pixels` will drop its
+  `IccMatchTolerance` parameter — it is currently a placebo.
+
+### Changed
+
+- Bump `zenpixels` to 0.2.7 with the `icc` feature enabled. All ICC
+  identification now delegates to `zenpixels::icc`, which ships a superset
+  of the web-corpus table (163 RGB + 18 grayscale profiles vs. our 118+14,
+  with intent-safety masks cross-validated against moxcms and lcms2).
+- `icc_extract_cicp` → deprecated shim around `zenpixels::icc::extract_cicp`.
+- `helpers::identify_well_known_icc`, `helpers::icc_profile_is_srgb` →
+  deprecated shims around `zenpixels::icc::{identify_common, is_common_srgb}`.
+- `helpers::IccMatchTolerance` → deprecated placebo. `identify_common` uses
+  `Tolerance::Intent` internally; sub-Intent variants are indistinguishable
+  at 8-bit and 10-bit output. All in-tree callers already pass `Intent`.
+
+### Removed
+
+- `src/helpers/icc_table_{rgb,gray}.inc` — superseded by the tables shipped
+  in `zenpixels::icc`.
+- `scripts/mega_test.rs`, `scripts/verify_via_moxcms.rs`,
+  `scripts/fetch-profiles.sh` — superseded by `zenpixels/scripts/icc-gen`
+  (a proper superset with lcms2 cross-validation) and the `icc-fetch` recipe
+  in `zenpixels/justfile`.
+- `examples/verify_via_moxcms.rs`, `examples/gen_moxcms_profiles.rs` —
+  superseded by `zenpixels/scripts/icc-gen`.
+
 ## [0.1.11] - 2026-03-30
 
 ### Added
