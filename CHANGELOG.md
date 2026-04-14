@@ -17,6 +17,13 @@ All notable changes to zencodec are documented here.
   callers can distinguish metadata-only matches from matrix+TRC-safe
   substitution). `descriptor_for_decoded_pixels` will drop its
   `IccMatchTolerance` parameter — it is currently a placebo.
+- Remove `gainmap::Fraction::from_f64` and `gainmap::UFraction::from_f64`
+  (deprecated since 0.1.12). Callers should use `from_f64_cf`, which
+  produces canonical continued-fraction encodings matching libultrahdr.
+- Remove `gainmap::parse_iso21496` and `gainmap::serialize_iso21496`
+  (deprecated since 0.1.12). Callers should use `parse_iso21496_fmt` /
+  `serialize_iso21496_fmt` with an explicit `Iso21496Format` (AvifTmap
+  vs. JpegApp2) to avoid the format ambiguity that motivated the rename.
 
 ## [0.1.16] - 2026-04-14
 

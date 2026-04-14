@@ -960,22 +960,7 @@ mod tests {
     // SourceColor + ColorAuthority + has_hdr_transfer() tests
     // -----------------------------------------------------------------------
 
-    /// Build a minimal ICC profile with a cicp tag (reuse icc.rs helper logic).
-    fn build_icc_with_cicp(cp: u8, tc: u8, mc: u8, fr: bool) -> alloc::vec::Vec<u8> {
-        let mut data = alloc::vec![0u8; 256];
-        data[0..4].copy_from_slice(&256u32.to_be_bytes());
-        data[36..40].copy_from_slice(b"acsp");
-        data[128..132].copy_from_slice(&1u32.to_be_bytes());
-        data[132..136].copy_from_slice(b"cicp");
-        data[136..140].copy_from_slice(&144u32.to_be_bytes());
-        data[140..144].copy_from_slice(&12u32.to_be_bytes());
-        data[144..148].copy_from_slice(b"cicp");
-        data[152] = cp;
-        data[153] = tc;
-        data[154] = mc;
-        data[155] = if fr { 1 } else { 0 };
-        data
-    }
+    use crate::icc::tests::build_icc_with_cicp;
 
     /// Build a minimal ICC profile without a cicp tag.
     fn build_icc_no_cicp() -> alloc::vec::Vec<u8> {
@@ -1312,7 +1297,7 @@ mod tests {
     /// Codec contract: setting CICP authority without cicp is a bug.
     #[test]
     fn mismatch_cicp_authority_no_cicp() {
-        let icc_pq = crate::icc::tests::build_icc_with_cicp(9, 16, 0, true);
+        let icc_pq = build_icc_with_cicp(9, 16, 0, true);
         let sc = SourceColor::default()
             .with_icc_profile(icc_pq)
             .with_color_authority(ColorAuthority::Cicp);
