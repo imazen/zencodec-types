@@ -12,7 +12,9 @@
 //! scheduled for removal in the next minor release.
 
 use crate::decode::SourceColor;
-use zenpixels::{Cicp, ColorPrimaries, PixelDescriptor, PixelFormat, TransferFunction};
+use zenpixels::{
+    Cicp, ColorPrimaries, ColorProfileSource, PixelDescriptor, PixelFormat, TransferFunction,
+};
 
 // ── Pixel descriptor derivation ────────────────────────────────────────────
 
@@ -52,53 +54,100 @@ pub fn descriptor_for_decoded_pixels(
     corrected_to: Option<&Cicp>,
     _tolerance: IccMatchTolerance,
 ) -> PixelDescriptor {
-    descriptor_for_decoded_pixels_v2(format, source_color, corrected_to)
+    let corrected_src = corrected_to.map(|c| ColorProfileSource::Cicp(*c));
+    descriptor_for_decoded_pixels_v2(format, source_color, corrected_src.as_ref())
 }
 
 /// Derive a [`PixelDescriptor`] that accurately describes decoded pixel data.
 ///
-/// Same semantics as [`descriptor_for_decoded_pixels`] but without the
-/// deprecated [`IccMatchTolerance`] parameter. ICC identification uses
-/// `zenpixels::icc::identify_common`'s `Intent` tolerance — the same
-/// precision the old function always used internally regardless of which
-/// `tolerance` variant was passed.
+/// Modern replacement for [`descriptor_for_decoded_pixels`]. Drops the
+/// deprecated `IccMatchTolerance` placebo parameter. `corrected_to`
+/// widens from `Option<&Cicp>` to `Option<&ColorProfileSource>` so
+/// callers can describe correction targets that aren't CICP-expressible
+/// (arbitrary primaries+transfer, named profiles like Adobe RGB
+/// v2-gamma, custom ICC profiles).
 ///
 /// # Priority
 ///
 /// 1. If `corrected_to` is `Some`, the pixels were color-managed to that
 ///    target during decode. The descriptor reflects the target.
-/// 2. If `source_color` has CICP metadata, the descriptor uses the CICP
-///    transfer function and primaries (pixels are in the source color space).
-/// 3. If `source_color` has an ICC profile, [`zenpixels::icc::identify_common`]
-///    is consulted. Unrecognized profiles yield `Unknown` transfer/primaries.
+/// 2. Otherwise resolves via [`SourceColor::to_color_context`] which
+///    honors [`SourceColor::color_authority`] — drops the
+///    non-authoritative field so [`ColorContext::as_profile_source`]
+///    returns whichever the codec declared canonical.
+/// 3. If the resolved `ColorProfileSource` is an ICC blob,
+///    [`zenpixels::icc::identify_common`] is consulted. Unrecognized
+///    profiles yield `Unknown` transfer/primaries.
 /// 4. No color metadata at all: assumes sRGB (legacy format convention).
+///
+/// # See also
+///
+/// - [`resolve_color`] — the underlying `(ColorPrimaries, TransferFunction)`
+///   resolution without the descriptor scaffolding. Use this when you
+///   want to inspect the resolved color identity without committing to
+///   a `PixelDescriptor` — e.g., to branch on Unknown/Bt709/etc. before
+///   picking a `PixelFormat`.
 pub fn descriptor_for_decoded_pixels_v2(
     format: PixelFormat,
     source_color: &SourceColor,
-    corrected_to: Option<&Cicp>,
+    corrected_to: Option<&ColorProfileSource<'_>>,
 ) -> PixelDescriptor {
-    if let Some(target) = corrected_to {
-        return target.to_descriptor(format);
-    }
+    let (primaries, transfer) = resolve_color(source_color, corrected_to);
+    PixelDescriptor::from_pixel_format(format)
+        .with_primaries(primaries)
+        .with_transfer(transfer)
+}
 
-    if let Some(cicp) = source_color.cicp {
-        return cicp.to_descriptor(format);
+/// Resolve `(ColorPrimaries, TransferFunction)` for decoded pixel data
+/// without building a [`PixelDescriptor`].
+///
+/// Priority matches [`descriptor_for_decoded_pixels_v2`]:
+///
+/// 1. `corrected_to` if `Some`.
+/// 2. Authority-aware resolution via [`SourceColor::to_color_context`].
+///    When an ICC blob is authoritative,
+///    [`zenpixels::icc::identify_common`] extracts primaries/transfer;
+///    unrecognized ICC returns `(Unknown, Unknown)`.
+/// 3. Assumed sRGB (Bt709 / Srgb) when no metadata is present.
+///
+/// Separates color resolution from descriptor construction so callers
+/// can inspect the result (e.g., refuse to encode `(Unknown, _)` without
+/// user confirmation) before committing to a pixel format.
+pub fn resolve_color(
+    source_color: &SourceColor,
+    corrected_to: Option<&ColorProfileSource<'_>>,
+) -> (ColorPrimaries, TransferFunction) {
+    if let Some(src) = corrected_to {
+        return resolve_profile_source(src);
     }
-
-    if let Some(ref icc) = source_color.icc_profile {
-        if let Some(id) = zenpixels::icc::identify_common(icc) {
-            return Cicp::SRGB
-                .to_descriptor(format)
-                .with_transfer(id.transfer)
-                .with_primaries(id.primaries);
-        }
-        return Cicp::SRGB
-            .to_descriptor(format)
-            .with_transfer(TransferFunction::Unknown)
-            .with_primaries(ColorPrimaries::Unknown);
+    if let Some(src) = source_color.to_color_context().as_profile_source() {
+        return resolve_profile_source(&src);
     }
+    // No metadata at all — legacy web/desktop default.
+    (ColorPrimaries::Bt709, TransferFunction::Srgb)
+}
 
-    Cicp::SRGB.to_descriptor(format)
+/// Extract `(primaries, transfer)` from any `ColorProfileSource` variant.
+fn resolve_profile_source(src: &ColorProfileSource<'_>) -> (ColorPrimaries, TransferFunction) {
+    match src {
+        ColorProfileSource::Cicp(cicp) => (
+            ColorPrimaries::from_cicp(cicp.color_primaries).unwrap_or(ColorPrimaries::Unknown),
+            TransferFunction::from_cicp(cicp.transfer_characteristics)
+                .unwrap_or(TransferFunction::Unknown),
+        ),
+        ColorProfileSource::Icc(icc) => match zenpixels::icc::identify_common(icc) {
+            Some(id) => (id.primaries, id.transfer),
+            None => (ColorPrimaries::Unknown, TransferFunction::Unknown),
+        },
+        ColorProfileSource::Named(named) => named.to_primaries_transfer(),
+        ColorProfileSource::PrimariesTransferPair {
+            primaries,
+            transfer,
+        } => (*primaries, *transfer),
+        // `ColorProfileSource` is #[non_exhaustive] — future variants
+        // fall through to Unknown until explicitly handled.
+        _ => (ColorPrimaries::Unknown, TransferFunction::Unknown),
+    }
 }
 
 // ── Deprecated shims (scheduled for removal in next minor release) ─────────
@@ -251,15 +300,33 @@ mod tests {
     }
 
     #[test]
-    fn cicp_takes_precedence_over_icc() {
+    fn cicp_takes_precedence_over_icc_when_cicp_authoritative() {
+        // When the codec declares CICP authoritative (AVIF/HEIF nclx, PNG
+        // cICP), the CICP field wins even if an ICC blob is also present.
         let fake_icc: Arc<[u8]> = Arc::from(alloc::vec![0u8; 64].into_boxed_slice());
         let sc = SourceColor::default()
             .with_cicp(Cicp::DISPLAY_P3)
-            .with_icc_profile(fake_icc);
-        let desc =
-            descriptor_for_decoded_pixels(PixelFormat::Rgb8, &sc, None, IccMatchTolerance::Intent);
+            .with_icc_profile(fake_icc)
+            .with_color_authority(zenpixels::ColorAuthority::Cicp);
+        let desc = descriptor_for_decoded_pixels_v2(PixelFormat::Rgb8, &sc, None);
         assert_eq!(desc.transfer, TransferFunction::Srgb);
         assert_eq!(desc.primaries, ColorPrimaries::DisplayP3);
+    }
+
+    #[test]
+    fn icc_takes_precedence_over_cicp_when_icc_authoritative() {
+        // When the codec declares ICC authoritative (JPEG, PNG with iCCP,
+        // WebP, TIFF), the ICC blob wins. A 64-byte zero blob doesn't
+        // hash-match any known profile — expect Unknown/Unknown, not the
+        // CICP Display P3 values.
+        let fake_icc: Arc<[u8]> = Arc::from(alloc::vec![0u8; 64].into_boxed_slice());
+        let sc = SourceColor::default()
+            .with_cicp(Cicp::DISPLAY_P3)
+            .with_icc_profile(fake_icc)
+            .with_color_authority(zenpixels::ColorAuthority::Icc);
+        let desc = descriptor_for_decoded_pixels_v2(PixelFormat::Rgb8, &sc, None);
+        assert_eq!(desc.transfer, TransferFunction::Unknown);
+        assert_eq!(desc.primaries, ColorPrimaries::Unknown);
     }
 
     #[test]
@@ -437,9 +504,14 @@ mod tests {
         let icc: Arc<[u8]> = Arc::from(alloc::vec![fill; len].into_boxed_slice());
         SourceColor::default().with_icc_profile(icc)
     }
+    /// Helper for formats where BOTH CICP and ICC are present and CICP
+    /// is authoritative (PNG with cICP chunk, AVIF/HEIF with nclx colr box).
     fn sc_cicp_icc(c: Cicp, fill: u8, len: usize) -> SourceColor {
         let icc: Arc<[u8]> = Arc::from(alloc::vec![fill; len].into_boxed_slice());
-        SourceColor::default().with_cicp(c).with_icc_profile(icc)
+        SourceColor::default()
+            .with_cicp(c)
+            .with_icc_profile(icc)
+            .with_color_authority(zenpixels::ColorAuthority::Cicp)
     }
 
     use ColorPrimaries as CP;

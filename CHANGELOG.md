@@ -34,8 +34,28 @@ All notable changes to zencodec are documented here.
   drops the non-authoritative field so `ColorContext::as_profile_source()`
   returns the right source without a separate authority parameter (17afe6c).
 - `helpers::descriptor_for_decoded_pixels_v2` — replacement for
-  `descriptor_for_decoded_pixels` that drops the deprecated
-  `IccMatchTolerance` placebo parameter. Same semantics.
+  `descriptor_for_decoded_pixels`. Drops the deprecated
+  `IccMatchTolerance` placebo. `corrected_to` widens from
+  `Option<&Cicp>` to `Option<&zenpixels::ColorProfileSource>` so callers
+  can describe correction targets that aren't CICP-expressible
+  (arbitrary primaries+transfer, named profiles like Adobe RGB v2-gamma,
+  custom ICC). Honors `SourceColor::color_authority` via
+  `to_color_context()` — CICP wins when declared authoritative, ICC wins
+  otherwise (was: CICP-always-wins, which violated JPEG/PNG-iCCP spec).
+- `helpers::resolve_color` — underlying `(ColorPrimaries,
+  TransferFunction)` resolution without descriptor scaffolding. Use when
+  you want to inspect the resolved color identity before committing to
+  a `PixelFormat` (e.g., refuse to encode `(Unknown, _)` without user
+  confirmation).
+
+### Fixed
+
+- `descriptor_for_decoded_pixels` priority now respects
+  `color_authority` when both CICP and ICC are present. Previously
+  CICP always won, which silently violated the spec for codecs that
+  declare ICC authoritative (JPEG, PNG with iCCP, WebP, TIFF). This
+  is a behavior fix in the (now-deprecated) old function via its
+  delegation to the new `_v2`.
 
 ### Deprecated
 
