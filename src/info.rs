@@ -320,8 +320,8 @@ impl SourceColor {
             .unwrap_or(ColorPrimaries::Bt709)
     }
 
-    /// Build a [`ColorContext`] that carries only the authoritative color
-    /// field.
+    /// Build a [`zenpixels::ColorContext`] that carries only the
+    /// authoritative color field.
     ///
     /// When [`color_authority`](Self::color_authority) is `Cicp` and CICP
     /// is present, the ICC profile is dropped — the CMS will work from
@@ -329,8 +329,9 @@ impl SourceColor {
     /// dropped. When the authoritative field is absent, the other is kept
     /// as a fallback.
     ///
-    /// This ensures [`ColorContext::as_profile_source()`] returns the
-    /// authoritative source without needing a separate authority parameter.
+    /// This ensures [`zenpixels::ColorContext::as_profile_source()`]
+    /// returns the authoritative source without needing a separate
+    /// authority parameter.
     pub fn to_color_context(&self) -> zenpixels::ColorContext {
         match self.color_authority {
             ColorAuthority::Cicp if self.cicp.is_some() => {

@@ -48,7 +48,7 @@ const TIFF_HEADER_SIZE: usize = 8;
 /// # Spec compliance
 ///
 /// - Validates TIFF byte order mark and magic number (42)
-/// - Walks IFD0 entries up to [`MAX_IFD_ENTRIES`] (1000)
+/// - Walks IFD0 entries up to a fixed cap (1000 entries)
 /// - Accepts both SHORT (2-byte) and LONG (4-byte) orientation values,
 ///   per TIFF 6.0 which recommends SHORT but doesn't forbid LONG
 /// - Exploits IFD tag sort order for early exit (tags are sorted ascending)

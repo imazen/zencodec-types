@@ -4,6 +4,10 @@ All notable changes to zencodec are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Auto-parse `Orientation` tag from EXIF blob in `Metadata::with_exif` (631b1fe).
+
 ### QUEUED BREAKING CHANGES
 <!-- Breaking changes that will ship together in the next 0.x minor release.
      Add items here as you discover them. Do NOT ship these piecemeal — batch them. -->

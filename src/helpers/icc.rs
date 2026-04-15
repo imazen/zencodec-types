@@ -73,8 +73,9 @@ pub fn descriptor_for_decoded_pixels(
 ///    target during decode. The descriptor reflects the target.
 /// 2. Otherwise resolves via [`SourceColor::to_color_context`] which
 ///    honors [`SourceColor::color_authority`] — drops the
-///    non-authoritative field so [`ColorContext::as_profile_source`]
-///    returns whichever the codec declared canonical.
+///    non-authoritative field so
+///    [`zenpixels::ColorContext::as_profile_source`] returns whichever
+///    the codec declared canonical.
 /// 3. If the resolved `ColorProfileSource` is an ICC blob,
 ///    [`zenpixels::icc::identify_common`] is consulted. Unrecognized
 ///    profiles yield `Unknown` transfer/primaries.
@@ -82,10 +83,11 @@ pub fn descriptor_for_decoded_pixels(
 ///
 /// # See also
 ///
-/// - [`resolve_color`] — the underlying `(ColorPrimaries, TransferFunction)`
-///   resolution without the descriptor scaffolding. Use this when you
-///   want to inspect the resolved color identity without committing to
-///   a `PixelDescriptor` — e.g., to branch on Unknown/Bt709/etc. before
+/// - `resolve_color` (crate-private) — the underlying
+///   `(ColorPrimaries, TransferFunction)` resolution without the
+///   descriptor scaffolding. Used internally when callers want to
+///   inspect the resolved color identity before committing to a
+///   `PixelDescriptor` — e.g., to branch on Unknown/Bt709/etc. before
 ///   picking a `PixelFormat`.
 pub fn descriptor_for_decoded_pixels_v2(
     format: PixelFormat,
