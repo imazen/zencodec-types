@@ -36,12 +36,46 @@ use zenpixels::{Cicp, ColorPrimaries, PixelDescriptor, PixelFormat, TransferFunc
 /// `zenpixels::icc::identify_common` uses its `Intent` tolerance internally,
 /// which is indistinguishable from stricter tolerances at 8-bit and 10-bit
 /// output. See [`IccMatchTolerance`].
+///
+/// # Deprecated
+///
+/// New code should use [`descriptor_for_decoded_pixels_v2`], which has the
+/// same semantics without the placebo `tolerance` parameter.
+#[deprecated(
+    since = "0.1.17",
+    note = "use descriptor_for_decoded_pixels_v2 (drops placebo IccMatchTolerance)"
+)]
 #[allow(deprecated)]
 pub fn descriptor_for_decoded_pixels(
     format: PixelFormat,
     source_color: &SourceColor,
     corrected_to: Option<&Cicp>,
     _tolerance: IccMatchTolerance,
+) -> PixelDescriptor {
+    descriptor_for_decoded_pixels_v2(format, source_color, corrected_to)
+}
+
+/// Derive a [`PixelDescriptor`] that accurately describes decoded pixel data.
+///
+/// Same semantics as [`descriptor_for_decoded_pixels`] but without the
+/// deprecated [`IccMatchTolerance`] parameter. ICC identification uses
+/// `zenpixels::icc::identify_common`'s `Intent` tolerance — the same
+/// precision the old function always used internally regardless of which
+/// `tolerance` variant was passed.
+///
+/// # Priority
+///
+/// 1. If `corrected_to` is `Some`, the pixels were color-managed to that
+///    target during decode. The descriptor reflects the target.
+/// 2. If `source_color` has CICP metadata, the descriptor uses the CICP
+///    transfer function and primaries (pixels are in the source color space).
+/// 3. If `source_color` has an ICC profile, [`zenpixels::icc::identify_common`]
+///    is consulted. Unrecognized profiles yield `Unknown` transfer/primaries.
+/// 4. No color metadata at all: assumes sRGB (legacy format convention).
+pub fn descriptor_for_decoded_pixels_v2(
+    format: PixelFormat,
+    source_color: &SourceColor,
+    corrected_to: Option<&Cicp>,
 ) -> PixelDescriptor {
     if let Some(target) = corrected_to {
         return target.to_descriptor(format);

@@ -33,6 +33,15 @@ All notable changes to zencodec are documented here.
 - `SourceColor::to_color_context()` — authority-aware conversion that
   drops the non-authoritative field so `ColorContext::as_profile_source()`
   returns the right source without a separate authority parameter (17afe6c).
+- `helpers::descriptor_for_decoded_pixels_v2` — replacement for
+  `descriptor_for_decoded_pixels` that drops the deprecated
+  `IccMatchTolerance` placebo parameter. Same semantics.
+
+### Deprecated
+
+- `helpers::descriptor_for_decoded_pixels` — requires callers to pass
+  the deprecated `IccMatchTolerance` enum with no alternative in 0.1.x.
+  Use `descriptor_for_decoded_pixels_v2` which drops the placebo.
 
 ## [0.1.16] - 2026-04-14
 
