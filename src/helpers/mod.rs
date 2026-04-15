@@ -20,9 +20,11 @@ use crate::traits::{AnimationFrameDecoder, Decode, DecodeJob};
 mod exif;
 mod icc;
 pub use exif::parse_exif_orientation;
-pub use icc::{descriptor_for_decoded_pixels, descriptor_for_decoded_pixels_v2};
+pub use icc::descriptor_for_decoded_pixels_v2;
 #[allow(deprecated)]
-pub use icc::{IccMatchTolerance, icc_profile_is_srgb, identify_well_known_icc};
+pub use icc::{
+    IccMatchTolerance, descriptor_for_decoded_pixels, icc_profile_is_srgb, identify_well_known_icc,
+};
 
 /// Implement `push_decoder` by doing a full decode and copying rows to the sink.
 ///
