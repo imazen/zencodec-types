@@ -1042,17 +1042,14 @@ fn limit_exceeded_clone_eq() {
 // =========================================================================
 
 #[test]
-fn threading_policy_limit_or_any() {
-    let limits = ResourceLimits::none().with_threading(ThreadingPolicy::LimitOrAny {
-        preferred_max_threads: 8,
-    });
-    assert!(limits.has_any());
-    assert_eq!(
-        limits.threading(),
-        ThreadingPolicy::LimitOrAny {
-            preferred_max_threads: 8
-        }
-    );
+fn threading_policy_sequential_parallel() {
+    let seq = ResourceLimits::none().with_threading(ThreadingPolicy::Sequential);
+    assert!(seq.has_any());
+    assert!(!seq.threading().is_parallel());
+
+    let par = ResourceLimits::none().with_threading(ThreadingPolicy::Parallel);
+    assert!(!par.has_any());
+    assert!(par.threading().is_parallel());
 }
 
 // =========================================================================
