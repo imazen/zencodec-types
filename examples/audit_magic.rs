@@ -116,7 +116,7 @@ fn main() {
         {
             let ok = ok_count.load(Relaxed);
             let fail = fail_count.load(Relaxed);
-            let rate = if secs > 0 { done / secs } else { 0 };
+            let rate = done.checked_div(secs).unwrap_or(0);
             eprintln!("[{secs:>4}s] {done:>8}/{total_files} ({rate}/s) — ok={ok}, fail={fail}");
         }
     });
