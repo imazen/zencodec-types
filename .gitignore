@@ -52,6 +52,7 @@ copter-report/
 .claude/
 .zenbench/
 .external-cache/
+.workongoing
 Cargo.toml.original.txt
 *.rs.local
 *.profraw

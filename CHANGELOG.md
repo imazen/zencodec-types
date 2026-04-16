@@ -7,6 +7,35 @@ All notable changes to zencodec are documented here.
 ### Added
 
 - Auto-parse `Orientation` tag from EXIF blob in `Metadata::with_exif` (631b1fe).
+- `ThreadingPolicy::Sequential` and `ThreadingPolicy::Parallel` variants,
+  plus the `is_parallel()` helper — one method, one decision for codec
+  implementors (db098aa, 25b1b78).
+
+### Changed
+
+- `ThreadingPolicy` default switches from `Unlimited` to `Parallel`
+  (semantically equivalent; `is_parallel()` returns `true` for both)
+  (db098aa).
+- Codec threading guidance documented end-to-end: the `pool.install()`
+  pattern, server shared-pool pattern, sequential mode, native-threaded
+  codec caveats, and implementor guidelines with code examples (5ba7519,
+  c91ff32).
+
+### Deprecated
+
+- `ThreadingPolicy::SingleThread`, `LimitOrSingle`, `LimitOrAny`,
+  `Balanced`, and `Unlimited` — rayon-based codecs can't reliably cap
+  threads from the inside; only the caller can, via `pool.install()`.
+  Callers should migrate to `Sequential` or `Parallel`. Old variants
+  still work through `is_parallel()` (db098aa).
+
+### Fixed
+
+- README lists `Iso21496Format` in the gainmap module table (574de90).
+- `cargo doc --no-deps` now emits zero warnings: cross-crate references
+  use fully-qualified `zenpixels::ColorContext` paths, and
+  crate-private `MAX_IFD_ENTRIES` / `resolve_color` symbols use plain
+  code spans instead of intra-doc links (574de90).
 
 ### QUEUED BREAKING CHANGES
 <!-- Breaking changes that will ship together in the next 0.x minor release.
