@@ -31,25 +31,49 @@ use crate::info::Cicp;
 ///
 /// Selects the **innermost payload shape** handed to / returned from
 /// [`parse_iso21496_fmt`] and [`serialize_iso21496_fmt`]. It is NOT the full
-/// container envelope — the outer framing (JPEG APP2 marker + URN, AVIF
-/// `tmap` item box, JXL `jhgm` box) is the caller's responsibility.
+/// container envelope — every caller adds format-specific framing on top.
 ///
-/// | Context | What zencodec produces/consumes | Outer framing (caller wraps/unwraps) |
-/// |---------|---------------------------------|--------------------------------------|
-/// | JPEG APP2 (secondary) | [`JpegApp2`]: `min_ver u16 + writer_ver u16 + flags u8 + …` | `FF E2` + length + `"urn:iso:std:iso:ts:21496:-1\0"` |
-/// | JXL `jhgm` box | [`JpegApp2`] — identical bytes | ISOBMFF box header around these bytes |
-/// | AVIF `tmap` item | [`AvifTmap`]: `version u8 + min_ver u16 + writer_ver u16 + flags u8 + …` | ISOBMFF item payload containing these bytes |
+/// # How each container uses the payload
 ///
-/// **Primary JPEG "signal" marker.** Canonical Ultra HDR JPEGs also include a
-/// 4-byte version-only APP2 marker on the *primary* image (`00 00 00 00`,
+/// | Context | Zencodec produces/consumes | Framing the caller adds on top |
+/// |---------|----------------------------|--------------------------------|
+/// | JPEG APP2 (secondary) | [`JpegApp2`] bytes | `FF E2` + length + `"urn:iso:std:iso:ts:21496:-1\0"` URN + these bytes |
+/// | AVIF `tmap` item | [`AvifTmap`] bytes — this *is* the tmap item payload | ISOBMFF item framing (`iinf` / `iloc` / `iref`) pointing at these bytes |
+/// | JXL `jhgm` box | [`JpegApp2`] bytes go into the bundle's `gain_map_metadata` field only | A whole `JxlGainMapBundle` (`jhgm_version u8` + `gain_map_metadata_size u16 BE` + **payload** + color encoding + alt ICC + JXL codestream), then the ISOBMFF `jhgm` box around the bundle |
+///
+/// **Note on JXL:** `jhgm` is *not* just "an ISOBMFF box around the ISO
+/// payload". It's a structured bundle with its own header and trailing
+/// fields — see `libjxl/lib/include/jxl/gain_map.h:38-63` and
+/// `libjxl/lib/extras/gain_map.cc:83-153`. Zencodec produces what goes
+/// in the `gain_map_metadata` field only; the bundle header and
+/// trailing fields are libjxl's responsibility.
+///
+/// # Primary JPEG "signal" marker
+///
+/// Canonical Ultra HDR JPEGs also carry a 4-byte version-only APP2 marker
+/// on the *primary* image (`00 00 00 00` — min_ver u16 + writer_ver u16,
 /// no flags, no fractions). That marker is not a payload this enum can
-/// represent — it is a framing convention, produced by ultrahdr-core, not
-/// zencodec.
+/// represent; it's framing. Produced by ultrahdr-core, not zencodec.
 ///
-/// **Library behaviour we model against:** Google's
-/// [libultrahdr](https://github.com/google/libultrahdr) reference, which
-/// this enum tracks for JPEG behaviour (see [`serialize_iso21496_fmt`] for
-/// per-byte notes).
+/// # Flag bit positions are consistent across implementations
+///
+/// libultrahdr and libavif both pack flag bits MSB-first, so bit 7
+/// (`is_multichannel`) and bit 6 (`use_base_colour_space`) occupy the
+/// same positions in JPEG APP2 and AVIF tmap payloads. Verified in
+/// `libultrahdr/lib/include/ultrahdr/gainmapmetadata.h:26-27`,
+/// `libavif/src/stream.c:506-508` (writeBits MSB-first), and
+/// `libavif/src/read.c:2162-2166` (readBits symmetric).
+///
+/// libultrahdr also uses bit 2 (`backward_direction`) and bit 3
+/// (`common_denominator`) in the same byte; libavif treats bits 5..0 as
+/// reserved. **libavif does not enforce `reserved == 0`** on read
+/// (`libavif/src/read.c:2169-2170` consumes the 6 reserved bits into a
+/// discarded local). A libultrahdr-encoded payload using the compact
+/// (common-denominator) encoding would therefore be **silently
+/// misparsed** by libavif: libavif ignores the flag bit, then expects
+/// the full-format fraction layout, which doesn't match the compact
+/// bytes that follow. For that reason [`serialize_iso21496_fmt`] never
+/// emits the compact encoding, for either variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Iso21496Format {
@@ -57,22 +81,27 @@ pub enum Iso21496Format {
     ///
     /// Layout: `min_ver(u16 BE) + writer_ver(u16 BE) + flags(u8) + <fraction payload>`.
     ///
-    /// This is what goes *inside* a JPEG APP2 marker after the
-    /// `"urn:iso:std:iso:ts:21496:-1\0"` URN (28 bytes), and what fills a
-    /// JXL `jhgm` box directly. libultrahdr writes this form on the
-    /// secondary (gain map) JPEG's APP2; libjxl uses it for the
-    /// `gain_map_metadata` field inside `jhgm` boxes.
+    /// This is what goes:
+    /// - *inside* a JPEG APP2 marker, after the
+    ///   `"urn:iso:std:iso:ts:21496:-1\0"` URN (28 bytes) — libultrahdr
+    ///   emits this form on the secondary (gain map) JPEG's APP2;
+    /// - in the `gain_map_metadata` field of libjxl's `JxlGainMapBundle`
+    ///   (see the enum-level note on JXL above — the bundle envelope
+    ///   lives above this payload).
     ///
-    /// The variant is named `JpegApp2` for discoverability — the most common
-    /// reader will be a JPEG caller — but the bytes are identical for JXL.
+    /// The variant is named `JpegApp2` because JPEG is the most common
+    /// reader — the bytes are payload-identical for JXL.
     JpegApp2,
     /// Payload with an AVIF `tmap` version byte prefix.
     ///
     /// Layout: `version(u8=0) + min_ver(u16 BE) + writer_ver(u16 BE) + flags(u8) + <fraction payload>`.
     ///
-    /// The leading `version` byte is AVIF-specific (added by libavif's
-    /// `tmap` item handling, not by JPEG or JXL). Currently always 0;
-    /// zencodec rejects any other value on parse.
+    /// The leading `version` byte is written at offset 0 of the `tmap`
+    /// item payload. `tmap` is an item type, not a FullBox — the version
+    /// byte is part of the item data, not a box header field. Verified
+    /// in `libavif/src/write.c:1027-1039` (encoder) and
+    /// `libavif/src/read.c:2202-2211` (decoder). Currently always 0;
+    /// both libavif and zencodec reject any other value on parse.
     AvifTmap,
 }
 
