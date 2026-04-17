@@ -27,28 +27,52 @@ use crate::info::Cicp;
 // Wire format
 // =========================================================================
 
-/// Wire format variant for ISO 21496-1 binary metadata.
+/// Wire format variant for ISO 21496-1 binary gain map metadata.
 ///
-/// The `GainMapMetadata` payload (flags + fractions) is identical in all contexts.
-/// The difference is whether the payload is prefixed with a `version(u8)` byte:
+/// Selects the **innermost payload shape** handed to / returned from
+/// [`parse_iso21496_fmt`] and [`serialize_iso21496_fmt`]. It is NOT the full
+/// container envelope — the outer framing (JPEG APP2 marker + URN, AVIF
+/// `tmap` item box, JXL `jhgm` box) is the caller's responsibility.
 ///
-/// | Context | Envelope | Use this variant |
-/// |---------|----------|-----------------|
-/// | JPEG APP2 | `min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::JpegApp2`] |
-/// | JXL `jhgm` | `min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::JpegApp2`] |
-/// | AVIF `tmap` | `version(u8) + min_ver(u16) + writer_ver(u16) + payload` | [`Iso21496Format::AvifTmap`] |
+/// | Context | What zencodec produces/consumes | Outer framing (caller wraps/unwraps) |
+/// |---------|---------------------------------|--------------------------------------|
+/// | JPEG APP2 (secondary) | [`JpegApp2`]: `min_ver u16 + writer_ver u16 + flags u8 + …` | `FF E2` + length + `"urn:iso:std:iso:ts:21496:-1\0"` |
+/// | JXL `jhgm` box | [`JpegApp2`] — identical bytes | ISOBMFF box header around these bytes |
+/// | AVIF `tmap` item | [`AvifTmap`]: `version u8 + min_ver u16 + writer_ver u16 + flags u8 + …` | ISOBMFF item payload containing these bytes |
+///
+/// **Primary JPEG "signal" marker.** Canonical Ultra HDR JPEGs also include a
+/// 4-byte version-only APP2 marker on the *primary* image (`00 00 00 00`,
+/// no flags, no fractions). That marker is not a payload this enum can
+/// represent — it is a framing convention, produced by ultrahdr-core, not
+/// zencodec.
+///
+/// **Library behaviour we model against:** Google's
+/// [libultrahdr](https://github.com/google/libultrahdr) reference, which
+/// this enum tracks for JPEG behaviour (see [`serialize_iso21496_fmt`] for
+/// per-byte notes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Iso21496Format {
-    /// JPEG APP2 and JXL `jhgm` format: no version byte prefix.
+    /// Payload without a version-byte prefix.
     ///
-    /// The payload starts with `minimum_version(u16)`. Used by libultrahdr
-    /// for JPEG and by libjxl for the `gain_map_metadata` field in `jhgm` boxes.
+    /// Layout: `min_ver(u16 BE) + writer_ver(u16 BE) + flags(u8) + <fraction payload>`.
+    ///
+    /// This is what goes *inside* a JPEG APP2 marker after the
+    /// `"urn:iso:std:iso:ts:21496:-1\0"` URN (28 bytes), and what fills a
+    /// JXL `jhgm` box directly. libultrahdr writes this form on the
+    /// secondary (gain map) JPEG's APP2; libjxl uses it for the
+    /// `gain_map_metadata` field inside `jhgm` boxes.
+    ///
+    /// The variant is named `JpegApp2` for discoverability — the most common
+    /// reader will be a JPEG caller — but the bytes are identical for JXL.
     JpegApp2,
-    /// AVIF `tmap` item format: includes `version(u8)` prefix.
+    /// Payload with an AVIF `tmap` version byte prefix.
     ///
-    /// The `ToneMapImage` box wraps `GainMapMetadata` with a version byte.
-    /// Used by libavif for the `tmap` derived image item payload.
+    /// Layout: `version(u8=0) + min_ver(u16 BE) + writer_ver(u16 BE) + flags(u8) + <fraction payload>`.
+    ///
+    /// The leading `version` byte is AVIF-specific (added by libavif's
+    /// `tmap` item handling, not by JPEG or JXL). Currently always 0;
+    /// zencodec rejects any other value on parse.
     AvifTmap,
 }
 
@@ -729,6 +753,18 @@ pub fn serialize_iso21496(params: &GainMapParams) -> Vec<u8> {
 ///
 /// Both variants handle the common-denominator compact encoding (flag bit 3)
 /// used by libultrahdr.
+///
+/// # Input expectations
+///
+/// - **JPEG APP2 callers:** pass the bytes *after* stripping the JPEG
+///   segment header (`FF E2` + length) and the
+///   `"urn:iso:std:iso:ts:21496:-1\0"` URN (28 bytes). This function does
+///   NOT look for or validate the URN. libultrahdr strips the URN the same
+///   way at `lib/src/jpegr.cpp:1368-1370`.
+/// - **AVIF callers:** pass the raw `tmap` item payload — the version byte
+///   is the first byte and is consumed here.
+/// - **JXL callers:** pass the bytes inside the `jhgm` box (no outer
+///   framing).
 pub fn parse_iso21496_fmt(
     data: &[u8],
     format: Iso21496Format,
@@ -745,7 +781,23 @@ pub fn parse_iso21496_fmt(
 /// - [`Iso21496Format::AvifTmap`]: includes `version(u8)` prefix
 /// - [`Iso21496Format::JpegApp2`]: no version prefix (also correct for JXL `jhgm`)
 ///
-/// Always writes the full (non-compact) format for maximum compatibility.
+/// Always writes the full (non-compact) format for maximum compatibility —
+/// i.e. the `FLAG_COMMON_DENOMINATOR` bit is never set even when all
+/// denominators happen to match. Output is slightly larger than a
+/// libultrahdr-encoded file in that case (5 × u32 extra per channel) but
+/// byte-for-byte compatible on parse. See
+/// [`Iso21496Format`] for the expected downstream framing.
+///
+/// # Output
+///
+/// - **JPEG APP2 callers:** wrap the returned bytes as
+///   `FF E2 + length(u16 BE) + "urn:iso:std:iso:ts:21496:-1\0" + <bytes>`.
+///   Length counts itself + URN + payload (matches libultrahdr
+///   `lib/src/jpegr.cpp:1256`).
+/// - **AVIF callers:** the returned bytes *are* the `tmap` item payload;
+///   surround with the ISOBMFF item envelope.
+/// - **JXL callers:** the returned bytes *are* the `jhgm` box payload;
+///   surround with the ISOBMFF box envelope.
 pub fn serialize_iso21496_fmt(params: &GainMapParams, format: Iso21496Format) -> Vec<u8> {
     match format {
         Iso21496Format::AvifTmap => serialize_iso21496_avif(params),
