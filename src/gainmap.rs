@@ -2225,4 +2225,179 @@ mod tests {
         assert_eq!(avif_blob[0], 0);
         assert_eq!(&avif_blob[1..], &jpeg_blob[..]);
     }
+
+    // --- Framing boundary claims (asserted by Iso21496Format doc comments) ---
+    //
+    // These tests lock in *what zencodec does NOT put in its output* — i.e.
+    // the framing bytes callers must supply themselves.
+
+    fn framing_test_params() -> GainMapParams {
+        GainMapParams {
+            channels: [GainMapChannel {
+                min: -0.5,
+                max: 2.0,
+                gamma: 1.0,
+                base_offset: 1.0 / 64.0,
+                alternate_offset: 1.0 / 64.0,
+            }; 3],
+            base_hdr_headroom: 0.0,
+            alternate_hdr_headroom: 1.3,
+            use_base_color_space: true,
+            backward_direction: false,
+        }
+    }
+
+    #[test]
+    fn jpegapp2_output_starts_with_min_version_not_a_jpeg_marker() {
+        // Asserts: JpegApp2 output does NOT include the FF E2 APP2 marker
+        // prefix. Caller is responsible for adding it when splicing into a
+        // JPEG bitstream.
+        let blob = serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::JpegApp2);
+        assert!(blob.len() >= 5, "blob too short to have a header");
+        // First 4 bytes = min_version(u16=0) + writer_version(u16=0).
+        assert_eq!(
+            &blob[0..4],
+            &[0x00, 0x00, 0x00, 0x00],
+            "JpegApp2 output must begin with min_ver(u16 BE=0) + writer_ver(u16 BE=0)"
+        );
+        assert_ne!(
+            blob[0], 0xFF,
+            "JpegApp2 output must not begin with a JPEG marker byte (0xFF)"
+        );
+    }
+
+    #[test]
+    fn jpegapp2_output_contains_no_iso_urn() {
+        // Asserts: JpegApp2 output does NOT include the
+        // "urn:iso:std:iso:ts:21496:-1" namespace. Callers writing a JPEG
+        // APP2 marker must prepend the URN (libultrahdr writes
+        // `isoNameSpaceLength = 28` bytes including null terminator; see
+        // libultrahdr/lib/src/jpegr.cpp:1129, 1264).
+        let blob = serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::JpegApp2);
+        let urn = b"urn:iso:std:iso:ts:21496:-1";
+        assert!(
+            !blob.windows(urn.len()).any(|w| w == urn),
+            "JpegApp2 output must not contain the ISO 21496-1 URN anywhere"
+        );
+    }
+
+    #[test]
+    fn aviftmap_output_is_single_version_byte_then_jpegapp2_bytes() {
+        // Redundant with avif_format_has_version_byte_prefix, but asserted
+        // here against a realistic (non-Default) params value so the byte
+        // count reflects actual fractions, not zero-value shortcuts.
+        let p = framing_test_params();
+        let avif = serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap);
+        let jpeg = serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2);
+        assert_eq!(avif.len(), jpeg.len() + 1, "avif = one extra leading byte");
+        assert_eq!(avif[0], 0, "avif leading byte is version = 0");
+        assert_eq!(&avif[1..], &jpeg[..], "rest of avif is byte-identical to jpegapp2");
+    }
+
+    #[test]
+    fn aviftmap_output_contains_no_isobmff_tmap_box_header() {
+        // Asserts: AvifTmap output is the `tmap` *item payload*, not an
+        // ISOBMFF box. Callers writing an AVIF file must wrap with the
+        // item envelope themselves.
+        let blob = serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::AvifTmap);
+        let tmap_type = b"tmap";
+        assert!(
+            !blob.windows(tmap_type.len()).any(|w| w == tmap_type),
+            "AvifTmap output must not contain the `tmap` box type — it is the box payload, not a box"
+        );
+    }
+
+    #[test]
+    fn parse_jpegapp2_rejects_urn_prefixed_input() {
+        // Asserts: the parser's input contract excludes the URN. A caller
+        // who forgets to strip "urn:iso:std:iso:ts:21496:-1\0" before
+        // calling parse gets a clear UnsupportedVersion error (the 'u' byte
+        // of the URN is 0x75 → min_version u16 reads as 0x7572, which is
+        // rejected by our minimum_version > 0 check).
+        let payload =
+            serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::JpegApp2);
+        let mut with_urn = Vec::with_capacity(28 + payload.len());
+        with_urn.extend_from_slice(b"urn:iso:std:iso:ts:21496:-1\0");
+        with_urn.extend_from_slice(&payload);
+        let err = parse_iso21496_fmt(&with_urn, Iso21496Format::JpegApp2)
+            .expect_err("URN-prefixed input must not parse as JpegApp2");
+        assert!(
+            matches!(err, GainMapParseError::UnsupportedVersion { .. }),
+            "expected UnsupportedVersion, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_jpegapp2_rejects_jpeg_app2_marker_prefixed_input() {
+        // Asserts: the parser's input contract excludes the FF E2 + length
+        // JPEG APP2 segment header. (With those 4 bytes in front, the first
+        // byte 0xFF becomes min_version MSB → min_version u16 = 0xFF??,
+        // rejected.)
+        let payload =
+            serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::JpegApp2);
+        let mut with_marker = Vec::with_capacity(4 + payload.len());
+        with_marker.push(0xFF);
+        with_marker.push(0xE2);
+        let len = (2 + payload.len()) as u16;
+        with_marker.extend_from_slice(&len.to_be_bytes());
+        with_marker.extend_from_slice(&payload);
+        let err = parse_iso21496_fmt(&with_marker, Iso21496Format::JpegApp2)
+            .expect_err("APP2-marker-prefixed input must not parse as JpegApp2");
+        assert!(
+            matches!(err, GainMapParseError::UnsupportedVersion { .. }),
+            "expected UnsupportedVersion, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_aviftmap_rejects_nonzero_version_byte() {
+        // Asserts: the parser rejects AVIF `tmap` payloads with a
+        // version byte other than 0. This pins the documented behaviour of
+        // the version prefix: a single byte, fixed at 0.
+        let mut blob = serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::AvifTmap);
+        blob[0] = 1; // rewrite version byte
+        let err = parse_iso21496_fmt(&blob, Iso21496Format::AvifTmap)
+            .expect_err("non-zero version must be rejected");
+        assert!(
+            matches!(err, GainMapParseError::UnsupportedVersion { version: 1 }),
+            "expected UnsupportedVersion {{ version: 1 }}, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn aviftmap_and_jpegapp2_are_the_only_framing_layers_we_own() {
+        // Asserts: no other AVIF/JXL/JPEG outer-framing bytes leak into
+        // zencodec's output. Combined with the two "no URN" / "no tmap"
+        // tests above, this is a sanity check against accidentally growing
+        // the output contract.
+        let p = framing_test_params();
+        let jpeg = serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2);
+        let avif = serialize_iso21496_fmt(&p, Iso21496Format::AvifTmap);
+
+        // No JPEG SOI / APP2 / EOI markers.
+        for needle in [&[0xFFu8, 0xD8][..], &[0xFF, 0xE2][..], &[0xFF, 0xD9][..]] {
+            assert!(
+                !jpeg.windows(needle.len()).any(|w| w == needle),
+                "JpegApp2 must not contain JPEG marker {needle:x?}"
+            );
+            assert!(
+                !avif.windows(needle.len()).any(|w| w == needle),
+                "AvifTmap must not contain JPEG marker {needle:x?}"
+            );
+        }
+
+        // No ISOBMFF box type names zencodec's scope doesn't cover.
+        for needle in [&b"jhgm"[..], &b"tmap"[..], &b"meta"[..], &b"iloc"[..]] {
+            assert!(
+                !jpeg.windows(needle.len()).any(|w| w == needle),
+                "JpegApp2 must not contain ISOBMFF box type {:?}",
+                core::str::from_utf8(needle).unwrap()
+            );
+            assert!(
+                !avif.windows(needle.len()).any(|w| w == needle),
+                "AvifTmap must not contain ISOBMFF box type {:?}",
+                core::str::from_utf8(needle).unwrap()
+            );
+        }
+    }
 }
