@@ -112,6 +112,33 @@
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ThreadingPolicy {
+    /// Equivalent to [`Sequential`](Self::Sequential).
+    #[deprecated(since = "0.1.19", note = "use ThreadingPolicy::Sequential")]
+    SingleThread,
+
+    /// Deprecated. Rayon codecs cannot reliably cap thread count from inside —
+    /// use `Sequential` or `Parallel` and control threads via `pool.install()`.
+    #[deprecated(since = "0.1.19", note = "use Sequential or Parallel")]
+    LimitOrSingle {
+        /// Maximum thread count before falling back to single-threaded.
+        max_threads: u16,
+    },
+
+    /// Deprecated. See [`LimitOrSingle`](Self::LimitOrSingle).
+    #[deprecated(since = "0.1.19", note = "use Sequential or Parallel")]
+    LimitOrAny {
+        /// Preferred maximum thread count (advisory, not enforced).
+        preferred_max_threads: u16,
+    },
+
+    /// Equivalent to [`Parallel`](Self::Parallel).
+    #[deprecated(since = "0.1.19", note = "use ThreadingPolicy::Parallel")]
+    Balanced,
+
+    /// Equivalent to [`Parallel`](Self::Parallel).
+    #[deprecated(since = "0.1.19", note = "use ThreadingPolicy::Parallel")]
+    Unlimited,
+
     /// No parallelism. Codecs must use sequential code paths (`iter()`,
     /// not `par_iter()`). Zero rayon overhead.
     ///
@@ -126,33 +153,6 @@ pub enum ThreadingPolicy {
     /// For native-threaded codecs, this means "use your default thread count."
     #[default]
     Parallel,
-
-    /// Equivalent to [`Sequential`](Self::Sequential).
-    #[deprecated(since = "0.2.0", note = "use ThreadingPolicy::Sequential")]
-    SingleThread,
-
-    /// Deprecated. Rayon codecs cannot reliably cap thread count from inside —
-    /// use `Sequential` or `Parallel` and control threads via `pool.install()`.
-    #[deprecated(since = "0.2.0", note = "use Sequential or Parallel")]
-    LimitOrSingle {
-        /// Maximum thread count before falling back to single-threaded.
-        max_threads: u16,
-    },
-
-    /// Deprecated. See [`LimitOrSingle`](Self::LimitOrSingle).
-    #[deprecated(since = "0.2.0", note = "use Sequential or Parallel")]
-    LimitOrAny {
-        /// Preferred maximum thread count (advisory, not enforced).
-        preferred_max_threads: u16,
-    },
-
-    /// Equivalent to [`Parallel`](Self::Parallel).
-    #[deprecated(since = "0.2.0", note = "use ThreadingPolicy::Parallel")]
-    Balanced,
-
-    /// Equivalent to [`Parallel`](Self::Parallel).
-    #[deprecated(since = "0.2.0", note = "use ThreadingPolicy::Parallel")]
-    Unlimited,
 }
 
 #[allow(deprecated)]
