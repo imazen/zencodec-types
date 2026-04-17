@@ -2320,7 +2320,11 @@ mod tests {
         let jpeg = serialize_iso21496_fmt(&p, Iso21496Format::JpegApp2);
         assert_eq!(avif.len(), jpeg.len() + 1, "avif = one extra leading byte");
         assert_eq!(avif[0], 0, "avif leading byte is version = 0");
-        assert_eq!(&avif[1..], &jpeg[..], "rest of avif is byte-identical to jpegapp2");
+        assert_eq!(
+            &avif[1..],
+            &jpeg[..],
+            "rest of avif is byte-identical to jpegapp2"
+        );
     }
 
     #[test]
@@ -2343,8 +2347,7 @@ mod tests {
         // calling parse gets a clear UnsupportedVersion error (the 'u' byte
         // of the URN is 0x75 → min_version u16 reads as 0x7572, which is
         // rejected by our minimum_version > 0 check).
-        let payload =
-            serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::JpegApp2);
+        let payload = serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::JpegApp2);
         let mut with_urn = Vec::with_capacity(28 + payload.len());
         with_urn.extend_from_slice(b"urn:iso:std:iso:ts:21496:-1\0");
         with_urn.extend_from_slice(&payload);
@@ -2362,8 +2365,7 @@ mod tests {
         // JPEG APP2 segment header. (With those 4 bytes in front, the first
         // byte 0xFF becomes min_version MSB → min_version u16 = 0xFF??,
         // rejected.)
-        let payload =
-            serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::JpegApp2);
+        let payload = serialize_iso21496_fmt(&framing_test_params(), Iso21496Format::JpegApp2);
         let mut with_marker = Vec::with_capacity(4 + payload.len());
         with_marker.push(0xFF);
         with_marker.push(0xE2);
